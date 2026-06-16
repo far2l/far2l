@@ -18,9 +18,24 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"path/filepath"
+	"reflect"
+	"syscall"
+	"unsafe"
     "github.com/ActiveState/termtest"
     "github.com/ActiveState/termtest/expect"
     "github.com/dop251/goja"
+)
+
+// Test protocol command IDs — keep in sync with WinPort/src/Backend/TestProtocol.h
+const (
+	testCmdDetach    = 0
+	testCmdStatus    = 1
+	testCmdReadCell  = 2
+	testCmdWaitString = 3
+	testCmdWaitNoString = 4
+	testCmdSendKey   = 5
+	testCmdSync      = 6
+	testCmdSendRaw   = 7
 )
 
 type far2l_Status struct {
@@ -154,7 +169,7 @@ func far2l_StartWithSize(args []string, cols int, rows int) far2l_Status {
 	}
     opts := termtest.Options {
         CmdName: g_far2l_bin,
-		Args: append([]string{g_far2l_bin, "--test=" + g_far2l_sock}, args...),
+		Args: append([]string{"--test=" + g_far2l_sock}, args...),
 		Environment : []string {
 			"FAR2L_STD=" + filepath.Join(g_test_workdir, "far2l.log"),
 			"FAR2L_TESTCTL=" + g_far2l_sock},
@@ -166,6 +181,36 @@ func far2l_StartWithSize(args []string, cols int, rows int) far2l_Status {
 		aux_Panic(err.Error())
 	}
 	g_far2l_running = true
+	// Drain PTY output so the kernel buffer doesn't fill up and block ScrBuf.Flush().
+	// The test harness communicates via the TEST socket, not the PTY, so nobody
+	// normally reads terminal output. Without this goroutine far2l deadlocks.
+	//
+	// Read directly from the PTY master fd via reflection to avoid the xpty
+	// PassthroughPipe's goroutine-per-read pattern that races with Expect-based calls.
+	ptyFd := -1
+	// Access the unexported 'console' field via unsafe to get the PTY master fd.
+	consoleField := reflect.ValueOf(g_app).Elem().FieldByName("console")
+	if consoleField.IsValid() && !consoleField.IsNil() {
+		consolePtr := (*expect.Console)(unsafe.Pointer(consoleField.Pointer()))
+		ptyFd = int(consolePtr.Pty.TerminalOutFd())
+	}
+	go func() {
+		if ptyFd < 0 {
+			// Fallback: drain via ExpectRe (has race issues but better than deadlock)
+			for g_far2l_running {
+				g_app.ExpectRe(".", time.Millisecond)
+				time.Sleep(10 * time.Millisecond)
+			}
+			return
+		}
+		buf := make([]byte, 4096)
+		for g_far2l_running {
+			_, err := syscall.Read(ptyFd, buf)
+			if err != nil {
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+	}()
 	return far2l_RecvStatus()
 }
 
@@ -468,6 +513,9 @@ func far2l_ReqBye() {
 
 func far2l_ExpectExit(code int, timeout_ms int) string {
 	far2l_ReqBye()
+	// Stop the PTY drain goroutine before ExpectExitCode.
+	g_far2l_running = false
+	time.Sleep(100 * time.Millisecond)
     _, err:= g_app.ExpectExitCode(code, time.Duration(timeout_ms) * 1000000)
 	if err != nil {
 		setErrorString(fmt.Sprintf("ExpectExit: %v", err))
@@ -477,20 +525,39 @@ func far2l_ExpectExit(code int, timeout_ms int) string {
 	return ""
 }
 
-func aux_Log(message string) {
-	log.Print(message)
-}
-
-func aux_Panic(message string) {
-	panic("\x1b[1;31m" + message + "\x1b[39;22m")
-}
-
 func tty_Write(s string) {
     g_app.Send(s)
 }
 
 func tty_CtrlC() {
     g_app.SendCtrlC()
+}
+
+// far2l_SendRaw sends TEST_CMD_SEND_RAW to inject raw bytes into the console
+// input queue, bypassing the TTYInput parser. This allows escape sequences like
+// bracketed paste (ESC[200~) to reach the shell as raw bytes.
+func far2l_SendRaw(data string) {
+	binary.LittleEndian.PutUint32(g_buf[0:], testCmdSendRaw)
+	binary.LittleEndian.PutUint32(g_buf[4:], uint32(len(data)))
+	copy(g_buf[8:], data)
+	n, err := g_socket.WriteTo(g_buf[0:8+len(data)], g_addr)
+	if err != nil || n != 8+len(data) {
+		aux_Panic(err.Error())
+	}
+}
+
+// tty_WriteRaw sends raw bytes via TEST_CMD_SEND_RAW, bypassing the TTYInput parser.
+// Escape sequences (like bracketed paste) reach bash as raw bytes on the PTY slave.
+func tty_WriteRaw(s string) {
+	far2l_SendRaw(s)
+}
+
+func aux_Log(message string) {
+	log.Print(message)
+}
+
+func aux_Panic(message string) {
+	panic("\x1b[1;31m" + message + "\x1b[39;22m")
 }
 
 func far2l_ToggleShift(pressed bool) {
@@ -556,10 +623,45 @@ func far2l_TypeText(text string) {
     }
 }
 
+var charToOEMVK = map[uint32]uint32{
+	'\\': 0xDC, // VK_OEM_5
+	'[':  0xDB, // VK_OEM_4
+	']':  0xDD, // VK_OEM_6
+	'\'': 0xDE, // VK_OEM_7
+	'"':  0xDE, // VK_OEM_7
+	'/':  0xBF, // VK_OEM_2
+	';':  0xBA, // VK_OEM_1
+	'=':  0xBB, // VK_OEM_PLUS
+	'-':  0xBD, // VK_OEM_MINUS
+	'.':  0xBE, // VK_OEM_PERIOD
+	',':  0xBC, // VK_OEM_COMMA
+	'`':  0xC0, // VK_OEM_3
+	'{':  0xDB, // VK_OEM_4 + Shift
+	'}':  0xDD, // VK_OEM_6 + Shift
+	'|':  0xDC, // VK_OEM_5 + Shift
+	':':  0xBA, // VK_OEM_1 + Shift
+	'<':  0xBC, // VK_OEM_COMMA + Shift
+	'>':  0xBE, // VK_OEM_PERIOD + Shift
+	'?':  0xBF, // VK_OEM_2 + Shift
+	'!':  0x31, // VK_1 + Shift
+	'@':  0x32, // VK_2 + Shift
+	'#':  0x33, // VK_3 + Shift
+	'$':  0x34, // VK_4 + Shift
+	'%':  0x35, // VK_5 + Shift
+	'^':  0x36, // VK_6 + Shift
+	'&':  0x37, // VK_7 + Shift
+	'(':  0x38, // VK_8 + Shift
+	')':  0x39, // VK_9 + Shift
+	'_':  0xBD, // VK_OEM_MINUS + Shift
+	'~':  0xC0, // VK_OEM_3 + Shift
+	'+':  0xBB, // VK_OEM_PLUS + Shift
+}
 func far2l_SendKeyEvent(utf32_code uint32, key_code uint32, pressed bool) {
 	if key_code == 0 && utf32_code != 0 {
 		if utf32_code >= 'a' && utf32_code <= 'z' {
 			key_code = 'A' + (utf32_code - 'a')
+		} else if mapped, ok := charToOEMVK[utf32_code]; ok {
+			key_code = mapped
 		} else if (utf32_code <= 0x7f) {
 			key_code = utf32_code
 		}
@@ -900,6 +1002,7 @@ func initVM() {
 	setVMFunction("TypeSub", far2l_TypeSub)
 	setVMFunction("TypeMul", far2l_TypeMul)
 	setVMFunction("TypeDiv", far2l_TypeDiv)
+	setVMFunction("TTYWriteRaw", tty_WriteRaw)
 	setVMFunction("TypeSeparator", far2l_TypeSeparator)
 	setVMFunction("TypeDecimal", far2l_TypeDecimal)
 
@@ -924,8 +1027,8 @@ func initVM() {
 	setVMFunction("Panic", aux_Panic)
 
 	setVMFunction("RunCmd", aux_RunCmd)
-	setVMFunction("Sleep", aux_Sleep)
 
+	setVMFunction("Sleep", aux_Sleep)
 	setVMFunction("WorkDir", aux_WorkDir)
 	setVMFunction("Chmod", aux_Chmod)
 	setVMFunction("Chown", aux_Chown)
