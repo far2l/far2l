@@ -2,6 +2,8 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 mkdir -p /tmp/far2l-smoke/output
 APP="$1"
 if [ "$APP" = "" ]; then
@@ -9,8 +11,10 @@ if [ "$APP" = "" ]; then
 	echo 'Note that far2l must be built with -DTESTING=Yes'
 	exit 1
 fi
-if [ ! -f ./far2l-smoke ] || [ ./far2l-smoke -ot ./far2l-smoke.go ]; then
+BINARY="$SCRIPT_DIR/far2l-smoke"
+if [ ! -f "$BINARY" ] || [ "$BINARY" -ot "$SCRIPT_DIR/far2l-smoke.go" ]; then
 	echo '--->' Prepare
+	cd "$SCRIPT_DIR"
 	go get far2l-smoke
 	echo PREPARE: downloading modules
 	go mod download
@@ -20,7 +24,7 @@ if [ ! -f ./far2l-smoke ] || [ ./far2l-smoke -ot ./far2l-smoke.go ]; then
 fi
 
 echo 'Cleaning up...'
-for test in tests/*; do
+for test in "$SCRIPT_DIR"/tests/*; do
 	rm -rf "$test"/workdir
 done
 
@@ -28,12 +32,12 @@ if [ "$2" == "clean" ]; then
 	exit 0
 fi
 
-echo 'Starting tests:' tests/"$2"*
-for test in tests/*; do
+echo 'Starting tests:' "$SCRIPT_DIR"/tests/"$2"*
+for test in "$SCRIPT_DIR"/tests/*; do
 	mkdir -p "$test"/workdir
 	if [ -e "$test"/initdir ]; then
 		cp -r -f "$test"/initdir/* "$test"/workdir/
 	fi
 done
 
-./far2l-smoke "$APP" tests/"$2"*
+"$BINARY" "$APP" "$SCRIPT_DIR"/tests/"$2"*
