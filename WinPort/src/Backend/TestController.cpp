@@ -8,6 +8,8 @@
 #include <LocalSocket.h>
 #include <Event.h>
 
+// Defined in far2l/src/vt/vtshell.cpp — resolves at link time
+extern void VTShell_InjectRawInput(const char *data, size_t len);
 static void StrCpyZeroFill(char *dst, size_t dst_len, const std::string &src)
 {
 	for (size_t i = 0, j = src.size(); i < dst_len; ++i) {
@@ -78,6 +80,9 @@ void TestController::ClientLoop(const std::string &ipc_client)
 
 			case TEST_CMD_SYNC:
 				len = ClientDispatchSync(len);
+				break;
+			case TEST_CMD_SEND_RAW:
+				len = ClientDispatchSendRaw(len);
 				break;
 
 			default:
@@ -285,4 +290,20 @@ size_t TestController::ClientDispatchSync(size_t len)
 	_buf.rep_sync.waited = waited ? 1 : 0;
 	ev->Deref();
 	return sizeof(_buf.rep_sync);
+}
+
+size_t TestController::ClientDispatchSendRaw(size_t len)
+{
+	if (len < sizeof(uint32_t) * 2) {
+		throw std::runtime_error(StrPrintf("len=%lu < header for TEST_CMD_SEND_RAW", (unsigned long)len));
+	}
+	const uint32_t data_len = _buf.req_send_raw.len;
+	if (data_len > sizeof(_buf.req_send_raw.data)) {
+		throw std::runtime_error(StrPrintf("data_len=%u too large", data_len));
+	}
+	// Write raw bytes directly to the PTY master via VTShell::InjectRawInput.
+	// This bypasses both the TTYInput parser (which intercepts escape sequences)
+	// and the g_winport_con_in routing (which may deliver to the wrong reader).
+	VTShell_InjectRawInput(_buf.req_send_raw.data, data_len);
+	return 0;
 }

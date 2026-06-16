@@ -24,17 +24,20 @@ class TestController : protected Threaded
 
 		TestRequestSendKey req_send_key;
 
-		TestRequestSync req_sync;
-		TestReplySync rep_sync;
-	} _buf;
+	TestRequestSync req_sync;
+	TestReplySync rep_sync;
 
-	virtual void *ThreadProc();
-	void ClientLoop(const std::string &ipc_client);
-	size_t ClientDispatchStatus();
-	size_t ClientDispatchReadCell(size_t len);
-	size_t ClientDispatchWaitString(size_t len, bool need_presence);
-	size_t ClientDispatchSendKey(size_t len);
-	size_t ClientDispatchSync(size_t len);
+	TestRequestSendRaw req_send_raw;
+} _buf;
+
+virtual void *ThreadProc();
+void ClientLoop(const std::string &ipc_client);
+size_t ClientDispatchStatus();
+size_t ClientDispatchReadCell(size_t len);
+size_t ClientDispatchWaitString(size_t len, bool need_presence);
+size_t ClientDispatchSendKey(size_t len);
+size_t ClientDispatchSync(size_t len);
+size_t ClientDispatchSendRaw(size_t len);
 
 public:
 	TestController(const std::string &id);

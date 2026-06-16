@@ -11,6 +11,14 @@ enum TestCommand
 	TEST_CMD_WAIT_NO_STRING,
 	TEST_CMD_SEND_KEY,
 	TEST_CMD_SYNC,
+	TEST_CMD_SEND_RAW, // inject raw bytes as key events, bypassing TTYInput parser
+};
+
+struct TestRequestSendRaw
+{
+	uint32_t cmd;
+	uint32_t len; // number of raw bytes (max 2048)
+	char data[2048];
 };
 
 struct TestReplyStatus
