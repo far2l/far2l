@@ -272,9 +272,24 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 			if (grantpt(fd_term)==0 && unlockpt(fd_term)==0) {
 				UpdateTerminalSize(fd_term);
 				const char *slavename = ptsname(fd_term);
-				if (slavename && *slavename)
+				if (slavename && *slavename) {
 					_slavename = slavename;
-				else
+					// Set slave to raw mode so individual bytes reach the shell
+					// immediately (no ICANON buffering). Needed for escape sequences
+					// like bracketed paste that must arrive byte-by-byte.
+					int fd_slave = open(slavename, O_RDWR | O_NOCTTY);
+					if (fd_slave != -1) {
+						struct termios ts;
+						if (tcgetattr(fd_slave, &ts) == 0) {
+							ts.c_lflag &= ~(ICANON | ECHO | ISIG);
+							ts.c_iflag &= ~(IXON | ICRNL | IGNCR | INLCR);
+							ts.c_cc[VMIN] = 1;
+							ts.c_cc[VTIME] = 0;
+							tcsetattr(fd_slave, TCSANOW, &ts);
+						}
+						close(fd_slave);
+					}
+				} else
 					perror("VT: ptsname");
 			} else
 				perror("VT: grantpt/unlockpt");
@@ -800,6 +815,7 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 		_input_reader.InjectInput(str, strlen(str));
 	}
 
+
 	std::string StringFromClipboard()
 	{
 		std::string out;
@@ -872,7 +888,13 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 			if (_kitty_kb_flags) {
 				std::string as_kitty = VT_TranslateKeyToKitty(KeyEvent, _kitty_kb_flags, _keypad);
 				if (as_kitty.length() > 0) {
-					return as_kitty;
+					// Ctrl+letter (A-Z) keydown: bypass kitty encoding so the
+					// legacy (or win32) translation below produces raw control bytes.
+					if (!(KeyEvent.bKeyDown && ctrl && !alt && !shift
+						&& KeyEvent.wVirtualKeyCode >= 'A'
+						&& KeyEvent.wVirtualKeyCode <= 'Z')) {
+						return as_kitty;
+					}
 				}
 			}
 
@@ -1082,6 +1104,16 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 	virtual HANDLE ConsoleHandle()
 	{
 		return _console_handle;
+	}
+
+	virtual void InjectRawInput(const char *data, size_t len)
+	{
+		if (len == 0 || _fd_in == -1)
+			return;
+		std::lock_guard<std::mutex> lock(_write_term_mutex);
+		if (WriteAll(_fd_in, (const void *)data, len) != len) {
+			perror("VT: InjectRawInput - write");
+		}
 	}
 
 	bool ExecuteCommand(const char *cmd, bool force_sudo, bool may_bgnd, bool may_notify)
@@ -1315,6 +1347,25 @@ void VTShell_Shutdown()
 	std::lock_guard<std::mutex> lock(g_vts_mutex);
 	g_vts.clear();
 	g_vt.reset();
+}
+
+void VTShell_InjectRawInput(const char *data, size_t len)
+{
+	std::lock_guard<std::mutex> lock(g_vts_mutex);
+	if (g_vt) {
+		g_vt->InjectRawInput(data, len);
+		return;
+	}
+	// If the foreground shell completed or was moved to background,
+	// try background shells (newest first — the active tab).
+	for (auto it = g_vts.rbegin(); it != g_vts.rend(); ++it) {
+		if (*it) {
+			(*it)->InjectRawInput(data, len);
+			return;
+		}
+	}
+	fprintf(stderr, "VTShell_InjectRawInput: no shell available, dropped %lu bytes\n",
+		(unsigned long)len);
 }
 
 bool VTShell_Busy()
