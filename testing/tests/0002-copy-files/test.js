@@ -16,11 +16,22 @@ right_items = [right + "/file1", right + "/file2", right + "/file3", right + "/s
 left_hash = HashPathes(left_items, true, true, true, true, true)
 
 StartApp(["--tty", "--nodetect", "--mortal", "-u", profile, "-cd", left, "-cd", right]);
+ExpectString("left", 0, 0, -1, -1, 10000);
 ExpectString("Help - FAR2L", 0, 0, -1, -1, 10000);
 
 status = AppStatus();
 
 TypeEscape(10)
+Sync(5000)
+// Dismiss OSC52 clipboard dialog if present (first start only)
+BeCalm()
+var r = ExpectString("OSC52", 0, 0, -1, -1, 2000);
+BePanic()
+if (r.I < 1) {
+    TypeEnter();
+    Sleep(500);
+    Sync(5000);
+}
 TypeDown()
 TypeIns()
 TypeIns()

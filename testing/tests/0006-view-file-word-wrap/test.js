@@ -8,6 +8,20 @@ ExpectString("Help - FAR2L", 0, 0, -1, -1, 10000);
 status = AppStatus();
 
 TypeEscape()
+Sync(5000)
+// Dismiss OSC52 clipboard dialog if present (first start only)
+BeCalm()
+var r = ExpectString("OSC52", 0, 0, -1, -1, 2000);
+BePanic()
+if (r.I < 1) {
+    TypeEnter();
+    Sleep(500);
+    Sync(5000);
+    TypeVK(9);
+    Sleep(200);
+    TypeVK(9);
+    Sleep(200);
+}
 TypeDown()
 TypeFKey(3)
 ExpectString("left/viewme.txt", 0, 0, -1, -1, 10000)

@@ -5,11 +5,20 @@ right=mydir + "/right"
 MkdirsAll([profile, left, right], 0700)
 
 ///////////////////
-// First start - skip Help window, press F10 expecting exit confirmation dialog
+// First start - skip Help window and OSC52 dialog, press F10 expecting exit confirmation dialog
 StartApp(["--tty", "--nodetect", "--mortal", "-u", profile, "-cd", left, "-cd", right]);
 ExpectString("left-fgdfgfd", 0, 0, -1, -1, 10000);
 ExpectString("Help - FAR2L", 0, 0, -1, -1, 10000);
 TypeEscape(10)
+Sync(5000)
+// Dismiss OSC52 clipboard dialog if present (first start only)
+BeCalm()
+var r = ExpectString("OSC52", 0, 0, -1, -1, 2000);
+BePanic()
+if (r.I < 1) {
+    TypeEnter();
+    Sleep(500);
+}
 status = AppStatus();
 TypeFKey(10)
 ExpectString("Do you want to quit FAR?", 0, 0, -1, -1, 10000)
