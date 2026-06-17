@@ -25,7 +25,9 @@ fi
 
 echo 'Cleaning up...'
 for test in "$SCRIPT_DIR"/tests/*; do
-	rm -rf "$test"/workdir
+	if [ -d "$test" ]; then
+		rm -rf "$test"/workdir
+	fi
 done
 
 if [ "$2" == "clean" ]; then
@@ -34,9 +36,11 @@ fi
 
 echo 'Starting tests:' "$SCRIPT_DIR"/tests/"$2"*
 for test in "$SCRIPT_DIR"/tests/*; do
-	mkdir -p "$test"/workdir
-	if [ -e "$test"/initdir ]; then
-		cp -r -f "$test"/initdir/* "$test"/workdir/
+	if [ -d "$test" ]; then
+		mkdir -p "$test"/workdir
+		if [ -e "$test"/initdir ]; then
+			cp -r -f "$test"/initdir/* "$test"/workdir/
+		fi
 	fi
 done
 
