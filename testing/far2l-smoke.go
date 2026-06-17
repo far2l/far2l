@@ -1138,7 +1138,7 @@ func runTest(file string) {
 	src := string(data)
 	rv, err := g_vm.RunString(src)
 	if err != nil { aux_Panic(err.Error()) }
-	if code := rv.Export().(int64); code != 0 {
- 	   fmt.Println("[FAILED] Error", code, "from test", file)
+	if code, ok := rv.Export().(int64); ok && code != 0 {
+		fmt.Println("[FAILED] Error", code, "from test", file)
 	}
 }
