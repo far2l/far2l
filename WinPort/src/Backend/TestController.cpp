@@ -301,6 +301,10 @@ size_t TestController::ClientDispatchSendRaw(size_t len)
 	if (data_len > sizeof(_buf.req_send_raw.data)) {
 		throw std::runtime_error(StrPrintf("data_len=%u too large", data_len));
 	}
+	if (len < sizeof(uint32_t) * 2 + data_len) {
+		throw std::runtime_error(StrPrintf("len=%lu < header + data_len=%lu",
+			(unsigned long)len, (unsigned long)(sizeof(uint32_t) * 2 + data_len)));
+	}
 	// Write raw bytes directly to the PTY master via VTShell::InjectRawInput.
 	// This bypasses both the TTYInput parser (which intercepts escape sequences)
 	// and the g_winport_con_in routing (which may deliver to the wrong reader).

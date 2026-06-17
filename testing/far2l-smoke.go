@@ -157,8 +157,8 @@ func far2l_ReadSocket(expected_n int, extra_timeout uint32) {
 }
 
 func far2l_Close() {
-	if g_far2l_running {
-		g_far2l_running = false
+	g_far2l_running = false
+	if g_app != nil {
 		g_app.Close()
 	}
 }
@@ -537,6 +537,9 @@ func tty_CtrlC() {
 // input queue, bypassing the TTYInput parser. This allows escape sequences like
 // bracketed paste (ESC[200~) to reach the shell as raw bytes.
 func far2l_SendRaw(data string) {
+	if len(data) > 2048 {
+		aux_Panic(fmt.Sprintf("far2l_SendRaw: payload too large (%d > 2048)", len(data)))
+	}
 	binary.LittleEndian.PutUint32(g_buf[0:], testCmdSendRaw)
 	binary.LittleEndian.PutUint32(g_buf[4:], uint32(len(data)))
 	copy(g_buf[8:], data)
