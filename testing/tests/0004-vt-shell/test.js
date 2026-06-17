@@ -44,4 +44,3 @@ TypeEscape()
 TypeText("exit far")
 TypeEnter()
 ExpectAppExit(0, 10000)
-0;

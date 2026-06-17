@@ -72,4 +72,3 @@ TypeFKey(10)
 ExpectString("Do you want to quit FAR?", 0, 0, -1, -1, 10000)
 TypeEnter()
 ExpectAppExit(0, 10000)
-0;

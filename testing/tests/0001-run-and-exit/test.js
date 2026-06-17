@@ -69,4 +69,3 @@ ExpectString("left-fgdfgfd", 0, 0, -1, -1, 10000);
 TypeFKey(10)
 ExpectAppExit(0, 10000)
 
-0;
