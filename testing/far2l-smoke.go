@@ -96,6 +96,7 @@ var g_ralt bool
 var g_shift bool
 var g_recv_timeout uint32 = 30
 var g_test_workdir string
+var g_test_dir string
 var g_calm bool = false
 var g_last_error string
 
@@ -701,6 +702,23 @@ func aux_RunCmd(args []string) string {
 	return ""
 }
 
+func aux_LoadJS(path string) bool {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(g_test_dir, path)
+	}
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		setErrorString("LoadJS: " + err.Error())
+		return false
+	}
+	_, err = g_vm.RunString(string(data))
+	if err != nil {
+		setErrorString("LoadJS: " + err.Error())
+		return false
+	}
+	return true
+}
+
 func aux_Sleep(msec uint32) {
 	time.Sleep(time.Duration(msec) * time.Millisecond)
 }
@@ -1059,6 +1077,7 @@ func initVM() {
 	setVMFunction("SaveTextFile", aux_SaveTextFile)
 	setVMFunction("BoundedLinesMatchTextFile", far2l_BoundedLinesMatchTextFile)
 	setVMFunction("BoundedLinesSaveAsTextFile", far2l_BoundedLinesSaveAsTextFile)
+	setVMFunction("LoadJS", aux_LoadJS)
 }
 
 func setVMFunction(name string, value interface{}) {
@@ -1133,6 +1152,7 @@ func runTest(file string) {
 	g_shift = false
 	g_calm = false
 	g_last_error = ""
+	g_test_dir = filepath.Dir(file)
 	data, err := ioutil.ReadFile(file)
 	if err != nil { aux_Panic(err.Error()) }
 	src := string(data)
