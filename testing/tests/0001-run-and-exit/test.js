@@ -1,42 +1,20 @@
-mydir=WorkDir()
-profile=mydir + "/profile"
-left=mydir + "/left-fgdfgfd"
-right=mydir + "/right"
-MkdirsAll([profile, left, right], 0700)
+LoadJS("../common.js");
+var dirs = SetupTestDirs("left-fgdfgfd", "right");
 
 ///////////////////
 // First start - skip Help window and OSC52 dialog, press F10 expecting exit confirmation dialog
-StartApp(["--tty", "--nodetect", "--mortal", "-u", profile, "-cd", left, "-cd", right]);
-ExpectString("left-fgdfgfd", 0, 0, -1, -1, 10000);
-ExpectString("Help - FAR2L", 0, 0, -1, -1, 10000);
-TypeEscape(10)
-Sync(5000)
-// Dismiss OSC52 clipboard dialog if present (first start only)
-BeCalm()
-var r = ExpectString("OSC52", 0, 0, -1, -1, 2000);
-BePanic()
-if (r.I < 1) {
-    TypeEnter();
-    Sleep(500);
-}
+StartTestApp(dirs.profile, dirs.left, dirs.right, "left-fgdfgfd");
+DismissHelpAndOSC52();
 status = AppStatus();
-TypeFKey(10)
-ExpectString("Do you want to quit FAR?", 0, 0, -1, -1, 10000)
-TypeEnter()
-ExpectAppExit(0, 10000)
+ExitFar2lWithConfirm();
 
 ///////////////////
 // Second start - there should no Help appeared automatically
-StartApp(["--tty", "--nodetect", "--mortal", "-u", profile, "-cd", left, "-cd", right]);
-ExpectString("left-fgdfgfd", 0, 0, -1, -1, 10000);
-TypeFKey(10)
-ExpectString("Do you want to quit FAR?", 0, 0, -1, -1, 10000)
-TypeEnter()
-ExpectAppExit(0, 10000)
+StartTestApp(dirs.profile, dirs.left, dirs.right, "left-fgdfgfd", false);
+ExitFar2lWithConfirm();
 
 // Now lets disable exit confirmation and save settings
-StartApp(["--tty", "--nodetect", "--mortal", "-u", profile, "-cd", left, "-cd", right]);
-ExpectString("left-fgdfgfd", 0, 0, -1, -1, 10000);
+StartTestApp(dirs.profile, dirs.left, dirs.right, "left-fgdfgfd", false);
 
 // disable exit confirmation
 TypeFKey(9)
@@ -63,9 +41,7 @@ ExpectAppExit(0, 10000)
 
 ///////////////////
 // Third run just start and exit expecting no confirmation as such settings were saved
-StartApp(["--tty", "--nodetect", "--mortal", "-u", profile, "-cd", left, "-cd", right]);
-ExpectString("left-fgdfgfd", 0, 0, -1, -1, 10000);
+StartTestApp(dirs.profile, dirs.left, dirs.right, "left-fgdfgfd", false);
 // exit without confirmation again
 TypeFKey(10)
 ExpectAppExit(0, 10000)
-

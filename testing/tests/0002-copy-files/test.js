@@ -1,37 +1,24 @@
-mydir=WorkDir()
-profile=mydir + "/profile"
-left=mydir + "/left"
-left_sub1=mydir + "/left/sub1"
-left_sub2=mydir + "/left/sub2"
-right=mydir + "/right"
-MkdirsAll([profile, left, left_sub1, left_sub2, right], 0700)
+LoadJS("../common.js");
+var dirs = SetupTestDirs();
 
-left_files = [left + "/file1", left + "/file2", left + "/file3"]
-left_sub_files = [left + "/sub1/aaa", left + "/sub1/bbb", left + "/sub1/ccc", left + "/sub2/ddd"]
-Mkfiles(left_files, 0666, 0, 1024)
-Mkfiles(left_sub_files, 0752, 10 * 1024 * 1024, 20 * 1024 * 1024)
+var left_sub1 = dirs.left + "/sub1";
+var left_sub2 = dirs.left + "/sub2";
+MkdirsAll([left_sub1, left_sub2], 0700);
 
-left_items = [left + "/file1", left + "/file2", left + "/file3", left + "/sub1", left + "/sub2"]
-right_items = [right + "/file1", right + "/file2", right + "/file3", right + "/sub1", right + "/sub2"]
-left_hash = HashPathes(left_items, true, true, true, true, true)
+var left_files = [dirs.left + "/file1", dirs.left + "/file2", dirs.left + "/file3"];
+var left_sub_files = [dirs.left + "/sub1/aaa", dirs.left + "/sub1/bbb", dirs.left + "/sub1/ccc", dirs.left + "/sub2/ddd"];
+Mkfiles(left_files, 0666, 0, 1024);
+Mkfiles(left_sub_files, 0752, 10 * 1024 * 1024, 20 * 1024 * 1024);
 
-StartApp(["--tty", "--nodetect", "--mortal", "-u", profile, "-cd", left, "-cd", right]);
-ExpectString("left", 0, 0, -1, -1, 10000);
-ExpectString("Help - FAR2L", 0, 0, -1, -1, 10000);
+var left_items = [dirs.left + "/file1", dirs.left + "/file2", dirs.left + "/file3", dirs.left + "/sub1", dirs.left + "/sub2"];
+var right_items = [dirs.right + "/file1", dirs.right + "/file2", dirs.right + "/file3", dirs.right + "/sub1", dirs.right + "/sub2"];
+var left_hash = HashPathes(left_items, true, true, true, true, true);
 
-status = AppStatus();
+StartTestApp(dirs.profile, dirs.left, dirs.right);
+var status = AppStatus();
+DismissHelpAndOSC52();
 
-TypeEscape(10)
-Sync(5000)
-// Dismiss OSC52 clipboard dialog if present (first start only)
-BeCalm()
-var r = ExpectString("OSC52", 0, 0, -1, -1, 2000);
-BePanic()
-if (r.I < 1) {
-    TypeEnter();
-    Sleep(500);
-    Sync(5000);
-}
+// Select all 5 items in left panel and press F5 to copy
 TypeDown()
 TypeIns()
 TypeIns()
@@ -41,10 +28,12 @@ TypeIns()
 TypeFKey(5)
 ExpectString("════ Copy ═════", 0, 0, -1, -1, 10000)
 TypeEnter()
-for (i = 0; ; ++i) {
+
+// Wait for copy to complete
+for (var i = 0; ; ++i) {
 	Sleep(100)
 	ExpectNoString("════ Copy ═════", 0, 0, -1, -1, 10000)
-	right_hash = HashPathes(right_items, true, true, true, true, true)
+	var right_hash = HashPathes(right_items, true, true, true, true, true)
 	if (right_hash == left_hash) {
 		break
 	}
@@ -55,13 +44,11 @@ for (i = 0; ; ++i) {
 	}
 }
 
-recent_left_hash = HashPathes(right_items, true, true, true, true, true)
+// Verify source files unchanged
+var recent_left_hash = HashPathes(right_items, true, true, true, true, true)
 if (left_hash != recent_left_hash) {
 	Log("Lhash: " + left_hash + " -> " + recent_left_hash)
 	Panic("Source files had changed!")
 }
 
-TypeFKey(10)
-ExpectString("Do you want to quit FAR?", 0, 0, -1, -1, 10000)
-TypeEnter()
-ExpectAppExit(0, 10000)
+ExitFar2lWithConfirm()

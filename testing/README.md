@@ -1,6 +1,6 @@
 ## How to run tests
 To run tests execute ./far2l-smoke-run.sh with argument - path to far2l which was built by cmake configured with -DTESTING=Yes  
-Example: `./far2l-smoke-run.sh ../../far2l.build/install/far2l`  
+Example: `./far2l-smoke-run.sh ../_build/install/far2l`  
 Note: if provided far2l is built without testing support this will stuck for a while and fail then.
 
 ## How to write tests
@@ -32,7 +32,7 @@ Note that low-level problems, like communication issues or failure to start far2
 `Inspect() string`  
 This function useful in calm mode.  
 If no problem happened so far - it returns empty string.  
-Otherwise - it returns error description and empties it for next invokations of `Inspect()`.
+Otherwise - it returns error description and empties it for next invocations of `Inspect()`.
 
 ---------------------------------------------------------
 
@@ -72,7 +72,7 @@ Returns structure which has following fields:
 
 `ReadCell(x, y)`  
 Reads screen cell at specified coordinates.  
-Returns more 'decomposed' (comparing to Raw version) structure wich has following fields:
+Returns more 'decomposed' (comparing to Raw version) structure which has following fields:
  * Text string           - string representing contained character
  * BackTC uint32         - 24 bit foreground color if its used
  * ForeTC uint32         - 24 bit background color if its used
@@ -116,7 +116,7 @@ Returns actual line.
 
 `SurroundedLines(x, y, "║═│─", " \t")`  
 Returns array of lines bounded by any of specified in boundary_chars characters.  
-x, y represends coordinates of any cell inside of required area  
+x, y represents coordinates of any cell inside of required area  
 Optionally trims edges of each line from trim_chars characters if its not empty.
 
 ---------------------------------------------------------
