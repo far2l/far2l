@@ -272,25 +272,10 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 			if (grantpt(fd_term)==0 && unlockpt(fd_term)==0) {
 				UpdateTerminalSize(fd_term);
 				const char *slavename = ptsname(fd_term);
-				if (slavename && *slavename) {
-					_slavename = slavename;
-					// Set slave to raw mode so individual bytes reach the shell
-					// immediately (no ICANON buffering). Needed for escape sequences
-					// like bracketed paste that must arrive byte-by-byte.
-					int fd_slave = open(slavename, O_RDWR | O_NOCTTY);
-					if (fd_slave != -1) {
-						struct termios ts;
-						if (tcgetattr(fd_slave, &ts) == 0) {
-							ts.c_lflag &= ~(ICANON | ECHO | ISIG);
-							ts.c_iflag &= ~(IXON | ICRNL | IGNCR | INLCR);
-							ts.c_cc[VMIN] = 1;
-							ts.c_cc[VTIME] = 0;
-							tcsetattr(fd_slave, TCSANOW, &ts);
-						}
-						close(fd_slave);
-					}
-				} else
-					perror("VT: ptsname");
+			if (slavename && *slavename) {
+				_slavename = slavename;
+			} else
+				perror("VT: ptsname");
 			} else
 				perror("VT: grantpt/unlockpt");
 
