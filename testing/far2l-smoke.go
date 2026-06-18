@@ -121,9 +121,69 @@ func aux_Inspect() string {
 	return out
 }
 
+// DumpScreen captures a rectangular screen region and logs it as an
+// ASCII-art "screenshot" with a border, so test failures show the actual
+// screen state that was compared against expected strings.
+// If width/height are 0xffffffff, the full terminal is dumped.
+func far2l_DumpScreen(x uint32, y uint32, w uint32, h uint32) string {
+	result := far2l_DumpScreenQuiet(x, y, w, h)
+	log.Print("\n" + result)
+	return result
+}
+
+// far2l_DumpScreenQuiet captures a screen region as ASCII-art without
+// logging to stdout. Used by saveSnapshotOnExit to write to snapshot.txt.
+func far2l_DumpScreenQuiet(x uint32, y uint32, w uint32, h uint32) string {
+	if w == 0xffffffff { w = g_status.Width }
+	if h == 0xffffffff { h = g_status.Height }
+	if w == 0 || h == 0 { return "" }
+
+	var sb strings.Builder
+	// Top border with column ruler (tens)
+	sb.WriteString("  ┌")
+	for col := uint32(0); col < w; col++ {
+		if col % 10 == 0 {
+			fmt.Fprintf(&sb, "%d", (x + col) / 10 % 10)
+		} else {
+			sb.WriteString("─")
+		}
+	}
+	sb.WriteString("┐\n")
+	sb.WriteString("  │")
+	for col := uint32(0); col < w; col++ {
+		fmt.Fprintf(&sb, "%d", (x + col) % 10)
+	}
+	sb.WriteString("│\n")
+
+	for row := uint32(0); row < h; row++ {
+		fmt.Fprintf(&sb, "%2d│", y + row)
+		for col := uint32(0); col < w; col++ {
+			cell := far2l_ReqRecvReadCellRaw(x + col, y + row)
+			text := cell.Text
+			if text == "" || text == " " {
+				sb.WriteString(" ")
+			} else {
+				sb.WriteString(text)
+			}
+		}
+		sb.WriteString("│\n")
+	}
+
+	sb.WriteString("  └")
+	for col := uint32(0); col < w; col++ {
+		sb.WriteString("─")
+	}
+	sb.WriteString("┘\n")
+
+	return sb.String()
+}
+
 func setErrorString(err string) {
 	g_last_error = err
 	log.Print("\x1b[1;31mERROR: " + err + "\x1b[39;22m")
+	// Dump the full screen so the user can see what was actually on screen
+	// when the string comparison failed.
+	far2l_DumpScreen(0, 0, 0xffffffff, 0xffffffff)
 	if !g_calm {
 		aux_Panic(err)
 	}
@@ -997,6 +1057,7 @@ func initVM() {
 	setVMFunction("ReadCell", far2l_ReqRecvReadCell)
 	setVMFunction("CellCharMatches", far2l_CellCharMatches)
 	setVMFunction("CheckCellChar", far2l_CheckCellChar)
+	setVMFunction("DumpScreen", far2l_DumpScreen)
 	
 	setVMFunction("BoundedLines", far2l_BoundedLines)
 	setVMFunction("BoundedLine", far2l_BoundedLine)
@@ -1132,12 +1193,81 @@ func main() {
 	}
 }
 
+// saveSnapshotOnExit writes a meaningful snapshot to workdir/snapshot.txt
+// for post-mortem debugging. Captures: test name, timestamp, last error,
+// far2l status, modifier key states, far2l log tail, and a full ASCII-art
+// screen dump. Must run while far2l is still connected (before far2l_Close).
 func saveSnapshotOnExit() {
-	if g_app != nil {
-		f, err := os.Create(g_test_workdir + "/snapshot.txt")
-		if err == nil {
-			f.WriteString(g_app.Snapshot())
+	var sb strings.Builder
+	defer func() {
+		if r := recover(); r != nil {
+			// If the snapshot capture itself fails (e.g., socket closed),
+			// write what we have so far and continue
+			if err := ioutil.WriteFile(filepath.Join(g_test_workdir, "snapshot.txt"), []byte(sb.String()), 0644); err != nil {
+				log.Print("Failed to write snapshot after recover: " + err.Error())
+			}
 		}
+	}()
+
+	// Header
+	testName := filepath.Base(g_test_dir)
+	fmt.Fprintf(&sb, "=== far2l test snapshot ===\n")
+	fmt.Fprintf(&sb, "Test: %s\n", testName)
+	fmt.Fprintf(&sb, "Time: %s\n", time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&sb, "Binary: %s\n", g_far2l_bin)
+	fmt.Fprintf(&sb, "\n")
+
+	// Last error
+	if g_last_error != "" {
+		fmt.Fprintf(&sb, "--- Last error ---\n%s\n\n", g_last_error)
+	} else {
+		sb.WriteString("--- Last error ---\n(none)\n\n")
+	}
+
+	// Modifier key states (stuck modifiers can cause mysterious test failures)
+	fmt.Fprintf(&sb, "--- Modifier keys ---\n")
+	fmt.Fprintf(&sb, "LAlt=%v RAlt=%v LCtrl=%v RCtrl=%v Shift=%v Calm=%v\n",
+		g_lalt, g_ralt, g_lctrl, g_rctrl, g_shift, g_calm)
+	fmt.Fprintf(&sb, "\n")
+
+	// far2l status
+	if g_far2l_running {
+		far2l_ReqRecvStatus()
+	}
+	fmt.Fprintf(&sb, "--- Terminal status ---\n")
+	fmt.Fprintf(&sb, "Size: %dx%d  Cursor: (%d,%d)  Visible=%v\n",
+		g_status.Width, g_status.Height, g_status.CurX, g_status.CurY, g_status.CurV)
+	if g_status.Title != "" {
+		fmt.Fprintf(&sb, "Title: %s\n", g_status.Title)
+	}
+	fmt.Fprintf(&sb, "Running: %v\n\n", g_far2l_running)
+
+	// Screen dump (only if far2l is still connected)
+	if g_far2l_running && g_status.Width > 0 && g_status.Height > 0 {
+		sb.WriteString("--- Screen dump ---\n")
+		sb.WriteString(far2l_DumpScreenQuiet(0, 0, g_status.Width, g_status.Height))
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString("--- Screen dump ---\n(far2l not running, screen unavailable)\n\n")
+	}
+
+	// far2l log tail (last 30 lines)
+	logPath := filepath.Join(g_test_workdir, "far2l.log")
+	if logData, err := ioutil.ReadFile(logPath); err == nil {
+		logLines := strings.Split(string(logData), "\n")
+		tailStart := len(logLines) - 30
+		if tailStart < 0 { tailStart = 0 }
+		sb.WriteString("--- far2l.log (last 30 lines) ---\n")
+		for i := tailStart; i < len(logLines); i++ {
+			sb.WriteString(logLines[i])
+			sb.WriteString("\n")
+		}
+	}
+
+	// Write to file
+	snapshotPath := filepath.Join(g_test_workdir, "snapshot.txt")
+	if err := ioutil.WriteFile(snapshotPath, []byte(sb.String()), 0644); err != nil {
+		log.Print("Failed to write snapshot: " + err.Error())
 	}
 }
 
