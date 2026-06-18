@@ -90,7 +90,7 @@ ExitBashAndFar2l()
 // ============================================
 // Phase 2: re-run with reused profile (no OSC52)
 // ============================================
-MkdirsAll([dirs.left, dirs.right], 0700)
+MkdirsAll([dirs.left, dirs.right], 0o700)
 StartApp(["--tty", "--nodetect", "--mortal", "-u", dirs.profile, "-cd", dirs.left, "-cd", dirs.right]);
 ExpectString("left", 0, 0, -1, -1, 10000);
 TypeEscape(10)

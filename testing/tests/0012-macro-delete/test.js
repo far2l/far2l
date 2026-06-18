@@ -3,7 +3,7 @@ var dirs = SetupTestDirs();
 
 // Pre-configure macros so Del has a target.
 var macrosIni = dirs.profile + "/.config/settings";
-MkdirsAll([macrosIni], 0700);
+MkdirsAll([macrosIni], 0o700);
 SaveTextFile(macrosIni + "/key_macros.ini", [
     "[KeyMacros]",
     "MacroVersion=1",

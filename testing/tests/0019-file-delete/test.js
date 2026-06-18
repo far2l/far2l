@@ -1,16 +1,16 @@
 LoadJS("../common.js");
 var dirs = SetupTestDirs();
 
-// 0017-file-delete — Test F8 file deletion with disk-based verification.
+// 0019-file-delete — Test F8 file deletion with disk-based verification.
 //
 // Uses direct disk checks (Exists/HashPath) as primary verification,
 // panel reading as secondary. Adds Sync(2000) after delete for panel refresh.
 // Resets all modifier toggles before F8 to prevent Shift+F8 bypass.
 
 // Create test files
-Mkfiles([dirs.left + "/delete_me.txt"], 0666, 100, 1000);
-Mkfiles([dirs.left + "/keep_me.txt"], 0666, 100, 1000);
-Mkfiles([dirs.left + "/file_a.txt", dirs.left + "/file_b.txt", dirs.left + "/file_c.txt"], 0666, 100, 1000);
+Mkfiles([dirs.left + "/delete_me.txt"], 0o666, 100, 1000);
+Mkfiles([dirs.left + "/keep_me.txt"], 0o666, 100, 1000);
+Mkfiles([dirs.left + "/file_a.txt", dirs.left + "/file_b.txt", dirs.left + "/file_c.txt"], 0o666, 100, 1000);
 
 StartTestApp(dirs.profile, dirs.left, dirs.right);
 DismissHelpAndOSC52();
@@ -67,8 +67,8 @@ ExitFar2lWithConfirm()
 var dirsMF_profile = dirs.mydir + "/profile-multifile";
 var dirsMF_left = dirs.mydir + "/left-mf";
 var dirsMF_right = dirs.mydir + "/right-mf";
-MkdirsAll([dirsMF_profile, dirsMF_left, dirsMF_right], 0700);
-Mkfiles([dirsMF_left + "/file_a.txt", dirsMF_left + "/file_b.txt", dirsMF_left + "/file_c.txt"], 0666, 100, 1000);
+MkdirsAll([dirsMF_profile, dirsMF_left, dirsMF_right], 0o700);
+Mkfiles([dirsMF_left + "/file_a.txt", dirsMF_left + "/file_b.txt", dirsMF_left + "/file_c.txt"], 0o666, 100, 1000);
 
 StartTestApp(dirsMF_profile, dirsMF_left, dirsMF_right, "left-mf", false);
 DismissHelpAndOSC52();
@@ -130,8 +130,8 @@ var mydir = WorkDir();
 var dirsCN_profile = mydir + "/profile-cancel";
 var dirsCN_left = mydir + "/left-cancel";
 var dirsCN_right = mydir + "/right-cancel";
-MkdirsAll([dirsCN_profile, dirsCN_left, dirsCN_right], 0700);
-Mkfiles([dirsCN_left + "/cancel_me.txt"], 0666, 100, 1000);
+MkdirsAll([dirsCN_profile, dirsCN_left, dirsCN_right], 0o700);
+Mkfiles([dirsCN_left + "/cancel_me.txt"], 0o666, 100, 1000);
 
 StartTestApp(dirsCN_profile, dirsCN_left, dirsCN_right);
 DismissHelpAndOSC52();
@@ -174,8 +174,8 @@ ExitFar2lWithConfirm()
 var dirsSN_profile = mydir + "/profile-single";
 var dirsSN_left = mydir + "/left-single";
 var dirsSN_right = mydir + "/right-single";
-MkdirsAll([dirsSN_profile, dirsSN_left, dirsSN_right], 0700);
-Mkfiles([dirsSN_left + "/only_file.txt"], 0666, 100, 1000);
+MkdirsAll([dirsSN_profile, dirsSN_left, dirsSN_right], 0o700);
+Mkfiles([dirsSN_left + "/only_file.txt"], 0o666, 100, 1000);
 
 StartTestApp(dirsSN_profile, dirsSN_left, dirsSN_right);
 DismissHelpAndOSC52();
@@ -214,8 +214,8 @@ ExitFar2lWithConfirm()
 var dirsSP_profile = mydir + "/profile-spaces";
 var dirsSP_left = mydir + "/left-sp";
 var dirsSP_right = mydir + "/right-sp";
-MkdirsAll([dirsSP_profile, dirsSP_left, dirsSP_right], 0700);
-Mkfiles([dirsSP_left + "/file with spaces.txt"], 0666, 100, 1000);
+MkdirsAll([dirsSP_profile, dirsSP_left, dirsSP_right], 0o700);
+Mkfiles([dirsSP_left + "/file with spaces.txt"], 0o666, 100, 1000);
 
 StartTestApp(dirsSP_profile, dirsSP_left, dirsSP_right);
 DismissHelpAndOSC52();

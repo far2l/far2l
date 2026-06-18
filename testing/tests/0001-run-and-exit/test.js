@@ -60,7 +60,7 @@ var mydir = WorkDir();
 var dirsUC_profile = mydir + "/profile-unicode";
 var dirsUC_left = mydir + "/кириллица";
 var dirsUC_right = mydir + "/日本語";
-MkdirsAll([dirsUC_profile, dirsUC_left, dirsUC_right], 0700);
+MkdirsAll([dirsUC_profile, dirsUC_left, dirsUC_right], 0o700);
 StartTestApp(dirsUC_profile, dirsUC_left, dirsUC_right, "кириллица");
 DismissHelpAndOSC52();
 ExitFar2lWithConfirm();
@@ -71,7 +71,7 @@ ExitFar2lWithConfirm();
 var dirsSD_profile = mydir + "/profile-spacedot";
 var dirsSD_left = mydir + "/dir with spaces.v2";
 var dirsSD_right = mydir + "/right-sd";
-MkdirsAll([dirsSD_profile, dirsSD_left, dirsSD_right], 0700);
+MkdirsAll([dirsSD_profile, dirsSD_left, dirsSD_right], 0o700);
 StartTestApp(dirsSD_profile, dirsSD_left, dirsSD_right, "dir with spaces.v2");
 DismissHelpAndOSC52();
 ExitFar2lWithConfirm();
@@ -82,7 +82,7 @@ ExitFar2lWithConfirm();
 var dirsNE_profile = mydir + "/profile-nonexist";
 var dirsNE_left = mydir + "/nonexist/deep/path";
 var dirsNE_right = mydir + "/right-ne";
-MkdirsAll([dirsNE_profile, dirsNE_right], 0700);
+MkdirsAll([dirsNE_profile, dirsNE_right], 0o700);
 // left does NOT exist — far2l should handle gracefully
 StartApp(["--tty", "--nodetect", "--mortal", "-u", dirsNE_profile, "-cd", dirsNE_left, "-cd", dirsNE_right]);
 Sleep(2000);
@@ -102,7 +102,7 @@ ExpectAppExit(0, 10000);
 // Verifies far2l handles identical -cd paths without crash
 var dirsSame_profile = mydir + "/profile-same";
 var dirsSame_shared = mydir + "/same-dir";
-MkdirsAll([dirsSame_profile, dirsSame_shared], 0700);
+MkdirsAll([dirsSame_profile, dirsSame_shared], 0o700);
 StartTestApp(dirsSame_profile, dirsSame_shared, dirsSame_shared, "same-dir");
 DismissHelpAndOSC52();
 ExitFar2lWithConfirm();
@@ -113,7 +113,7 @@ ExitFar2lWithConfirm();
 var dirsEsc_profile = mydir + "/profile-escape";
 var dirsEsc_left = mydir + "/left-esc";
 var dirsEsc_right = mydir + "/right-esc";
-MkdirsAll([dirsEsc_profile, dirsEsc_left, dirsEsc_right], 0700);
+MkdirsAll([dirsEsc_profile, dirsEsc_left, dirsEsc_right], 0o700);
 StartTestApp(dirsEsc_profile, dirsEsc_left, dirsEsc_right, "left-esc");
 DismissHelpAndOSC52();
 // Open quit dialog
@@ -133,7 +133,7 @@ ExitFar2lWithConfirm();
 var dirsF10H_profile = mydir + "/profile-f10help";
 var dirsF10H_left = mydir + "/left-f10h";
 var dirsF10H_right = mydir + "/right-f10h";
-MkdirsAll([dirsF10H_profile, dirsF10H_left, dirsF10H_right], 0700);
+MkdirsAll([dirsF10H_profile, dirsF10H_left, dirsF10H_right], 0o700);
 // First start — Help appears
 StartApp(["--tty", "--nodetect", "--mortal", "-u", dirsF10H_profile, "-cd", dirsF10H_left, "-cd", dirsF10H_right]);
 ExpectString("Help - FAR2L", 0, 0, -1, -1, 10000);
@@ -160,7 +160,7 @@ ExitFar2lWithConfirm();
 var dirsRF_profile = mydir + "/profile-rapidf10";
 var dirsRF_left = mydir + "/left-rf10";
 var dirsRF_right = mydir + "/right-rf10";
-MkdirsAll([dirsRF_profile, dirsRF_left, dirsRF_right], 0700);
+MkdirsAll([dirsRF_profile, dirsRF_left, dirsRF_right], 0o700);
 StartTestApp(dirsRF_profile, dirsRF_left, dirsRF_right, "left-rf10");
 DismissHelpAndOSC52();
 // Send F10 three times rapidly — first opens quit dialog, rest are consumed
@@ -181,18 +181,18 @@ ExpectAppExit(0, 10000);
 var dirsRO_profile = mydir + "/profile-readonly";
 var dirsRO_left = mydir + "/left-ro";
 var dirsRO_right = mydir + "/right-ro";
-MkdirsAll([dirsRO_profile, dirsRO_left, dirsRO_right], 0700);
+MkdirsAll([dirsRO_profile, dirsRO_left, dirsRO_right], 0o700);
 // Initialize profile with default settings
 StartTestApp(dirsRO_profile, dirsRO_left, dirsRO_right, "left-ro");
 DismissHelpAndOSC52();
 ExitFar2lWithConfirm();
 // Make profile directory read-only
-Chmod(dirsRO_profile, 0555);
+Chmod(dirsRO_profile, 0o555);
 // Start with read-only profile — should not crash
 StartTestApp(dirsRO_profile, dirsRO_left, dirsRO_right, "left-ro", false);
 Sleep(500);
 // Restore permissions for cleanup
-Chmod(dirsRO_profile, 0700);
+Chmod(dirsRO_profile, 0o700);
 // Exit
 TypeFKey(10);
 ExpectString("Do you want to quit FAR?", 0, 0, -1, -1, 10000);

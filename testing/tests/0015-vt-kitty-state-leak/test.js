@@ -1,7 +1,7 @@
 LoadJS("../common.js");
 var dirs = SetupTestDirs();
 
-// 0014-vt-kitty-state-leak — Test kitty keyboard protocol state management
+// 0015-vt-kitty-state-leak — Test kitty keyboard protocol state management
 // across VT shell session boundaries.
 //
 // The key concern: _kitty_kb_flags is reset to 0 in ExecuteCommandCommonTail,

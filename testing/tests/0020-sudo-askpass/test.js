@@ -42,7 +42,7 @@ Symlink(dirs.profile, shortProfile);
 
 // Pre-configure settings to ensure sudo is enabled
 var settingsDir = dirs.profile + "/.config/settings";
-MkdirsAll([settingsDir], 0700);
+MkdirsAll([settingsDir], 0o700);
 SaveTextFile(settingsDir + "/config.ini", [
     "[System]",
     "SudoEnabled=1",

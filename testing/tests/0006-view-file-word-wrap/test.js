@@ -106,8 +106,8 @@ var mydir = WorkDir();
 var dirsEF_profile = mydir + "/profile-emptyfile";
 var dirsEF_left = mydir + "/left-ef";
 var dirsEF_right = mydir + "/right-ef";
-MkdirsAll([dirsEF_profile, dirsEF_left, dirsEF_right], 0700);
-Mkfile(dirsEF_left + "/empty.txt", 0666, 0, 0);
+MkdirsAll([dirsEF_profile, dirsEF_left, dirsEF_right], 0o700);
+Mkfile(dirsEF_left + "/empty.txt", 0o666, 0, 0);
 
 StartTestApp(dirsEF_profile, dirsEF_left, dirsEF_right, null, true, [95, 24]);
 DismissHelpAndOSC52();
@@ -130,11 +130,11 @@ ExitFar2lWithConfirm()
 var dirsLL_profile = mydir + "/profile-longline";
 var dirsLL_left = mydir + "/left-ll";
 var dirsLL_right = mydir + "/right-ll";
-MkdirsAll([dirsLL_profile, dirsLL_left, dirsLL_right], 0700);
+MkdirsAll([dirsLL_profile, dirsLL_left, dirsLL_right], 0o700);
 // 200-char line should wrap across multiple screen rows at 95 cols
 var longline = "";
 for (var i = 0; i < 200; i++) longline += "B";
-WriteFile(dirsLL_left + "/longline.txt", longline + "\n", 0666);
+WriteFile(dirsLL_left + "/longline.txt", longline + "\n", 0o666);
 
 StartTestApp(dirsLL_profile, dirsLL_left, dirsLL_right, null, true, [95, 24]);
 DismissHelpAndOSC52();
@@ -159,8 +159,8 @@ ExitFar2lWithConfirm()
 var dirsTW_profile = mydir + "/profile-togglewrap";
 var dirsTW_left = mydir + "/left-tw";
 var dirsTW_right = mydir + "/right-tw";
-MkdirsAll([dirsTW_profile, dirsTW_left, dirsTW_right], 0700);
-WriteFile(dirsTW_left + "/toggle.txt", "AAAAAAAAAA BBBBBBBBBB CCCCCCCCCC DDDDDDDDDD EEEEEEEEEE FFFFFFFFFF\n", 0666);
+MkdirsAll([dirsTW_profile, dirsTW_left, dirsTW_right], 0o700);
+WriteFile(dirsTW_left + "/toggle.txt", "AAAAAAAAAA BBBBBBBBBB CCCCCCCCCC DDDDDDDDDD EEEEEEEEEE FFFFFFFFFF\n", 0o666);
 
 StartTestApp(dirsTW_profile, dirsTW_left, dirsTW_right, null, true, [95, 24]);
 DismissHelpAndOSC52();
@@ -198,11 +198,11 @@ ExitFar2lWithConfirm()
 var dirsUC_profile = mydir + "/profile-unicode-wrap";
 var dirsUC_left = mydir + "/left-ucw";
 var dirsUC_right = mydir + "/right-ucw";
-MkdirsAll([dirsUC_profile, dirsUC_left, dirsUC_right], 0700);
+MkdirsAll([dirsUC_profile, dirsUC_left, dirsUC_right], 0o700);
 // Build a line of repeated Cyrillic that exceeds 95 cols
 var uc_line = "";
 for (var i = 0; i < 30; i++) uc_line += "Тест ";
-WriteFile(dirsUC_left + "/ucwrap.txt", uc_line + "\nМикс Latin и Кириллица\n", 0666);
+WriteFile(dirsUC_left + "/ucwrap.txt", uc_line + "\nМикс Latin и Кириллица\n", 0o666);
 
 StartTestApp(dirsUC_profile, dirsUC_left, dirsUC_right, null, true, [95, 24]);
 DismissHelpAndOSC52();
@@ -228,8 +228,8 @@ ExitFar2lWithConfirm()
 var dirsSL_profile = mydir + "/profile-shortlines";
 var dirsSL_left = mydir + "/left-sl";
 var dirsSL_right = mydir + "/right-sl";
-MkdirsAll([dirsSL_profile, dirsSL_left, dirsSL_right], 0700);
-WriteFile(dirsSL_left + "/short.txt", "aaa\nbbb\nccc\n", 0666);
+MkdirsAll([dirsSL_profile, dirsSL_left, dirsSL_right], 0o700);
+WriteFile(dirsSL_left + "/short.txt", "aaa\nbbb\nccc\n", 0o666);
 
 StartTestApp(dirsSL_profile, dirsSL_left, dirsSL_right, null, true, [95, 24]);
 DismissHelpAndOSC52();

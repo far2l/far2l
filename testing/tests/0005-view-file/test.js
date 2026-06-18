@@ -71,8 +71,8 @@ var mydir = WorkDir();
 var dirsEF_profile = mydir + "/profile-emptyfile";
 var dirsEF_left = mydir + "/left-ef";
 var dirsEF_right = mydir + "/right-ef";
-MkdirsAll([dirsEF_profile, dirsEF_left, dirsEF_right], 0700);
-Mkfile(dirsEF_left + "/empty.txt", 0666, 0, 0);
+MkdirsAll([dirsEF_profile, dirsEF_left, dirsEF_right], 0o700);
+Mkfile(dirsEF_left + "/empty.txt", 0o666, 0, 0);
 
 StartTestApp(dirsEF_profile, dirsEF_left, dirsEF_right);
 DismissHelpAndOSC52();
@@ -93,8 +93,8 @@ ExitFar2lWithConfirm()
 var dirsSL_profile = mydir + "/profile-singleline";
 var dirsSL_left = mydir + "/left-sl";
 var dirsSL_right = mydir + "/right-sl";
-MkdirsAll([dirsSL_profile, dirsSL_left, dirsSL_right], 0700);
-WriteFile(dirsSL_left + "/oneline.txt", "012345\n", 0666);
+MkdirsAll([dirsSL_profile, dirsSL_left, dirsSL_right], 0o700);
+WriteFile(dirsSL_left + "/oneline.txt", "012345\n", 0o666);
 
 StartTestApp(dirsSL_profile, dirsSL_left, dirsSL_right);
 DismissHelpAndOSC52();
@@ -116,11 +116,11 @@ ExitFar2lWithConfirm()
 var dirsWL_profile = mydir + "/profile-wideline";
 var dirsWL_left = mydir + "/left-wl";
 var dirsWL_right = mydir + "/right-wl";
-MkdirsAll([dirsWL_profile, dirsWL_left, dirsWL_right], 0700);
+MkdirsAll([dirsWL_profile, dirsWL_left, dirsWL_right], 0o700);
 // Generate a line of 200 'A' characters + newline
 var longline = "";
 for (var i = 0; i < 200; i++) longline += "A";
-WriteFile(dirsWL_left + "/wideline.txt", longline + "\n", 0666);
+WriteFile(dirsWL_left + "/wideline.txt", longline + "\n", 0o666);
 
 StartTestApp(dirsWL_profile, dirsWL_left, dirsWL_right);
 DismissHelpAndOSC52();
@@ -141,8 +141,8 @@ ExitFar2lWithConfirm()
 var dirsUC_profile = mydir + "/profile-unicode";
 var dirsUC_left = mydir + "/left-uc";
 var dirsUC_right = mydir + "/right-uc";
-MkdirsAll([dirsUC_profile, dirsUC_left, dirsUC_right], 0700);
-WriteFile(dirsUC_left + "/unicode.txt", "Кириллица\n日本語テスト\nМикс Latin и Кириллица\n", 0666);
+MkdirsAll([dirsUC_profile, dirsUC_left, dirsUC_right], 0o700);
+WriteFile(dirsUC_left + "/unicode.txt", "Кириллица\n日本語テスト\nМикс Latin и Кириллица\n", 0o666);
 
 StartTestApp(dirsUC_profile, dirsUC_left, dirsUC_right);
 DismissHelpAndOSC52();
@@ -165,8 +165,8 @@ ExitFar2lWithConfirm()
 var dirsSR_profile = mydir + "/profile-search";
 var dirsSR_left = mydir + "/left-sr";
 var dirsSR_right = mydir + "/right-sr";
-MkdirsAll([dirsSR_profile, dirsSR_left, dirsSR_right], 0700);
-WriteFile(dirsSR_left + "/searchme.txt", "line one\nline two\nline three\n", 0666);
+MkdirsAll([dirsSR_profile, dirsSR_left, dirsSR_right], 0o700);
+WriteFile(dirsSR_left + "/searchme.txt", "line one\nline two\nline three\n", 0o666);
 
 StartTestApp(dirsSR_profile, dirsSR_left, dirsSR_right);
 DismissHelpAndOSC52();

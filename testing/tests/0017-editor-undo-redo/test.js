@@ -1,7 +1,7 @@
 LoadJS("../common.js");
 var dirs = SetupTestDirs();
 
-// 0015-editor-undo-redo — Test editor undo/redo state machine.
+// 0017-editor-undo-redo — Test editor undo/redo state machine.
 //
 // PREREQUISITE: Pre-configure EditorUndoSize=5 in the profile's config
 // directory so the undo stack limit can be exercised. Without this,
@@ -9,7 +9,7 @@ var dirs = SetupTestDirs();
 
 // Pre-configure editor settings before starting far2l
 var settingsDir = dirs.profile + "/.config/settings";
-MkdirsAll([settingsDir], 0700);
+MkdirsAll([settingsDir], 0o700);
 SaveTextFile(settingsDir + "/config.ini", [
     "[Editor]",
     "EditorUndoSize=5",
@@ -17,7 +17,7 @@ SaveTextFile(settingsDir + "/config.ini", [
 ]);
 
 // Create a test file to edit
-WriteFile(dirs.left + "/editme.txt", "original line\n", 0666);
+WriteFile(dirs.left + "/editme.txt", "original line\n", 0o666);
 
 StartTestApp(dirs.profile, dirs.left, dirs.right, "left", false);
 TypeEscape();
@@ -213,18 +213,18 @@ var mydir = WorkDir();
 var dirsUL_profile = mydir + "/profile-undolimit";
 var dirsUL_left = mydir + "/left-ul";
 var dirsUL_right = mydir + "/right-ul";
-MkdirsAll([dirsUL_profile, dirsUL_left, dirsUL_right], 0700);
+MkdirsAll([dirsUL_profile, dirsUL_left, dirsUL_right], 0o700);
 
 // Pre-configure with smaller UndoSize for this test
 var ulSettings = dirsUL_profile + "/.config/settings";
-MkdirsAll([ulSettings], 0700);
+MkdirsAll([ulSettings], 0o700);
 SaveTextFile(ulSettings + "/config.ini", [
     "[Editor]",
     "EditorUndoSize=3",
     ""
 ]);
 
-WriteFile(dirsUL_left + "/limit.txt", "base\n", 0666);
+WriteFile(dirsUL_left + "/limit.txt", "base\n", 0o666);
 
 StartTestApp(dirsUL_profile, dirsUL_left, dirsUL_right, "left-ul", false);
 TypeEscape(); Sleep(300); Sync(2000);
@@ -293,17 +293,17 @@ ExitFar2lWithConfirm()
 var dirsNC_profile = mydir + "/profile-noncoalesce";
 var dirsNC_left = mydir + "/left-nc";
 var dirsNC_right = mydir + "/right-nc";
-MkdirsAll([dirsNC_profile, dirsNC_left, dirsNC_right], 0700);
+MkdirsAll([dirsNC_profile, dirsNC_left, dirsNC_right], 0o700);
 
 var ncSettings = dirsNC_profile + "/.config/settings";
-MkdirsAll([ncSettings], 0700);
+MkdirsAll([ncSettings], 0o700);
 SaveTextFile(ncSettings + "/config.ini", [
     "[Editor]",
     "EditorUndoSize=10",
     ""
 ]);
 
-WriteFile(dirsNC_left + "/multi.txt", "line1\nline2\n", 0666);
+WriteFile(dirsNC_left + "/multi.txt", "line1\nline2\n", 0o666);
 
 StartTestApp(dirsNC_profile, dirsNC_left, dirsNC_right, "left-nc", false);
 TypeEscape(); Sleep(300); Sync(2000);

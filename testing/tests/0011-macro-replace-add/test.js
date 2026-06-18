@@ -4,7 +4,7 @@ var dirs = SetupTestDirs();
 // Pre-configure one macro so Edit-noop and Duplicate-rejection have a target.
 // far2l stores macros in <profile>/.config/settings/key_macros.ini
 var macrosIni = dirs.profile + "/.config/settings";
-MkdirsAll([macrosIni], 0700);
+MkdirsAll([macrosIni], 0o700);
 SaveTextFile(macrosIni + "/key_macros.ini", [
     "[KeyMacros]",
     "MacroVersion=1",

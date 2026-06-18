@@ -3,12 +3,12 @@ var dirs = SetupTestDirs();
 
 var left_sub1 = dirs.left + "/sub1";
 var left_sub2 = dirs.left + "/sub2";
-MkdirsAll([left_sub1, left_sub2], 0700);
+MkdirsAll([left_sub1, left_sub2], 0o700);
 
 var left_files = [dirs.left + "/file1", dirs.left + "/file2", dirs.left + "/file3"];
 var left_sub_files = [dirs.left + "/sub1/aaa", dirs.left + "/sub1/bbb", dirs.left + "/sub1/ccc", dirs.left + "/sub2/ddd"];
-Mkfiles(left_files, 0666, 0, 1024);
-Mkfiles(left_sub_files, 0752, 10 * 1024 * 1024, 20 * 1024 * 1024);
+Mkfiles(left_files, 0o666, 0, 1024);
+Mkfiles(left_sub_files, 0o752, 10 * 1024 * 1024, 20 * 1024 * 1024);
 
 var left_items = [dirs.left + "/file1", dirs.left + "/file2", dirs.left + "/file3", dirs.left + "/sub1", dirs.left + "/sub2"];
 var right_items = [dirs.right + "/file1", dirs.right + "/file2", dirs.right + "/file3", dirs.right + "/sub1", dirs.right + "/sub2"];
@@ -67,8 +67,8 @@ var mydir = WorkDir();
 var dirsEF_profile = mydir + "/profile-emptyfile";
 var dirsEF_left = mydir + "/left-ef";
 var dirsEF_right = mydir + "/right-ef";
-MkdirsAll([dirsEF_profile, dirsEF_left, dirsEF_right], 0700);
-Mkfile(dirsEF_left + "/empty.txt", 0666, 0, 0);
+MkdirsAll([dirsEF_profile, dirsEF_left, dirsEF_right], 0o700);
+Mkfile(dirsEF_left + "/empty.txt", 0o666, 0, 0);
 
 StartTestApp(dirsEF_profile, dirsEF_left, dirsEF_right);
 DismissHelpAndOSC52();
@@ -96,8 +96,8 @@ ExitFar2lWithConfirm()
 var dirsSF_profile = mydir + "/profile-singlefile";
 var dirsSF_left = mydir + "/left-sf";
 var dirsSF_right = mydir + "/right-sf";
-MkdirsAll([dirsSF_profile, dirsSF_left, dirsSF_right], 0700);
-Mkfiles([dirsSF_left + "/only.txt"], 0666, 100, 1000);
+MkdirsAll([dirsSF_profile, dirsSF_left, dirsSF_right], 0o700);
+Mkfiles([dirsSF_left + "/only.txt"], 0o666, 100, 1000);
 
 StartTestApp(dirsSF_profile, dirsSF_left, dirsSF_right);
 DismissHelpAndOSC52();
@@ -125,8 +125,8 @@ ExitFar2lWithConfirm()
 var dirsSP_profile = mydir + "/profile-spaces";
 var dirsSP_left = mydir + "/left-sp";
 var dirsSP_right = mydir + "/right-sp";
-MkdirsAll([dirsSP_profile, dirsSP_left, dirsSP_right], 0700);
-Mkfiles([dirsSP_left + "/file with spaces.txt"], 0666, 100, 1000);
+MkdirsAll([dirsSP_profile, dirsSP_left, dirsSP_right], 0o700);
+Mkfiles([dirsSP_left + "/file with spaces.txt"], 0o666, 100, 1000);
 
 StartTestApp(dirsSP_profile, dirsSP_left, dirsSP_right);
 DismissHelpAndOSC52();
@@ -154,8 +154,8 @@ ExitFar2lWithConfirm()
 var dirsUC_profile = mydir + "/profile-unicode";
 var dirsUC_left = mydir + "/left-uc";
 var dirsUC_right = mydir + "/right-uc";
-MkdirsAll([dirsUC_profile, dirsUC_left, dirsUC_right], 0700);
-Mkfiles([dirsUC_left + "/тест-файл.txt"], 0666, 100, 1000);
+MkdirsAll([dirsUC_profile, dirsUC_left, dirsUC_right], 0o700);
+Mkfiles([dirsUC_left + "/тест-файл.txt"], 0o666, 100, 1000);
 
 StartTestApp(dirsUC_profile, dirsUC_left, dirsUC_right);
 DismissHelpAndOSC52();

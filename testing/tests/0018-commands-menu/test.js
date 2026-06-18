@@ -1,12 +1,12 @@
 LoadJS("../common.js");
 var dirs = SetupTestDirs();
 
-// 0016-commands-menu — Test Commands menu items.
+// 0018-commands-menu — Test Commands menu items.
 // Uses F9 menu navigation to verify menu structure and dialog opening.
 
 // Create test files
-Mkfiles([dirs.left + "/findme.txt"], 0666, 100, 1000);
-Mkfiles([dirs.left + "/another.txt"], 0666, 100, 1000);
+Mkfiles([dirs.left + "/findme.txt"], 0o666, 100, 1000);
+Mkfiles([dirs.left + "/another.txt"], 0o666, 100, 1000);
 
 StartTestApp(dirs.profile, dirs.left, dirs.right);
 DismissHelpAndOSC52();
@@ -69,7 +69,7 @@ var mydir = WorkDir();
 var dirsCM_profile = mydir + "/profile-cmdmenu";
 var dirsCM_left = mydir + "/left-cm";
 var dirsCM_right = mydir + "/right-cm";
-MkdirsAll([dirsCM_profile, dirsCM_left, dirsCM_right], 0700);
+MkdirsAll([dirsCM_profile, dirsCM_left, dirsCM_right], 0o700);
 
 StartTestApp(dirsCM_profile, dirsCM_left, dirsCM_right);
 DismissHelpAndOSC52();
@@ -117,7 +117,7 @@ ExitFar2lWithConfirm()
 var dirsMI_profile = mydir + "/profile-menuitems";
 var dirsMI_left = mydir + "/left-mi";
 var dirsMI_right = mydir + "/right-mi";
-MkdirsAll([dirsMI_profile, dirsMI_left, dirsMI_right], 0700);
+MkdirsAll([dirsMI_profile, dirsMI_left, dirsMI_right], 0o700);
 
 StartTestApp(dirsMI_profile, dirsMI_left, dirsMI_right);
 DismissHelpAndOSC52();

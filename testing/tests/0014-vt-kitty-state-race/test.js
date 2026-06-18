@@ -1,7 +1,7 @@
 LoadJS("../common.js");
 var dirs = SetupTestDirs();
 
-// 0013-vt-kitty-state-race — Test kitty keyboard protocol flag state transitions
+// 0014-vt-kitty-state-race — Test kitty keyboard protocol flag state transitions
 // under interleaved TTYWriteRaw (parser thread) and TypeVK (input thread) operations.
 //
 // NOTE: True OS-thread concurrency is out of scope (Goja VM is single-threaded,

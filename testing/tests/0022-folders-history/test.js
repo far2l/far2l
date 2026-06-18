@@ -19,7 +19,7 @@ function TypeAltFKey(n) {
 }
 
 // Create subdirectories for navigation tests
-MkdirsAll([dirs.left + "/sub1", dirs.left + "/sub2"], 0755);
+MkdirsAll([dirs.left + "/sub1", dirs.left + "/sub2"], 0o755);
 
 StartTestApp(dirs.profile, dirs.left, dirs.right);
 DismissHelpAndOSC52();

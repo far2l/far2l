@@ -6,7 +6,7 @@ var dirs = SetupTestDirs();
 // with the same key to exercise the add-over-deleted-slot path
 // (macrobrowser.cpp:6896-6904).
 var macrosIni = dirs.profile + "/.config/settings";
-MkdirsAll([macrosIni], 0700);
+MkdirsAll([macrosIni], 0o700);
 SaveTextFile(macrosIni + "/key_macros.ini", [
     "[KeyMacros]",
     "MacroVersion=1",

@@ -11,7 +11,22 @@ function SetupTestDirs(leftName, rightName) {
     var profile = mydir + "/profile";
     var left = mydir + "/" + leftName;
     var right = mydir + "/" + rightName;
-    MkdirsAll([profile, left, right], 0700);
+    MkdirsAll([profile, left, right], 0o700);
+    return {mydir: mydir, profile: profile, left: left, right: right};
+}
+
+// FreshTestDirs creates a fresh set of profile/left/right directories
+// under the test workdir with the given suffix. Reduces duplication in
+// corner-case test sections that each need their own far2l instance.
+// Returns {mydir, profile, left, right}.
+function FreshTestDirs(suffix, leftName, rightName) {
+    leftName = leftName || ("left-" + suffix);
+    rightName = rightName || ("right-" + suffix);
+    var mydir = WorkDir();
+    var profile = mydir + "/profile-" + suffix;
+    var left = mydir + "/" + leftName;
+    var right = mydir + "/" + rightName;
+    MkdirsAll([profile, left, right], 0o700);
     return {mydir: mydir, profile: profile, left: left, right: right};
 }
 

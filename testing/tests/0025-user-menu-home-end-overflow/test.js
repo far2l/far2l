@@ -33,7 +33,7 @@ var dirs = SetupTestDirs();
 
 // Pre-configure editor settings: enable Show line numbers
 var settingsDir = dirs.profile + "/.config/settings";
-MkdirsAll([settingsDir], 0700);
+MkdirsAll([settingsDir], 0o700);
 SaveTextFile(settingsDir + "/config.ini", [
     "[System]",
     "SaveHistory=1",
