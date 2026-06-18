@@ -77,6 +77,11 @@ TTYWriteRaw("\x1b[201~\n")
 BeCalm()
 var r10 = ExpectString("SHOULD_TIMEOUT", 0, 0, -1, -1, 10000)
 BePanic()
+if (r10.I < 1) {
+    Log("Test 10: Incomplete paste was NOT executed — correct (content dropped)")
+} else {
+    Log("Test 10: Incomplete paste content was executed — may be acceptable")
+}
 
 // Test 11: disable bracketed paste and verify normal paste works
 TTYWriteRaw("printf '\\e[?2004l' > /dev/tty\n")

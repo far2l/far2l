@@ -11,13 +11,6 @@ var dirs = SetupTestDirs();
 // Selecting an item with Enter copies it to the command line.
 // Esc closes the dialog without action.
 
-// Helper: send Alt+F<n>
-function TypeAltFKey(n) {
-    ToggleLAlt(true);
-    TypeFKey(n);
-    ToggleLAlt(false);
-}
-
 StartTestApp(dirs.profile, dirs.left, dirs.right);
 DismissHelpAndOSC52();
 

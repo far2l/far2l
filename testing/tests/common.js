@@ -94,3 +94,10 @@ function ExitBashAndFar2l() {
     TypeEnter();
     ExpectAppExit(0, 10000);
 }
+
+// TypeAltFKey sends an Alt+F<n> key combination (e.g., Alt+F8, Alt+F11, Alt+F12).
+function TypeAltFKey(n) {
+    ToggleLAlt(true);
+    TypeFKey(n);
+    ToggleLAlt(false);
+}

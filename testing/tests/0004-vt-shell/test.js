@@ -137,5 +137,6 @@ TTYWriteRaw("sleep 30\n")
 Sleep(500);
 TTYWriteRaw("\x03")
 Sleep(500);
-ExpectString("$", 0, 0, -1, -1, 10000)
+TTYWriteRaw("echo CTRL_C_OK\n")
+ExpectString("CTRL_C_OK", 0, 0, -1, -1, 10000)
 ExitBashAndFar2l()

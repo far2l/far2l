@@ -11,13 +11,6 @@ var dirs = SetupTestDirs();
 // Selecting an item with Enter opens the file in the viewer or editor.
 // Esc closes the dialog without action.
 
-// Helper: send Alt+F<n>
-function TypeAltFKey(n) {
-    ToggleLAlt(true);
-    TypeFKey(n);
-    ToggleLAlt(false);
-}
-
 // Create test files for viewing — one file per fresh profile to ensure
 // it's the only file and gets selected by default
 SaveTextFile(dirs.left + "/view_me.txt", ["Line 1: content for viewing", "Line 2: more content", ""]);
@@ -67,19 +60,14 @@ Sync(3000);
 // or viewer menu bar
 BeCalm();
 var contentFound = ExpectString("content", 0, 0, -1, -1, 5000);
+var anotherFound = ExpectString("Another file", 0, 0, -1, -1, 3000);
 BePanic();
 if (contentFound.I < 1) {
-    // Maybe viewing "another.txt" — check for that content
-    BeCalm();
-    var anotherFound = ExpectString("Another file", 0, 0, -1, -1, 3000);
-    BePanic();
-    if (anotherFound.I < 1) {
-        Log("Phase 2: Viewer opened — content visible");
-    } else {
-        Log("Phase 2: Viewer opened 'another.txt' — correct");
-    }
-} else {
     Log("Phase 2: Viewer opened 'view_me.txt' — correct");
+} else if (anotherFound.I < 1) {
+    Log("Phase 2: Viewer opened 'another.txt' — correct");
+} else {
+    Log("Phase 2: Viewer opened — content visible");
 }
 
 // Exit viewer with Esc or F10
@@ -128,18 +116,14 @@ Sync(3000);
 // Verify viewer/editor opened — look for file content
 BeCalm();
 var reopened = ExpectString("content", 0, 0, -1, -1, 3000);
+var reopened2 = ExpectString("Another", 0, 0, -1, -1, 2000);
 BePanic();
 if (reopened.I < 1) {
-    BeCalm();
-    var reopened2 = ExpectString("Another", 0, 0, -1, -1, 2000);
-    BePanic();
-    if (reopened2.I < 1) {
-        Log("Phase 3: File reopened from view history — correct");
-    } else {
-        Log("Phase 3: 'another.txt' reopened from history — correct");
-    }
-} else {
     Log("Phase 3: 'view_me.txt' reopened from history — correct");
+} else if (reopened2.I < 1) {
+    Log("Phase 3: 'another.txt' reopened from history — correct");
+} else {
+    Log("Phase 3: File reopened from view history — correct");
 }
 
 // Exit viewer/editor

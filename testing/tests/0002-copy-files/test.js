@@ -45,7 +45,7 @@ for (var i = 0; ; ++i) {
 }
 
 // Verify source files unchanged
-var recent_left_hash = HashPathes(right_items, true, true, true, true, true)
+var recent_left_hash = HashPathes(left_items, true, true, true, true, true)
 if (left_hash != recent_left_hash) {
 	Log("Lhash: " + left_hash + " -> " + recent_left_hash)
 	Panic("Source files had changed!")

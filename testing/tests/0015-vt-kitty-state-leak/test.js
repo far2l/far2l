@@ -161,7 +161,7 @@ TTYWriteRaw("cat; echo KITTY_PASTE_OK\n")
 Sleep(500)
 
 // Send text via TTYWriteRaw (simulates paste content)
-TTYWriteRaw("hello world\n")
+TTYWriteRaw("\x1b[200~hello world\x1b[201~\n")
 Sleep(300)
 
 // End cat with Ctrl+D

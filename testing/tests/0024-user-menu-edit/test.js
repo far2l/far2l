@@ -14,13 +14,6 @@ var dirs = SetupTestDirs();
 // The dialog title is "Edit user menu" for commands, "Edit submenu label" for submenus.
 // When inserting a new item, a choice dialog appears: "Insert command" / "Insert menu".
 
-// Helper: send Alt+F<n>
-function TypeAltFKey(n) {
-    ToggleLAlt(true);
-    TypeFKey(n);
-    ToggleLAlt(false);
-}
-
 StartTestApp(dirs.profile, dirs.left, dirs.right);
 DismissHelpAndOSC52();
 

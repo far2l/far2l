@@ -11,13 +11,6 @@ var dirs = SetupTestDirs();
 // Selecting a folder with Enter navigates the active panel to that directory.
 // Esc closes the dialog without action.
 
-// Helper: send Alt+F<n>
-function TypeAltFKey(n) {
-    ToggleLAlt(true);
-    TypeFKey(n);
-    ToggleLAlt(false);
-}
-
 // Create subdirectories for navigation tests
 MkdirsAll([dirs.left + "/sub1", dirs.left + "/sub2"], 0o755);
 
