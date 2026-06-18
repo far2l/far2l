@@ -96,12 +96,7 @@ ExpectString("left", 0, 0, -1, -1, 10000);
 TypeEscape(10)
 Sync(5000)
 // OSC52 should NOT appear on reused profile — verify it's absent
-BeCalm()
-var r2 = ExpectString("OSC52", 0, 0, -1, -1, 2000);
-BePanic()
-if (r2.I < 1) {
-    Panic("OSC52 should not appear on reused profile")
-}
+ExpectNoString("OSC52", 0, 0, -1, -1, 2000);
 
 TypeText("echo 'READY2'; exec bash --norc --noprofile")
 TypeEnter()
@@ -132,5 +127,60 @@ TTYWriteRaw("\x1b[200~echo BP_DELAYED_")
 Sleep(1000)
 TTYWriteRaw("CLOSE_2\x1b[201~\n")
 ExpectString("BP_DELAYED_CLOSE_2", 0, 0, -1, -1, 10000)
+
+
+///////////////////
+///////////////////
+// CORNER CASES
+///////////////////
+///////////////////
+
+///////////////////
+// Corner case: Large single-line paste (stays under 2048-byte TTYWriteRaw limit)
+// Verifies parser handles large input without truncation or crash
+var longline = "";
+for (var i = 0; i < 100; i++) longline += "LONG_";
+TTYWriteRaw("\x1b[200~echo '" + longline + "'\x1b[201~\n")
+ExpectString("LONG_LONG_LONG", 0, 0, -1, -1, 10000)
+
+///////////////////
+// Corner case: Paste with escape-like sequences in content
+// Verifies parser doesn't confuse content escapes with paste markers
+TTYWriteRaw("\x1b[200~echo 'contains \\x1b[200~fake marker'\x1b[201~\n")
+ExpectString("contains", 0, 0, -1, -1, 10000)
+
+///////////////////
+// Corner case: Paste with backslash-escaped newlines
+// Verifies multiline paste with continuation characters
+TTYWriteRaw("\x1b[200~echo line1\\\necho line2\x1b[201~\n")
+ExpectString("line1", 0, 0, -1, -1, 10000)
+ExpectString("line2", 0, 0, -1, -1, 10000)
+
+///////////////////
+// Corner case: Paste while cat is reading stdin
+// Verifies pasted content reaches the foreground process
+TTYWriteRaw("cat\n")
+Sleep(500)
+TTYWriteRaw("\x1b[200~CAT_RECEIVED_PASTE\x1b[201~\n")
+ExpectString("CAT_RECEIVED_PASTE", 0, 0, -1, -1, 10000)
+// Ctrl+D to close cat
+ToggleLCtrl(true)
+TypeVK(0x44)
+ToggleLCtrl(false)
+Sleep(500)
+
+///////////////////
+// Corner case: Rapid paste enable/disable/enable cycle
+// Verifies state machine handles toggling correctly
+TTYWriteRaw("printf '\\e[?2004l' > /dev/tty\n")
+Sleep(500)
+TTYWriteRaw("printf '\\e[?2004h' > /dev/tty\n")
+Sleep(500)
+TTYWriteRaw("printf '\\e[?2004l' > /dev/tty\n")
+Sleep(500)
+TTYWriteRaw("printf '\\e[?2004h' > /dev/tty\n")
+Sleep(500)
+TTYWriteRaw("\x1b[200~echo TOGGLE_CYCLE_OK\x1b[201~\n")
+ExpectString("TOGGLE_CYCLE_OK", 0, 0, -1, -1, 10000)
 
 ExitBashAndFar2l()

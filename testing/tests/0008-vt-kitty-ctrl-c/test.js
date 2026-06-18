@@ -30,3 +30,115 @@ ToggleLCtrl(false)
 ExpectString("CAT_INTERRUPTED", 0, 0, -1, -1, 10000)
 
 ExitBashAndFar2l()
+
+
+///////////////////
+///////////////////
+// CORNER CASES
+///////////////////
+///////////////////
+
+///////////////////
+// Corner case: Ctrl+L clears screen, cat still running
+// Verifies Ctrl+L (0x0C) is delivered as raw form-feed
+StartTestApp(dirs.profile, dirs.left, dirs.right, "left", false);
+StartBashShell();
+TTYWriteRaw("printf '\\033[=1u' > /dev/tty\n")
+Sleep(500)
+TTYWriteRaw("cat\n")
+Sleep(500)
+// Ctrl+L clears screen — cat keeps running
+ToggleLCtrl(true)
+TypeVK(0x4C)
+ToggleLCtrl(false)
+Sleep(500)
+// Type marker then Ctrl+D EOF — cat should echo it
+TTYWriteRaw("mark_l\n")
+Sleep(200)
+ToggleLCtrl(true)
+TypeVK(0x44)
+ToggleLCtrl(false)
+ExpectString("mark_l", 0, 0, -1, -1, 10000)
+ExitBashAndFar2l()
+
+
+///////////////////
+// Corner case: Ctrl+C interrupts cat, next cat starts fresh
+// Verifies signal delivery doesn't corrupt subsequent cat instances
+StartTestApp(dirs.profile, dirs.left, dirs.right, "left", false);
+StartBashShell();
+TTYWriteRaw("printf '\\033[=1u' > /dev/tty\n")
+Sleep(500)
+// Start cat, interrupt it
+TTYWriteRaw("cat\n")
+Sleep(500)
+ToggleLCtrl(true)
+TypeVK(0x43)
+ToggleLCtrl(false)
+Sleep(500)
+// Start a new cat — should work normally
+TTYWriteRaw("cat; echo AFTER_INTERRUPT\n")
+Sleep(500)
+ToggleLCtrl(true)
+TypeVK(0x44)
+ToggleLCtrl(false)
+ExpectString("AFTER_INTERRUPT", 0, 0, -1, -1, 10000)
+ExitBashAndFar2l()
+
+
+///////////////////
+// Corner case: Multiple rapid Ctrl+C — no crash
+// Verifies signal delivery under rapid succession
+StartTestApp(dirs.profile, dirs.left, dirs.right, "left", false);
+StartBashShell();
+TTYWriteRaw("printf '\\033[=1u' > /dev/tty\n")
+Sleep(500)
+TTYWriteRaw("cat\n")
+Sleep(500)
+ToggleLCtrl(true)
+TypeVK(0x43)
+ToggleLCtrl(false)
+Sleep(100)
+TypeVK(0x43)
+ToggleLCtrl(false)
+Sleep(100)
+TypeVK(0x43)
+ToggleLCtrl(false)
+Sleep(500)
+// Start a new cat — shell should still be alive
+TTYWriteRaw("cat; echo RAPID_C_OK\n")
+Sleep(500)
+ToggleLCtrl(true)
+TypeVK(0x44)
+ToggleLCtrl(false)
+ExpectString("RAPID_C_OK", 0, 0, -1, -1, 10000)
+ExitBashAndFar2l()
+
+
+///////////////////
+// Corner case: Ctrl+U clears line, Ctrl+D sends EOF
+// Verifies Ctrl+U (0x15) is delivered as raw byte
+StartTestApp(dirs.profile, dirs.left, dirs.right, "left", false);
+StartBashShell();
+TTYWriteRaw("printf '\\033[=1u' > /dev/tty\n")
+Sleep(500)
+TTYWriteRaw("cat\n")
+Sleep(500)
+// Type text, Ctrl+U to erase, Ctrl+D for EOF
+TTYWriteRaw("garbage")
+ToggleLCtrl(true)
+TypeVK(0x55)
+ToggleLCtrl(false)
+Sleep(500)
+ToggleLCtrl(true)
+TypeVK(0x44)
+ToggleLCtrl(false)
+Sleep(1000)
+// Shell should be alive — start new cat
+TTYWriteRaw("cat; echo CTRL_U_OK\n")
+Sleep(500)
+ToggleLCtrl(true)
+TypeVK(0x44)
+ToggleLCtrl(false)
+ExpectString("CTRL_U_OK", 0, 0, -1, -1, 10000)
+ExitBashAndFar2l()

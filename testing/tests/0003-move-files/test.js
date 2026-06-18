@@ -50,3 +50,142 @@ if (CountExisting(left_items) != 0) {
 }
 
 ExitFar2lWithConfirm()
+
+
+///////////////////
+///////////////////
+// CORNER CASES
+///////////////////
+///////////////////
+var mydir = WorkDir();
+
+///////////////////
+// Corner case: Move empty file (0 bytes)
+// Verifies move works when source file has no content
+var dirsEF_profile = mydir + "/profile-emptyfile";
+var dirsEF_left = mydir + "/left-ef";
+var dirsEF_right = mydir + "/right-ef";
+MkdirsAll([dirsEF_profile, dirsEF_left, dirsEF_right], 0700);
+Mkfile(dirsEF_left + "/empty.txt", 0666, 0, 0);
+
+StartTestApp(dirsEF_profile, dirsEF_left, dirsEF_right);
+DismissHelpAndOSC52();
+
+// Select empty.txt and move
+TypeDown()
+TypeIns()
+TypeFKey(6)
+ExpectString("════ Rename/Move ═════", 0, 0, -1, -1, 10000)
+TypeEnter()
+Sleep(500);
+
+// Verify moved: source gone, dest exists
+if (Exists(dirsEF_left + "/empty.txt")) {
+    Panic("Empty file move: source still exists")
+}
+if (!Exists(dirsEF_right + "/empty.txt")) {
+    Panic("Empty file move: dest not created")
+}
+ExitFar2lWithConfirm()
+
+
+///////////////////
+// Corner case: Move single file
+// Verifies minimal selection (1 file) move works
+var dirsSF_profile = mydir + "/profile-singlefile";
+var dirsSF_left = mydir + "/left-sf";
+var dirsSF_right = mydir + "/right-sf";
+MkdirsAll([dirsSF_profile, dirsSF_left, dirsSF_right], 0700);
+var sf_left_items = [dirsSF_left + "/only.txt"];
+var sf_right_items = [dirsSF_right + "/only.txt"];
+Mkfiles(sf_left_items, 0666, 100, 1000);
+var sf_src = HashPathes(sf_left_items, true, true, true, true, true);
+
+StartTestApp(dirsSF_profile, dirsSF_left, dirsSF_right);
+DismissHelpAndOSC52();
+
+// Select only.txt and move
+TypeDown()
+TypeIns()
+TypeFKey(6)
+ExpectString("════ Rename/Move ═════", 0, 0, -1, -1, 10000)
+TypeEnter()
+Sleep(500);
+
+// Verify
+if (CountExisting(sf_left_items) != 0) {
+    Panic("Single file move: source still exists")
+}
+var sf_dst = HashPathes(sf_right_items, true, true, true, true, true);
+if (sf_src != sf_dst) {
+    Panic("Single file move: hashes mismatched")
+}
+ExitFar2lWithConfirm()
+
+
+///////////////////
+// Corner case: Move file with spaces in name
+// Verifies path handling when filename contains whitespace
+var dirsSP_profile = mydir + "/profile-spaces";
+var dirsSP_left = mydir + "/left-sp";
+var dirsSP_right = mydir + "/right-sp";
+MkdirsAll([dirsSP_profile, dirsSP_left, dirsSP_right], 0700);
+var sp_left_items = [dirsSP_left + "/file with spaces.txt"];
+var sp_right_items = [dirsSP_right + "/file with spaces.txt"];
+Mkfiles(sp_left_items, 0666, 100, 1000);
+var sp_src = HashPathes(sp_left_items, true, true, true, true, true);
+
+StartTestApp(dirsSP_profile, dirsSP_left, dirsSP_right);
+DismissHelpAndOSC52();
+
+// Select "file with spaces.txt" and move
+TypeDown()
+TypeIns()
+TypeFKey(6)
+ExpectString("════ Rename/Move ═════", 0, 0, -1, -1, 10000)
+TypeEnter()
+Sleep(500);
+
+// Verify
+if (CountExisting(sp_left_items) != 0) {
+    Panic("Spaces file move: source still exists")
+}
+var sp_dst = HashPathes(sp_right_items, true, true, true, true, true);
+if (sp_src != sp_dst) {
+    Panic("Spaces file move: hashes mismatched")
+}
+ExitFar2lWithConfirm()
+
+
+///////////////////
+// Corner case: Move file with Unicode name
+// Verifies encoding boundary for non-ASCII filenames
+var dirsUC_profile = mydir + "/profile-unicode";
+var dirsUC_left = mydir + "/left-uc";
+var dirsUC_right = mydir + "/right-uc";
+MkdirsAll([dirsUC_profile, dirsUC_left, dirsUC_right], 0700);
+var uc_left_items = [dirsUC_left + "/тест-файл.txt"];
+var uc_right_items = [dirsUC_right + "/тест-файл.txt"];
+Mkfiles(uc_left_items, 0666, 100, 1000);
+var uc_src = HashPathes(uc_left_items, true, true, true, true, true);
+
+StartTestApp(dirsUC_profile, dirsUC_left, dirsUC_right);
+DismissHelpAndOSC52();
+
+// Select "тест-файл.txt" and move
+TypeDown()
+TypeIns()
+TypeFKey(6)
+ExpectString("════ Rename/Move ═════", 0, 0, -1, -1, 10000)
+TypeEnter()
+Sleep(500);
+
+// Verify
+if (CountExisting(uc_left_items) != 0) {
+    Panic("Unicode file move: source still exists")
+}
+var uc_dst = HashPathes(uc_right_items, true, true, true, true, true);
+if (uc_src != uc_dst) {
+    Panic("Unicode file move: hashes mismatched")
+}
+ExitFar2lWithConfirm()
