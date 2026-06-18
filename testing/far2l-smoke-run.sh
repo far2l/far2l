@@ -39,7 +39,7 @@ for test in "$SCRIPT_DIR"/tests/*; do
 	if [ -d "$test" ]; then
 		mkdir -p "$test"/workdir
 		if [ -e "$test"/initdir ]; then
-			cp -r -f "$test"/initdir/* "$test"/workdir/
+			cp -r -f "$test"/initdir/. "$test"/workdir/
 		fi
 	fi
 done
