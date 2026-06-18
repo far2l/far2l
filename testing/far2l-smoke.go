@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"syscall"
+	"sync/atomic"
 	"unsafe"
     "github.com/ActiveState/termtest"
     "github.com/ActiveState/termtest/expect"
@@ -88,7 +89,7 @@ var g_buf [4096]byte
 var g_app *termtest.ConsoleProcess
 var g_vm *goja.Runtime
 var g_status far2l_Status
-var g_far2l_running bool = false
+var g_far2l_running atomic.Bool
 var g_lctrl bool
 var g_rctrl bool
 var g_lalt bool
@@ -218,14 +219,14 @@ func far2l_ReadSocket(expected_n int, extra_timeout uint32) {
 }
 
 func far2l_Close() {
-	g_far2l_running = false
+	g_far2l_running.Store(false)
 	if g_app != nil {
 		g_app.Close()
 	}
 }
 
 func far2l_StartWithSize(args []string, cols int, rows int) far2l_Status {
-	if g_far2l_running {
+	if g_far2l_running.Load() {
 		aux_Panic("far2l already running")
 	}
     opts := termtest.Options {
@@ -241,7 +242,7 @@ func far2l_StartWithSize(args []string, cols int, rows int) far2l_Status {
 	if err != nil {
 		aux_Panic(err.Error())
 	}
-	g_far2l_running = true
+	g_far2l_running.Store(true)
 	// Drain PTY output so the kernel buffer doesn't fill up and block ScrBuf.Flush().
 	// The test harness communicates via the TEST socket, not the PTY, so nobody
 	// normally reads terminal output. Without this goroutine far2l deadlocks.
@@ -258,14 +259,14 @@ func far2l_StartWithSize(args []string, cols int, rows int) far2l_Status {
 	go func() {
 		if ptyFd < 0 {
 			// Fallback: drain via ExpectRe (has race issues but better than deadlock)
-			for g_far2l_running {
+			for g_far2l_running.Load() {
 				g_app.ExpectRe(".", time.Millisecond)
 				time.Sleep(10 * time.Millisecond)
 			}
 			return
 		}
 		buf := make([]byte, 4096)
-		for g_far2l_running {
+		for g_far2l_running.Load() {
 			_, err := syscall.Read(ptyFd, buf)
 			if err != nil {
 				time.Sleep(10 * time.Millisecond)
@@ -575,7 +576,7 @@ func far2l_ReqBye() {
 func far2l_ExpectExit(code int, timeout_ms int) string {
 	far2l_ReqBye()
 	// Stop the PTY drain goroutine before ExpectExitCode.
-	g_far2l_running = false
+	g_far2l_running.Store(false)
 	time.Sleep(100 * time.Millisecond)
     _, err:= g_app.ExpectExitCode(code, time.Duration(timeout_ms) * 1000000)
 	if err != nil {
@@ -605,8 +606,10 @@ func far2l_SendRaw(data string) {
 	binary.LittleEndian.PutUint32(g_buf[4:], uint32(len(data)))
 	copy(g_buf[8:], data)
 	n, err := g_socket.WriteTo(g_buf[0:8+len(data)], g_addr)
-	if err != nil || n != 8+len(data) {
+	if err != nil {
 		aux_Panic(err.Error())
+	} else if n != 8+len(data) {
+		aux_Panic(fmt.Sprintf("short write: %d != %d", n, 8+len(data)))
 	}
 }
 
@@ -734,9 +737,8 @@ func far2l_SendKeyEvent(utf32_code uint32, key_code uint32, pressed bool) {
 	if g_lctrl { controls |= 0x0008 } // LEFT_CTRL_PRESSED
 	if g_rctrl { controls |= 0x0004 } // RIGHT_CTRL_PRESSED
 	if g_lalt  { controls |= 0x0002 } // LEFT_ALT_PRESSED
-	if g_ralt  { controls |= 0x0001 } // RIGHT_ALT_PRESSED
 	if g_shift { controls |= 0x0010 } // SHFIT_PRESSED
-	binary.LittleEndian.PutUint32(g_buf[0:], 5) // TEST_CMD_SEND_KEY
+	binary.LittleEndian.PutUint32(g_buf[0:], testCmdSendKey)
 	binary.LittleEndian.PutUint32(g_buf[4:], controls)
 	binary.LittleEndian.PutUint32(g_buf[8:], utf32_code)
 	binary.LittleEndian.PutUint32(g_buf[12:], key_code)
@@ -1231,7 +1233,7 @@ func saveSnapshotOnExit() {
 	fmt.Fprintf(&sb, "\n")
 
 	// far2l status
-	if g_far2l_running {
+	if g_far2l_running.Load() {
 		far2l_ReqRecvStatus()
 	}
 	fmt.Fprintf(&sb, "--- Terminal status ---\n")
@@ -1240,10 +1242,10 @@ func saveSnapshotOnExit() {
 	if g_status.Title != "" {
 		fmt.Fprintf(&sb, "Title: %s\n", g_status.Title)
 	}
-	fmt.Fprintf(&sb, "Running: %v\n\n", g_far2l_running)
+	fmt.Fprintf(&sb, "Running: %v\n\n", g_far2l_running.Load())
 
 	// Screen dump (only if far2l is still connected)
-	if g_far2l_running && g_status.Width > 0 && g_status.Height > 0 {
+	if g_far2l_running.Load() && g_status.Width > 0 && g_status.Height > 0 {
 		sb.WriteString("--- Screen dump ---\n")
 		sb.WriteString(far2l_DumpScreenQuiet(0, 0, g_status.Width, g_status.Height))
 		sb.WriteString("\n")
