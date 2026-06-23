@@ -31,7 +31,13 @@ private:
 
 	struct DetailsDlgResult
 	{
-		enum class Action { Close, Launch, GoTo } action;
+		enum class Action
+		{
+			Close,
+			Launch,
+			GoTo
+		};
+		Action action = Action::Close;
 		std::wstring goto_target = L"";
 	};
 

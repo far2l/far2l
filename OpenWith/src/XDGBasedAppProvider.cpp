@@ -30,7 +30,7 @@ constexpr const char* INI_SECTION_XDG_PROVIDER = "Settings.XDG";
 // ****************************** Public API ******************************
 
 
-XDGBasedAppProvider::XDGBasedAppProvider(TMsgGetter msg_getter) : AppProvider(std::move(msg_getter))
+XDGBasedAppProvider::XDGBasedAppProvider(TMsgGetter msg_getter) : AppProvider(msg_getter)
 {
 	_platform_settings_definitions = {
 		{ "UseXdgMimeTool",            MUseXdgMimeTool,            &XDGBasedAppProvider::_use_xdg_mime_tool,            true,  true },
@@ -62,7 +62,7 @@ XDGBasedAppProvider::XDGBasedAppProvider(TMsgGetter msg_getter) : AppProvider(st
 void XDGBasedAppProvider::LoadPlatformSettings(const KeyFileReadHelper &key_reader)
 {
 	for (const auto& def : _platform_settings_definitions) {
-		this->*(def.member_variable) = key_reader.GetInt(INI_SECTION_XDG_PROVIDER, def.internal_key.c_str(), def.default_value) != 0;
+		this->*(def.member_variable) = key_reader.GetInt(INI_SECTION_XDG_PROVIDER, def.internal_key, def.default_value) != 0;
 	}
 }
 
@@ -70,7 +70,7 @@ void XDGBasedAppProvider::LoadPlatformSettings(const KeyFileReadHelper &key_read
 void XDGBasedAppProvider::SavePlatformSettings(KeyFileHelper& key_writer)
 {
 	for (const auto& def : _platform_settings_definitions) {
-		key_writer.SetInt(INI_SECTION_XDG_PROVIDER, def.internal_key.c_str(), this->*(def.member_variable));
+		key_writer.SetInt(INI_SECTION_XDG_PROVIDER, def.internal_key, this->*(def.member_variable));
 	}
 }
 
@@ -1284,8 +1284,11 @@ void XDGBasedAppProvider::ParseMimeappsList(const std::string& filepath, Mimeapp
 		// parsed up to this point — preventing later system-level removals from overriding earlier user-level additions.
 
 		if (current_section == "[Default Applications]") {
-			if (!IsAssociationRemoved(mime, desktop_ids[0], mimeapps_lists)) {
-				mimeapps_lists.defaults.try_emplace(mime, desktop_ids[0], filepath);
+			for (const auto& desktop_id : desktop_ids) {
+				if (!IsAssociationRemoved(mime, desktop_id, mimeapps_lists)) {
+					mimeapps_lists.defaults.try_emplace(mime, desktop_id, filepath);
+					break;
+				}
 			}
 		} else if (current_section == "[Added Associations]") {
 			for (const auto& desktop_id : desktop_ids) {
