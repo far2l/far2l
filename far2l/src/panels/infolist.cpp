@@ -58,6 +58,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "execute.hpp"
 #include "EditorConfigOrg.hpp"
 #include "codepage.hpp" // for ShortReadableCodepageName()
+#include "Bookmarks.hpp"
 #ifdef __APPLE__
 // # include <sys/sysctl.h>
 #include <mach/mach_host.h>
@@ -521,7 +522,13 @@ int InfoList::ProcessKey(FarKey Key)
 		return FALSE;
 
 	if (Key >= KEY_RCTRL0 && Key <= KEY_RCTRL9) {
-		ExecShortcutFolder(Key - KEY_RCTRL0);
+		int Pos = Key - KEY_RCTRL0;
+		FARString path, plugin, file, data;
+		int EntryPos = 0;
+		if (BookmarksCache::ResolveForSlot(Pos, path, plugin, file, data, EntryPos)
+				== BookmarksCache::GetResult::Ok) {
+			ExecShortcutFolder(Pos, EntryPos);
+		}
 		return TRUE;
 	}
 

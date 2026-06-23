@@ -117,8 +117,11 @@ src/locale/xlat.cpp
 src/locale/locale.cpp
 
 src/bookmarks/Bookmarks.cpp
+src/bookmarks/BookmarksCache.cpp
+src/bookmarks/BookmarksLog.cpp
 src/bookmarks/BookmarksMenu.cpp
 src/bookmarks/BookmarksLegacy.cpp
+src/bookmarks/AutoHistory.cpp
 
 src/cfg/AllXLats.cpp
 src/cfg/config.cpp
@@ -236,6 +239,9 @@ else()
 endif()
 
 target_compile_definitions(far2l PRIVATE -DUNICODE)
+if(TESTING)
+    target_compile_definitions(far2l PRIVATE -DFAR2L_TESTING)
+endif()
 
 target_include_directories(far2l PRIVATE
     .

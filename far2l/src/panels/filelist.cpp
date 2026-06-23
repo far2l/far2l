@@ -944,11 +944,23 @@ int FileList::ProcessKey(FarKey Key)
 		}
 		// Jump to a folder shortcut?
 		else if (Key >= KEY_RCTRL0 && Key <= KEY_RCTRL9) {
-			ExecShortcutFolder(Key - KEY_RCTRL0);
+			int Pos = Key - KEY_RCTRL0;
+			FARString path, plugin, file, data;
+			int EntryPos = 0;
+			if (BookmarksCache::ResolveForSlot(Pos, path, plugin, file, data, EntryPos)
+					== BookmarksCache::GetResult::Ok) {
+				ExecShortcutFolder(Pos, EntryPos);
+			}
 			return TRUE;
 		}		// wxWidgets doesn't distinguish right/left modifiers, so here is alternative shortcuts:
 		else if (Key >= KEY_CTRLALT0 && Key <= KEY_CTRLALT9) {
-			ExecShortcutFolder(Key - KEY_CTRLALT0);
+			int Pos = Key - KEY_CTRLALT0;
+			FARString path, plugin, file, data;
+			int EntryPos = 0;
+			if (BookmarksCache::ResolveForSlot(Pos, path, plugin, file, data, EntryPos)
+					== BookmarksCache::GetResult::Ok) {
+				ExecShortcutFolder(Pos, EntryPos);
+			}
 			return TRUE;
 		}
 	}

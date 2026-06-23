@@ -65,6 +65,9 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "scrsaver.hpp"
 #include "execute.hpp"
 #include "Bookmarks.hpp"
+#include "BookmarksLog.hpp"
+#include "AutoHistory.hpp"
+#include <exception>
 #include "options.hpp"
 #include "pathmix.hpp"
 #include "dirmix.hpp"
@@ -358,48 +361,43 @@ LONG_PTR WINAPI ChDiskDlgProc(HANDLE hDlg, int Msg, int Param1, LONG_PTR Param2)
 
 static void AddBookmarkItems(VMenu &ChDisk, int Pos)
 {
-	Bookmarks b;
-	for (int SCPos = 0, AddedCount = 0;; ++SCPos) {
-		FARString Folder, Plugin, PluginFile, ShortcutPath;
-		if (b.Get(SCPos, &Folder, &Plugin, &PluginFile, nullptr)) {
-			MenuItemEx ChDiskItem;
+	(void)BookmarksCache::Instance(); // ensure loaded
+	bool bNeedSep = true;
 
-			if (!AddedCount++) {
-				ChDiskItem.Clear();
-				ChDiskItem.strName = Msg::BookmarksTitle;
-				ChDiskItem.Flags|= LIF_SEPARATOR;
-				ChDiskItem.UserDataSize = 0;
-				ChDisk.AddItem(&ChDiskItem);
-				ChDiskItem.Flags&= ~LIF_SEPARATOR;
-			}
+	for (int SlotPos = 0; SlotPos < 10; ++SlotPos) {
+		size_t count = BookmarksCache::GetCount(SlotPos);
+		if (count == 0) continue;
 
-			ChDiskItem.Clear();
-			ChDiskItem.SetSelect(ChDisk.GetItemCount() == Pos);
-
-			if (!PluginFile.IsEmpty()) {
-				ShortcutPath+= PluginFile;
-				ShortcutPath+= WGOOD_SLASH;
-			}
-			ShortcutPath+= Folder;
-			if (ShortcutPath.IsEmpty()) {
-				ShortcutPath = L"@";
-				ShortcutPath+= Plugin;
-			}
-
-			if (SCPos <= 9)
-				ChDiskItem.strName.Format(L"&%d  ", SCPos);
-			else
-				ChDiskItem.strName = L"   ";
-
-			ChDiskItem.strName+= TruncPathStr(ShortcutPath, 64);
-
-			PanelMenuItem item;
-			item.kind = PanelMenuItem::SHORTCUT;
-			item.nItem = SCPos;
-			ChDisk.SetUserData(&item, sizeof(item), ChDisk.AddItem(&ChDiskItem));
-		} else if (SCPos > 10) {
-			break;
+		if (bNeedSep) {
+			MenuItemEx sep;
+			sep.Clear();
+			sep.strName = Msg::BookmarksTitle;
+			sep.Flags = LIF_SEPARATOR;
+			sep.UserDataSize = 0;
+			ChDisk.AddItem(&sep);
+			bNeedSep = false;
 		}
+
+		MenuItemEx ChDiskItem;
+		ChDiskItem.Clear();
+		ChDiskItem.SetSelect(ChDisk.GetItemCount() == Pos);
+
+		FARString name = BookmarksCache::GetDisplayName(SlotPos);
+
+		if (count > 1) {
+			ChDiskItem.Flags |= MIF_SUBMENU;
+		}
+
+		// Format via the shared helper so unit tests pin the exact visible
+		// row, including the &-strip behaviour and the count suffix. The
+		// helper owns the (N) suffix — prepending it here caused a
+		// "(far2l-dev) (5) (5)" duplication.
+		ChDiskItem.strName = LocationBookmarkRow(SlotPos, name, count);
+
+		PanelMenuItem item;
+		item.kind = PanelMenuItem::SHORTCUT;
+		item.nItem = SlotPos;
+		ChDisk.SetUserData(&item, sizeof(item), ChDisk.AddItem(&ChDiskItem));
 	}
 }
 
@@ -592,7 +590,8 @@ int Panel::ChangeDiskMenu(int Pos, int FirstCall)
 							}
 
 							case PanelMenuItem::SHORTCUT: {
-								Bookmarks().Clear(item->nItem);
+						(void)BookmarksCache::Clear(item->nItem);
+								(void)BookmarksCache::Save();
 								return SelPos;
 							}
 
@@ -740,14 +739,25 @@ int Panel::ChangeDiskMenu(int Pos, int FirstCall)
 			SetLocation_Plugin(false, mitem->pPlugin, nullptr, nullptr, nItem);
 		}
 	} else if (mitem->kind == PanelMenuItem::SHORTCUT) {
-		ExecShortcutFolder(mitem->nItem);
+		int SlotPos = (int)mitem->nItem;
+		size_t cnt = BookmarksCache::GetCount(SlotPos);
+		if (cnt > 1) {
+			FARString path, plugin, file, data;
+			int EntryPos = 0;
+			if (BookmarksCache::ResolveForSlot(SlotPos, path, plugin, file, data, EntryPos)
+				== BookmarksCache::GetResult::Ok) {
+				ExecShortcutFolder(SlotPos, EntryPos);
+			}
+		} else if (cnt == 1) {
+			ExecShortcutFolder(SlotPos);
+		}
 	} else if (mitem->kind == PanelMenuItem::MOUNTPOINT || mitem->kind == PanelMenuItem::DIRECTORY) {
 		SetLocation_Directory(mitem->location.path);
 	}
 
 	return -1;
-}
 
+}
 void Panel::sUnmountPath(FARString path, bool forced)
 {
 	if (Opt.Confirm.RemoveHotPlug && Message(MSG_WARNING, 2,
@@ -1344,6 +1354,40 @@ int Panel::GetCurDirPluginAware(FARString &strCurDir)
 	return (int)strCurDir.GetLength();
 }
 
+// Record plugin panel navigation for auto-history.
+// Called from SetCurDir on every directory change for plugin panels.
+// Cost is low: StrCmpI in SetCurDir prevents redundant calls, and
+// AutoHistory::Add() only sets a dirty flag (no file I/O per call).
+static void AutoBookmarkIfPluginPanel(Panel *panel)
+{
+	if (!CtrlObject || panel->GetMode() != PLUGIN_PANEL) return;
+
+	BookmarkEntry e;
+	HANDLE hPlugin = panel->GetPluginHandle();
+	if (!hPlugin) return;
+	PluginHandle *ph = reinterpret_cast<PluginHandle *>(hPlugin);
+	if (ph && ph->pPlugin) {
+		e.Plugin = ph->pPlugin->GetModuleName();
+	}
+	OpenPluginInfo Info{};
+	Info.StructSize = sizeof(Info);
+	CtrlObject->Plugins.GetOpenPluginInfo(hPlugin, &Info);
+	e.PluginFile = Info.HostFile;
+	e.Folder = Info.CurDir;
+	e.PluginData = Info.ShortcutData;
+	if (e.Folder.IsEmpty()) return;
+
+	// AutoHistory::Add allocates (vector::insert) and GetAutoHistory()
+	// locks a mutex — both can throw. Auto-history is a non-essential
+	// convenience feature and must never crash panel navigation.
+	try {
+		GetAutoHistory().Add(e);
+	} catch (const std::exception& ex) {
+		BookmarksLog::Log(BookmarksLog::Level::Warning,
+			"AutoBookmarkIfPluginPanel: Add failed: %s", ex.what());
+	}
+}
+
 BOOL Panel::SetCurDir(const wchar_t *CurDir, int ClosePlugin)
 {
 	if (StrCmpI(strCurDir, CurDir) || !TestCurrentDirectory(CurDir)) {
@@ -1351,8 +1395,8 @@ BOOL Panel::SetCurDir(const wchar_t *CurDir, int ClosePlugin)
 
 		if (PanelMode != PLUGIN_PANEL)
 			PrepareDiskPath(strCurDir);
+		AutoBookmarkIfPluginPanel(this);
 	}
-
 	return TRUE;
 }
 
@@ -1954,9 +1998,11 @@ bool Panel::SaveShortcutFolder(int Pos)
 
 	if (PanelMode == PLUGIN_PANEL) {
 		HANDLE hPlugin = GetPluginHandle();
-		PluginHandle *ph = (PluginHandle *)hPlugin;
+		PluginHandle *ph = reinterpret_cast<PluginHandle *>(hPlugin);
+		if (!ph || !ph->pPlugin) return false;
 		strPluginModule = ph->pPlugin->GetModuleName();
-		OpenPluginInfo Info;
+		OpenPluginInfo Info{};
+		Info.StructSize = sizeof(Info);
 		CtrlObject->Plugins.GetOpenPluginInfo(hPlugin, &Info);
 		strPluginFile = Info.HostFile;
 		strShortcutFolder = Info.CurDir;
@@ -1968,9 +2014,22 @@ bool Panel::SaveShortcutFolder(int Pos)
 		strShortcutFolder = strCurDir;
 	}
 
-	if (Bookmarks().Set(Pos, &strShortcutFolder, &strPluginModule, &strPluginFile, &strPluginData))
-		return true;
-
+	BookmarkEntry e;
+	e.Folder = strShortcutFolder;
+	e.Plugin = strPluginModule;
+	e.PluginFile = strPluginFile;
+	e.PluginData = strPluginData;
+	if (e.Folder.IsEmpty()) {
+		BookmarksLog::Log(BookmarksLog::Level::Info,
+			"Panel::SaveShortcutFolder: empty CurDir, skipping");
+		return false;
+	}
+	if (!BookmarksCache::Add(Pos, e)) {
+		BookmarksLog::Log(BookmarksLog::Level::Warning,
+			"Panel::SaveShortcutFolder: Add failed for slot %d", Pos);
+		return false;
+	}
+	(void)BookmarksCache::Save();
 	return true;
 }
 
@@ -2012,11 +2071,26 @@ int Panel::ProcessShortcutFolder(FarKey Key,BOOL ProcTreePanel)
 }
 */
 
-bool Panel::ExecShortcutFolder(int Pos)
+bool Panel::ExecShortcutFolder(int Pos, int EntryPos)
 {
 	FARString strShortcutFolder, strPluginModule, strPluginFile, strPluginData;
 
-	if (Bookmarks().Get(Pos, &strShortcutFolder, &strPluginModule, &strPluginFile, &strPluginData)) {
+	// Fetch the entry via GetEntry (raw Folder, no env-var expansion).
+	// Expand env vars once here for BOTH entry-0 and entry-N so multi-entry
+	// slots behave identically to single-entry slots (Bookmarks::Get also
+	// expands, but GetEntry does not — normalizing on GetEntry avoids the
+	// double-expansion that would occur if we used Get for entry 0).
+	BookmarkEntry e;
+	if (BookmarksCache::GetEntry(Pos, (size_t)EntryPos, e)) {
+		strShortcutFolder = e.Folder;
+		strPluginModule = e.Plugin;
+		strPluginFile = e.PluginFile;
+		strPluginData = e.PluginData;
+	}
+	if (!strShortcutFolder.IsEmpty()) {
+		apiExpandEnvironmentStrings(strShortcutFolder, strShortcutFolder);
+	}
+	if (!strShortcutFolder.IsEmpty() || !strPluginModule.IsEmpty()) {
 		Panel *SrcPanel = this;
 		Panel *AnotherPanel = CtrlObject->Cp()->GetAnotherPanel(this);
 
