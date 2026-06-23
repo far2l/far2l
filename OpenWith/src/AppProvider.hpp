@@ -10,11 +10,11 @@
 
 struct ProviderSetting
 {
-	std::wstring internal_key;  // persistent INI key and internal identifier
-	std::wstring display_name;  // localized UI label
-	bool value;
-	bool disabled;              // true if the setting should be grayed out in the UI
-	bool affects_candidates;    // true if changing this setting affects the contents or order of the candidate list
+	std::wstring internal_key;      // persistent INI key and internal identifier
+	std::wstring display_name;      // localized UI label
+	bool value = false;
+	bool disabled = false;          // true if the setting should be grayed out in the UI
+	bool affects_candidates = true; // true if changing this setting affects the contents or order of the candidate list
 };
 
 class KeyFileReadHelper;

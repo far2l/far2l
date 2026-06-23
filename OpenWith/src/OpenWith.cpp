@@ -267,13 +267,12 @@ OpenWithPlugin::ConfigDlgResult OpenWithPlugin::ShowConfigDlg()
 void OpenWithPlugin::ShowError(const std::vector<std::wstring>& error_lines)
 {
 	std::vector<const wchar_t*> items;
-	items.reserve(error_lines.size() + 2);
+	items.reserve(error_lines.size() + 1);
 	items.push_back(GetMsg(MError));
 	for (const auto &line : error_lines) {
 		items.push_back(line.c_str());
 	}
-	items.push_back(GetMsg(MOk));
-	g_info.Message(g_info.ModuleNumber, FMSG_WARNING, L"Troubleshooting", items.data(), items.size(), 1);
+	g_info.Message(g_info.ModuleNumber, FMSG_WARNING | FMSG_MB_OK, L"Troubleshooting", items.data(), items.size(), 0);
 }
 
 
@@ -302,7 +301,7 @@ bool OpenWithPlugin::AskForLaunchConfirmation(const CandidateInfo& app, const si
 	wchar_t message[255] = {};
 	g_fsf.snprintf(message, ARRAYSIZE(message) - 1, GetMsg(MConfirmLaunchMessage), file_count, app.name.c_str());
 	const wchar_t* items[] = { GetMsg(MConfirmLaunchTitle), message };
-	int res = g_info.Message(g_info.ModuleNumber, FMSG_MB_YESNO, nullptr, items, ARRAYSIZE(items), 2);
+	int res = g_info.Message(g_info.ModuleNumber, FMSG_MB_YESNO, nullptr, items, ARRAYSIZE(items), 0);
 	return (res == 0);
 }
 
