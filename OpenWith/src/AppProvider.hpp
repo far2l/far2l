@@ -4,17 +4,16 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <functional>
 #include <utility>
 
 
 struct ProviderSetting
 {
-	std::wstring internal_key;  // persistent INI key and internal identifier
-	std::wstring display_name;  // localized UI label
-	bool value;
-	bool disabled;              // true if the setting should be grayed out in the UI
-	bool affects_candidates;    // true if changing this setting affects the contents or order of the candidate list
+	std::wstring internal_key;      // persistent INI key and internal identifier
+	std::wstring display_name;      // localized UI label
+	bool value = false;
+	bool disabled = false;          // true if the setting should be grayed out in the UI
+	bool affects_candidates = true; // true if changing this setting affects the contents or order of the candidate list
 };
 
 class KeyFileReadHelper;
@@ -23,12 +22,13 @@ class KeyFileHelper;
 class AppProvider
 {
 public:
-	using TMsgGetter = std::function<const wchar_t*(int)>;
+	using TMsgGetter = const wchar_t* (*)(int);
 
-	explicit AppProvider(TMsgGetter msg_getter) : m_GetMsg(std::move(msg_getter)) {}
+	explicit AppProvider(TMsgGetter msg_getter) : m_GetMsg(msg_getter) {}
 	virtual ~AppProvider() = default;
 
-	static AppProvider* GetInstance(TMsgGetter msg_getter = nullptr);
+	static void Initialize(TMsgGetter msg_getter);
+	static AppProvider* GetInstance();
 
 	virtual std::vector<CandidateInfo> GetAppCandidates(const std::vector<std::wstring>& filepaths) = 0;
 	virtual std::vector<std::wstring> GetMimeTypes() = 0;
@@ -47,4 +47,5 @@ protected:
 
 private:
 	static std::unique_ptr<AppProvider> CreateAppProvider(TMsgGetter msg_getter);
+	static AppProvider* GetOrInitialize(TMsgGetter msg_getter);
 };

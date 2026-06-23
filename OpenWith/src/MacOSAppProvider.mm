@@ -28,7 +28,7 @@ struct MacCandidateTempInfo {
 
 // ****************************** Implementation ******************************
 
-MacOSAppProvider::MacOSAppProvider(TMsgGetter msg_getter) : AppProvider(std::move(msg_getter))
+MacOSAppProvider::MacOSAppProvider(TMsgGetter msg_getter) : AppProvider(msg_getter)
 {
 }
 

@@ -15,8 +15,30 @@ std::unique_ptr<AppProvider> AppProvider::CreateAppProvider(TMsgGetter msg_gette
 }
 
 
-AppProvider* AppProvider::GetInstance(TMsgGetter msg_getter)
+AppProvider* AppProvider::GetOrInitialize(TMsgGetter msg_getter)
 {
-	static auto s_provider = CreateAppProvider(msg_getter);
+	static std::unique_ptr<AppProvider> s_provider = [msg_getter]() -> std::unique_ptr<AppProvider> {
+		if (!msg_getter) {
+			fprintf(stderr, "OpenWith: AppProvider::GetOrInitialize() called with nullptr!\n");
+			return nullptr;
+		}
+		return CreateAppProvider(msg_getter);
+	}();
+
 	return s_provider.get();
+}
+
+
+void AppProvider::Initialize(TMsgGetter msg_getter)
+{
+	if (!msg_getter) {
+		fprintf(stderr, "OpenWith: AppProvider::Initialize() called with nullptr!\n");
+	}
+	GetOrInitialize(msg_getter);
+}
+
+
+AppProvider* AppProvider::GetInstance()
+{
+	return GetOrInitialize(nullptr);
 }
