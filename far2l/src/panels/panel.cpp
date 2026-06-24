@@ -739,12 +739,11 @@ int Panel::ChangeDiskMenu(int Pos, int FirstCall)
 			SetLocation_Plugin(false, mitem->pPlugin, nullptr, nullptr, nItem);
 		}
 	} else if (mitem->kind == PanelMenuItem::SHORTCUT) {
-		int SlotPos = (int)mitem->nItem;
+		auto SlotPos = (int)mitem->nItem;
 		size_t cnt = BookmarksCache::GetCount(SlotPos);
 		if (cnt > 1) {
 			FARString path, plugin, file, data;
-			int EntryPos = 0;
-			if (BookmarksCache::ResolveForSlot(SlotPos, path, plugin, file, data, EntryPos)
+			if (int EntryPos = 0; BookmarksCache::ResolveForSlot(SlotPos, path, plugin, file, data, EntryPos)
 				== BookmarksCache::GetResult::Ok) {
 				ExecShortcutFolder(SlotPos, EntryPos);
 			}
@@ -1365,8 +1364,7 @@ static void AutoBookmarkIfPluginPanel(Panel *panel)
 	BookmarkEntry e;
 	HANDLE hPlugin = panel->GetPluginHandle();
 	if (!hPlugin) return;
-	PluginHandle *ph = reinterpret_cast<PluginHandle *>(hPlugin);
-	if (ph && ph->pPlugin) {
+	if (auto *ph = static_cast<PluginHandle *>(hPlugin); ph && ph->pPlugin) {
 		e.Plugin = ph->pPlugin->GetModuleName();
 	}
 	OpenPluginInfo Info{};
@@ -1998,7 +1996,7 @@ bool Panel::SaveShortcutFolder(int Pos)
 
 	if (PanelMode == PLUGIN_PANEL) {
 		HANDLE hPlugin = GetPluginHandle();
-		PluginHandle *ph = reinterpret_cast<PluginHandle *>(hPlugin);
+		auto *ph = static_cast<PluginHandle *>(hPlugin);
 		if (!ph || !ph->pPlugin) return false;
 		strPluginModule = ph->pPlugin->GetModuleName();
 		OpenPluginInfo Info{};
@@ -2071,6 +2069,71 @@ int Panel::ProcessShortcutFolder(FarKey Key,BOOL ProcTreePanel)
 }
 */
 
+static void ExecShortcutPluginFile(Panel *SrcPanel, const FARString &strPluginFile,
+	const FARString &strShortcutFolder)
+{
+	switch (CheckShortcutFolder(strPluginFile, true)) {
+		case 0:
+		case -1:
+			return;
+	}
+
+	/* BugZ#50 */
+	FARString strRealDir = strPluginFile;
+
+	if (CutToSlash(strRealDir)) {
+		SrcPanel->SetCurDir(strRealDir, TRUE);
+		SrcPanel->GoToFile(PointToName(strPluginFile));
+		SrcPanel->ClearAllItem();
+	}
+
+	if (SrcPanel->GetType() == FILE_PANEL)
+		((FileList *)SrcPanel)->OpenFilePlugin(strPluginFile, FALSE, OFP_SHORTCUT);
+
+	if (!strShortcutFolder.IsEmpty())
+		SrcPanel->SetCurDir(strShortcutFolder, FALSE);
+
+	SrcPanel->Show();
+}
+
+static bool ExecShortcutPluginModule(Panel *SrcPanel, const FARString &strPluginModule,
+	const FARString &strShortcutFolder, const FARString &strPluginData)
+{
+	if (CtrlObject->Cp()->ActivePanel->ProcessPluginEvent(FE_CLOSE, nullptr))
+		return true;
+
+	for (int I = 0; I < CtrlObject->Plugins.GetPluginsCount(); I++) {
+		Plugin *pPlugin = CtrlObject->Plugins.GetPlugin(I);
+
+		if (StrCmpI(pPlugin->GetModuleName(), strPluginModule))
+			continue;
+
+		if (pPlugin->HasOpenPlugin()) {
+			HANDLE hNewPlugin = CtrlObject->Plugins.OpenPlugin(pPlugin, OPEN_SHORTCUT,
+					(INT_PTR)strPluginData.CPtr());
+
+			if (hNewPlugin != INVALID_HANDLE_VALUE) {
+				int CurFocus = SrcPanel->GetFocus();
+
+				Panel *NewPanel =
+						CtrlObject->Cp()->ChangePanel(SrcPanel, FILE_PANEL, TRUE, TRUE);
+				NewPanel->SetPluginMode(hNewPlugin, L"",
+						CurFocus
+								|| !CtrlObject->Cp()->GetAnotherPanel(NewPanel)->IsVisible());
+
+				if (!strShortcutFolder.IsEmpty())
+					CtrlObject->Plugins.SetDirectory(hNewPlugin, strShortcutFolder, 0);
+
+				NewPanel->Update(0);
+				NewPanel->Show();
+			}
+		}
+
+		break;
+	}
+	return false;
+}
+
 bool Panel::ExecShortcutFolder(int Pos, int EntryPos)
 {
 	FARString strShortcutFolder, strPluginModule, strPluginFile, strPluginData;
@@ -2080,8 +2143,7 @@ bool Panel::ExecShortcutFolder(int Pos, int EntryPos)
 	// slots behave identically to single-entry slots (Bookmarks::Get also
 	// expands, but GetEntry does not — normalizing on GetEntry avoids the
 	// double-expansion that would occur if we used Get for entry 0).
-	BookmarkEntry e;
-	if (BookmarksCache::GetEntry(Pos, (size_t)EntryPos, e)) {
+	if (BookmarkEntry e; BookmarksCache::GetEntry(Pos, (size_t)EntryPos, e)) {
 		strShortcutFolder = e.Folder;
 		strPluginModule = e.Plugin;
 		strPluginFile = e.PluginFile;
@@ -2107,64 +2169,11 @@ bool Panel::ExecShortcutFolder(int Pos, int EntryPos)
 
 		if (!strPluginModule.IsEmpty()) {
 			if (!strPluginFile.IsEmpty()) {
-				switch (CheckShortcutFolder(strPluginFile, true)) {
-					case 0:
-						// return FALSE;
-					case -1:
-						return true;
-				}
-
-				/* Своеобразное решение BugZ#50 */
-				FARString strRealDir = strPluginFile;
-
-				if (CutToSlash(strRealDir)) {
-					SrcPanel->SetCurDir(strRealDir, TRUE);
-					SrcPanel->GoToFile(PointToName(strPluginFile));
-
-					SrcPanel->ClearAllItem();
-				}
-
-				if (SrcPanel->GetType() == FILE_PANEL)
-					((FileList *)SrcPanel)->OpenFilePlugin(strPluginFile, FALSE, OFP_SHORTCUT);		//???
-
-				if (!strShortcutFolder.IsEmpty())
-					SrcPanel->SetCurDir(strShortcutFolder, FALSE);
-
-				SrcPanel->Show();
+				ExecShortcutPluginFile(SrcPanel, strPluginFile, strShortcutFolder);
 			} else {
-				if (CtrlObject->Cp()->ActivePanel->ProcessPluginEvent(FE_CLOSE, nullptr))
+				if (ExecShortcutPluginModule(SrcPanel, strPluginModule, strShortcutFolder, strPluginData))
 					return true;
-
-				for (int I = 0; I < CtrlObject->Plugins.GetPluginsCount(); I++) {
-					Plugin *pPlugin = CtrlObject->Plugins.GetPlugin(I);
-
-					if (!StrCmpI(pPlugin->GetModuleName(), strPluginModule)) {
-						if (pPlugin->HasOpenPlugin()) {
-							HANDLE hNewPlugin = CtrlObject->Plugins.OpenPlugin(pPlugin, OPEN_SHORTCUT,
-									(INT_PTR)strPluginData.CPtr());
-
-							if (hNewPlugin != INVALID_HANDLE_VALUE) {
-								int CurFocus = SrcPanel->GetFocus();
-
-								Panel *NewPanel =
-										CtrlObject->Cp()->ChangePanel(SrcPanel, FILE_PANEL, TRUE, TRUE);
-								NewPanel->SetPluginMode(hNewPlugin, L"",
-										CurFocus
-												|| !CtrlObject->Cp()->GetAnotherPanel(NewPanel)->IsVisible());
-
-								if (!strShortcutFolder.IsEmpty())
-									CtrlObject->Plugins.SetDirectory(hNewPlugin, strShortcutFolder, 0);
-
-								NewPanel->Update(0);
-								NewPanel->Show();
-							}
-						}
-
-						break;
-					}
-				}
 			}
-
 			return true;
 		}
 

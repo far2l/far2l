@@ -35,6 +35,7 @@ static const wchar_t HelpBookmarks[] = L"Bookmarks";
 // menu must redraw. Distinct from -1 which means the user explicitly
 // dismissed the submenu.
 static constexpr int kSlotMutated = -2;
+static constexpr int kContinue = -3;
 // Pick a bookmark from the current panel's location (plugin or filesystem).
 // Returns false if the source is empty / unusable (E20).
 static bool CaptureCurrentBookmark(BookmarkEntry& out)
@@ -58,8 +59,7 @@ static bool CaptureCurrentBookmark(BookmarkEntry& out)
 		OpenPluginInfo Info{};
 		Info.StructSize = sizeof(OpenPluginInfo);
 		CtrlObject->Plugins.GetOpenPluginInfo(hPlugin, &Info);
-		PluginHandle *ph = reinterpret_cast<PluginHandle *>(hPlugin);
-		if (ph && ph->pPlugin) {
+		if (auto *ph = static_cast<PluginHandle *>(hPlugin); ph && ph->pPlugin) {
 			out.Plugin = ph->pPlugin->GetModuleName();
 		}
 		out.PluginFile = Info.HostFile;
@@ -109,6 +109,154 @@ static MenuItemEx BuildSlotItem(int Pos, const FARString& display_name, size_t c
 	return item;
 }
 
+// =============================================================================
+// Helper functions for ShowSubMenu
+// =============================================================================
+
+// Build and show the submenu contents for a given slot.
+static void RepopulateSubMenu(VMenu& SubMenu, int Pos, std::vector<BookmarkEntry>& entries, int sel)
+{
+	SubMenu.Hide();
+	entries.clear();
+	BookmarksCache::Enumerator(Pos, entries);
+	SubMenu.DeleteItems();
+	for (size_t i = 0; i < entries.size(); ++i) {
+		MenuItemEx item;
+		item.Clear();
+		FARString name = BookmarkEntry::DisplayNameFor(entries[i]);
+		// Display 1-based labels; SelPos and new_pos are 0-based.
+		item.strName.Format(L"%zu.  %ls", i + 1, name.CPtr());
+		item.SetSelect((int)i == (sel >= 0 ? sel : (int)entries.size() - 1));
+		SubMenu.AddItem(&item);
+	}
+	SubMenu.SetMaxHeight(std::min((int)entries.size(), ScrY / 2));
+	SubMenu.SetPosition(-1, -1, 0, 0);
+	SubMenu.Show();
+}
+
+// Handle KEY_SHIFTUP/KEY_SHIFTDOWN in ShowSubMenu.
+// Returns kContinue to keep the loop running.
+static int SubMenuHandleShift(int Pos, int SelPos, std::vector<BookmarkEntry>& entries, FarKey Key, VMenu& SubMenu)
+{
+	const int new_pos = (Key == KEY_SHIFTUP) ? SelPos - 1 : SelPos + 1;
+	if (new_pos < 0 || new_pos >= (int)entries.size()) return kContinue;
+	std::swap(entries[SelPos], entries[new_pos]);
+	BookmarksCache::SetAll(Pos, entries);
+	if (!BookmarksCache::Save()) {
+		SubMenu.SetBottomTitle(L"Failed to save bookmarks");
+	}
+	RepopulateSubMenu(SubMenu, Pos, entries, new_pos);
+	return kContinue;
+}
+
+// Handle KEY_DEL in ShowSubMenu: remove the selected entry.
+// Returns kSlotMutated if the slot becomes empty, kContinue otherwise.
+static int SubMenuHandleDelete(int Pos, int SelPos, std::vector<BookmarkEntry>& entries, VMenu& SubMenu)
+{
+	if (SelPos < 0 || SelPos >= (int)entries.size()) return kContinue;
+	(void)BookmarksCache::RemoveAt(Pos, (size_t)SelPos);
+	if (!BookmarksCache::Save()) {
+		SubMenu.SetBottomTitle(L"Failed to save bookmarks");
+	}
+	entries.clear();
+	BookmarksCache::Enumerator(Pos, entries);
+	if (entries.empty()) {
+		return kSlotMutated;
+	}
+	RepopulateSubMenu(SubMenu, Pos, entries, (SelPos < (int)entries.size()) ? SelPos : 0);
+	return kContinue;
+}
+
+// Handle KEY_INS in ShowSubMenu: capture + dialog + add new entry.
+// Always returns kContinue.
+static int SubMenuHandleInsert(int Pos, std::vector<BookmarkEntry>& entries, VMenu& SubMenu)
+{
+	// Capture first, edit, then commit — mirrors the F4 path.
+	// Pre-fix code Add()ed + Save()d before the dialog, so a
+	// cancelled dialog left an unedited entry persisted on disk.
+	BookmarkEntry new_entry;
+	if (!CaptureCurrentBookmark(new_entry)) {
+		return kContinue;
+	}
+	BookmarkEntry edit_entry = new_entry;
+	FARString strNewDir = edit_entry.Folder;
+	FARString strNewName = edit_entry.Name;
+	if (strNewName.IsEmpty()) {
+		strNewName = edit_entry.Folder;
+	}
+	DialogBuilder Builder(Msg::BookmarksTitle, HelpBookmarks);
+	Builder.AddText(Msg::FSShortcutName);
+	Builder.AddEditField(&strNewName, 50, L"FS_Name", DIF_EDITPATH);
+	Builder.AddText(Msg::FSShortcut);
+	Builder.AddEditField(&strNewDir, 50, L"FS_Path", DIF_EDITPATH);
+	Builder.AddOKCancel();
+	if (!Builder.ShowDialog()) {
+		// Dialog cancelled — do NOT persist the captured entry.
+		return kContinue;
+	}
+	Unquote(strNewDir);
+	if (!IsLocalRootPath(strNewDir))
+		DeleteEndSlash(strNewDir);
+	edit_entry.Name = strNewName;
+	edit_entry.Folder = strNewDir;
+	if (edit_entry.Name == edit_entry.Folder) {
+		edit_entry.Name.Clear();
+	}
+	BookmarksLog::Log(BookmarksLog::Level::Debug,
+		"ShowSubMenu Ins: slot=%d name='%ls' folder='%ls'",
+		Pos, strNewName.CPtr(), strNewDir.CPtr());
+	if (!BookmarksCache::Add(Pos, edit_entry)) {
+		SubMenu.SetBottomTitle(L"Invalid bookmark entry");
+		return kContinue;
+	}
+	if (!BookmarksCache::Save()) {
+		SubMenu.SetBottomTitle(L"Failed to save bookmarks");
+	}
+	RepopulateSubMenu(SubMenu, Pos, entries, 0);
+	return kContinue;
+}
+
+// Handle KEY_F4 in ShowSubMenu: edit the selected entry via dialog.
+// Always returns kContinue.
+static int SubMenuHandleEdit(int Pos, int SelPos, std::vector<BookmarkEntry>& entries, VMenu& SubMenu)
+{
+	if (SelPos < 0 || SelPos >= (int)entries.size()) return kContinue;
+	BookmarkEntry edit_entry = entries[SelPos];
+	FARString strNewDir = edit_entry.Folder;
+	FARString strNewName = edit_entry.Name;
+	if (strNewName.IsEmpty()) {
+		strNewName = edit_entry.Folder;
+	}
+	DialogBuilder Builder(Msg::BookmarksTitle, HelpBookmarks);
+	Builder.AddText(Msg::FSShortcutName);
+	Builder.AddEditField(&strNewName, 50, L"FS_Name", DIF_EDITPATH);
+	Builder.AddText(Msg::FSShortcut);
+	Builder.AddEditField(&strNewDir, 50, L"FS_Path", DIF_EDITPATH);
+	Builder.AddOKCancel();
+	if (Builder.ShowDialog()) {
+		Unquote(strNewDir);
+		if (!IsLocalRootPath(strNewDir))
+			DeleteEndSlash(strNewDir);
+		edit_entry.Name = strNewName;
+		edit_entry.Folder = strNewDir;
+		if (edit_entry.Name == edit_entry.Folder) {
+			edit_entry.Name.Clear();
+		}
+		BookmarksLog::Log(BookmarksLog::Level::Debug,
+			"ShowSubMenu F4: slot=%d entry=%d name='%ls' folder='%ls'",
+			Pos, SelPos, strNewName.CPtr(), strNewDir.CPtr());
+		if (!BookmarksCache::ReplaceAt(Pos, (size_t)SelPos, edit_entry)) {
+			SubMenu.SetBottomTitle(L"Invalid bookmark entry");
+			return kContinue;
+		}
+		if (!BookmarksCache::Save()) {
+			SubMenu.SetBottomTitle(L"Failed to save bookmarks");
+		}
+		RepopulateSubMenu(SubMenu, Pos, entries, SelPos);
+	}
+	return kContinue;
+}
+
 // Show the submenu for slot `Pos` and return the selected entry index
 // (0..N-1) via `out_entry`. Returns -1 if the user cancelled.
 static int ShowSubMenu(int Pos)
@@ -123,25 +271,7 @@ static int ShowSubMenu(int Pos)
 	SubMenu.SetPosition(-1, -1, 0, 0);
 	SubMenu.SetBottomTitle(Msg::BookmarkBottom);
 
-	auto Repopulate = [&](int sel) {
-		SubMenu.Hide();
-		entries.clear();
-		BookmarksCache::Enumerator(Pos, entries);
-		SubMenu.DeleteItems();
-		for (size_t i = 0; i < entries.size(); ++i) {
-			MenuItemEx item;
-			item.Clear();
-			FARString name = BookmarkEntry::DisplayNameFor(entries[i]);
-			// Display 1-based labels; SelPos and new_pos are 0-based.
-			item.strName.Format(L"%zu.  %ls", (size_t)(i + 1), name.CPtr());
-			item.SetSelect((int)i == (sel >= 0 ? sel : (int)entries.size() - 1));
-			SubMenu.AddItem(&item);
-		}
-		SubMenu.SetMaxHeight(std::min((int)entries.size(), ScrY / 2));
-		SubMenu.SetPosition(-1, -1, 0, 0);
-		SubMenu.Show();
-	};
-	Repopulate(0);
+	RepopulateSubMenu(SubMenu, Pos, entries, 0);
 	int exit_code = -1;
 	while (!SubMenu.Done()) {
 		const FarKey Key = SubMenu.ReadInput();
@@ -163,116 +293,25 @@ static int ShowSubMenu(int Pos)
 			}
 			case KEY_SHIFTUP:
 			case KEY_SHIFTDOWN: {
-				const int new_pos = (Key == KEY_SHIFTUP) ? SelPos - 1 : SelPos + 1;
-				if (new_pos < 0 || new_pos >= (int)entries.size()) break;
-				std::swap(entries[SelPos], entries[new_pos]);
-				BookmarksCache::SetAll(Pos, entries);
-				if (!BookmarksCache::Save()) {
-					SubMenu.SetBottomTitle(L"Failed to save bookmarks");
-				}
-				Repopulate(new_pos);
+				SubMenuHandleShift(Pos, SelPos, entries, Key, SubMenu);
 				continue;
 			}
 			case KEY_NUMDEL:
 			case KEY_DEL: {
-				if (SelPos >= 0 && SelPos < (int)entries.size()) {
-					(void)BookmarksCache::RemoveAt(Pos, (size_t)SelPos);
-					if (!BookmarksCache::Save()) {
-						SubMenu.SetBottomTitle(L"Failed to save bookmarks");
-					}
-					entries.clear();
-					BookmarksCache::Enumerator(Pos, entries);
-					if (entries.empty()) {
-						exit_code = kSlotMutated;
-						SubMenu.SetExitCode(exit_code);
-						SubMenu.Hide();
-						break;
-					}
-					Repopulate((SelPos < (int)entries.size()) ? SelPos : 0);
-				}
-				continue;
+				const int h = SubMenuHandleDelete(Pos, SelPos, entries, SubMenu);
+				if (h == kContinue) continue;
+				exit_code = h;
+				SubMenu.SetExitCode(h);
+				SubMenu.Hide();
+				break;
 			}
 			case KEY_NUMPAD0:
 			case KEY_INS: {
-				// Capture first, edit, then commit — mirrors the F4 path.
-				// Pre-fix code Add()ed + Save()d before the dialog, so a
-				// cancelled dialog left an unedited entry persisted on disk.
-				BookmarkEntry new_entry;
-				if (!CaptureCurrentBookmark(new_entry)) {
-					continue;
-				}
-				BookmarkEntry edit_entry = new_entry;
-				FARString strNewDir = edit_entry.Folder;
-				FARString strNewName = edit_entry.Name;
-				if (strNewName.IsEmpty()) {
-					strNewName = edit_entry.Folder;
-				}
-				DialogBuilder Builder(Msg::BookmarksTitle, HelpBookmarks);
-				Builder.AddText(Msg::FSShortcutName);
-				Builder.AddEditField(&strNewName, 50, L"FS_Name", DIF_EDITPATH);
-				Builder.AddText(Msg::FSShortcut);
-				Builder.AddEditField(&strNewDir, 50, L"FS_Path", DIF_EDITPATH);
-				Builder.AddOKCancel();
-				if (!Builder.ShowDialog()) {
-					// Dialog cancelled — do NOT persist the captured entry.
-					continue;
-				}
-				Unquote(strNewDir);
-				if (!IsLocalRootPath(strNewDir))
-					DeleteEndSlash(strNewDir);
-				edit_entry.Name = strNewName;
-				edit_entry.Folder = strNewDir;
-				if (edit_entry.Name == edit_entry.Folder) {
-					edit_entry.Name.Clear();
-				}
-				BookmarksLog::Log(BookmarksLog::Level::Debug,
-					"ShowSubMenu Ins: slot=%d name='%ls' folder='%ls'",
-					Pos, strNewName.CPtr(), strNewDir.CPtr());
-				if (!BookmarksCache::Add(Pos, edit_entry)) {
-					SubMenu.SetBottomTitle(L"Invalid bookmark entry");
-					continue;
-				}
-				if (!BookmarksCache::Save()) {
-					SubMenu.SetBottomTitle(L"Failed to save bookmarks");
-				}
-				Repopulate(0);
+				SubMenuHandleInsert(Pos, entries, SubMenu);
 				continue;
 			}
 			case KEY_F4: {
-				if (SelPos < 0 || SelPos >= (int)entries.size()) break;
-				BookmarkEntry edit_entry = entries[SelPos];
-				FARString strNewDir = edit_entry.Folder;
-				FARString strNewName = edit_entry.Name;
-				if (strNewName.IsEmpty()) {
-					strNewName = edit_entry.Folder;
-				}
-				DialogBuilder Builder(Msg::BookmarksTitle, HelpBookmarks);
-				Builder.AddText(Msg::FSShortcutName);
-				Builder.AddEditField(&strNewName, 50, L"FS_Name", DIF_EDITPATH);
-				Builder.AddText(Msg::FSShortcut);
-				Builder.AddEditField(&strNewDir, 50, L"FS_Path", DIF_EDITPATH);
-				Builder.AddOKCancel();
-				if (Builder.ShowDialog()) {
-					Unquote(strNewDir);
-					if (!IsLocalRootPath(strNewDir))
-						DeleteEndSlash(strNewDir);
-					edit_entry.Name = strNewName;
-					edit_entry.Folder = strNewDir;
-					if (edit_entry.Name == edit_entry.Folder) {
-						edit_entry.Name.Clear();
-					}
-					BookmarksLog::Log(BookmarksLog::Level::Debug,
-						"ShowSubMenu F4: slot=%d entry=%d name='%ls' folder='%ls'",
-						Pos, SelPos, strNewName.CPtr(), strNewDir.CPtr());
-					if (!BookmarksCache::ReplaceAt(Pos, (size_t)SelPos, edit_entry)) {
-						SubMenu.SetBottomTitle(L"Invalid bookmark entry");
-						continue;
-					}
-					if (!BookmarksCache::Save()) {
-						SubMenu.SetBottomTitle(L"Failed to save bookmarks");
-					}
-					Repopulate(SelPos);
-				}
+				SubMenuHandleEdit(Pos, SelPos, entries, SubMenu);
 				continue;
 			}
 			default:
@@ -469,7 +508,8 @@ static int ShowBookmarksMenuIteration(int Pos)
 				if (SelPos < 0 || SelPos >= 10) break;
 				const int OtherPos = (Key == KEY_SHIFTUP) ? SelPos - 1 : SelPos + 1;
 				if (OtherPos < 0 || OtherPos >= 10) break;
-				std::vector<BookmarkEntry> a, b;
+				std::vector<BookmarkEntry> a;
+				std::vector<BookmarkEntry> b;
 				BookmarksCache::Enumerator(SelPos, a);
 				BookmarksCache::Enumerator(OtherPos, b);
 				BookmarksCache::SetAll(SelPos, b);

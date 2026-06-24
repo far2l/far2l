@@ -14,19 +14,20 @@ BookmarksLog.cpp
 #include <cstdio>
 #include <cstdarg>
 #include <cstring>
+#include <array>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #if defined(_DEBUG) || !defined(NDEBUG)
-#define BOOKMARKS_LOG_TO_STDERR 1
+constexpr bool kBookmarksLogToStderr = true;
 #else
-#define BOOKMARKS_LOG_TO_STDERR 0
+constexpr bool kBookmarksLogToStderr = false;
 #endif
 
 namespace {
 constexpr size_t kRotateBytes = 1024 * 1024; // 1MB
-const char* kLogFileName = "bookmarks.log";
-const char* kLogFileOldName = "bookmarks.log.1";
+const char * const kLogFileName = "bookmarks.log";
+const char * const kLogFileOldName = "bookmarks.log.1";
 
 struct LogState
 {
@@ -104,10 +105,9 @@ void BookmarksLog::Log(Level level, const char* fmt, ...) noexcept
 	// lock_guard) so the caller's noexcept contract holds.
 	try {
 		LogState& state = LoggerState();
-		std::lock_guard<std::mutex> lock(state.mutex);
+		std::scoped_lock lock(state.mutex);
 
-#if BOOKMARKS_LOG_TO_STDERR
-		{
+		if constexpr (kBookmarksLogToStderr) {
 			va_list ap2;
 			va_copy(ap2, ap);
 			std::fprintf(stderr, "[bookmarks] %s: ", LevelStr(level));
@@ -115,7 +115,6 @@ void BookmarksLog::Log(Level level, const char* fmt, ...) noexcept
 			std::fputc('\n', stderr);
 			va_end(ap2);
 		}
-#endif
 
 		const std::string path = LogPath();
 		MaybeRotateAndReopen(path, state);
@@ -129,14 +128,14 @@ void BookmarksLog::Log(Level level, const char* fmt, ...) noexcept
 		time_t now = ::time(nullptr);
 		struct tm tm_buf {};
 		::localtime_r(&now, &tm_buf);
-		char ts[32];
-		std::strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%S", &tm_buf);
+		std::array<char, 32> ts;
+		std::strftime(ts.data(), ts.size(), "%Y-%m-%dT%H:%M:%S", &tm_buf);
 
-		std::fprintf(state.file, "%s [%s] ", ts, LevelStr(level));
+		std::fprintf(state.file, "%s [%s] ", ts.data(), LevelStr(level));
 		std::vfprintf(state.file, fmt, ap);
 		std::fputc('\n', state.file);
 		std::fflush(state.file);
-	} catch (...) {
+	} catch (const std::exception&) {
 		// Swallow — logging failures must not propagate.
 	}
 	va_end(ap);
@@ -145,7 +144,7 @@ void BookmarksLog::Log(Level level, const char* fmt, ...) noexcept
 void BookmarksLog::Flush()
 {
 	LogState& state = LoggerState();
-	std::lock_guard<std::mutex> lock(state.mutex);
+	std::scoped_lock lock(state.mutex);
 	if (state.file) {
 		std::fflush(state.file);
 		std::fclose(state.file);

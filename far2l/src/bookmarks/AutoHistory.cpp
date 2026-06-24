@@ -41,7 +41,7 @@ HistoryState& HistoryCache()
 AutoHistory& GetAutoHistory()
 {
 	HistoryState& state = HistoryCache();
-	std::lock_guard<std::mutex> lock(state.mutex);
+	std::scoped_lock lock(state.mutex);
 	if (!state.instance) {
 		state.instance = std::make_unique<AutoHistory>();
 	}
@@ -51,7 +51,7 @@ AutoHistory& GetAutoHistory()
 void ShutdownAutoHistory()
 {
 	HistoryState& state = HistoryCache();
-	std::lock_guard<std::mutex> lock(state.mutex);
+	std::scoped_lock lock(state.mutex);
 	state.instance.reset(); // destructor calls Save()
 }
 // =============================================================================
@@ -84,9 +84,9 @@ AutoHistory::~AutoHistory()
 
 void AutoHistory::Load()
 {
-	std::lock_guard<std::mutex> lock(_mtx);
+	std::scoped_lock lock(_mtx);
 
-	KeyFileHelper kfh(_ini_path.c_str(), true);
+	KeyFileHelper kfh(_ini_path, true);
 	if (!kfh.IsLoaded()) {
 		BookmarksLog::Log(BookmarksLog::Level::Info,
 			"AutoHistory::Load: %s not loadable, starting empty", _ini_path.c_str());
@@ -96,9 +96,7 @@ void AutoHistory::Load()
 	const std::string sec = "History";
 	_entries.clear();
 	for (int m = 0; ; ++m) {
-		char prefix_buf[32];
-		std::snprintf(prefix_buf, sizeof(prefix_buf), "Entry%d/", m);
-		const std::string prefix(prefix_buf);
+		const std::string prefix = "Entry" + std::to_string(m) + "/";
 		const std::string folder_key = prefix + "Folder";
 		if (!kfh.HasKey(sec, folder_key)) break;
 
@@ -127,13 +125,11 @@ void AutoHistory::WriteAll()
 
 		const std::string tmp_path = _ini_path + ".tmp";
 		{
-			KeyFileHelper tmp_kfh(tmp_path.c_str(), false);
+			KeyFileHelper tmp_kfh(tmp_path, false);
 			tmp_kfh.RemoveSection(sec);
 
 			for (size_t i = 0; i < _entries.size(); ++i) {
-				char prefix_buf[32];
-				std::snprintf(prefix_buf, sizeof(prefix_buf), "Entry%zu/", i);
-				const std::string prefix(prefix_buf);
+				const std::string prefix = "Entry" + std::to_string(i) + "/";
 				const BookmarkEntry& e = _entries[i];
 
 				tmp_kfh.SetString(sec, prefix + "Folder", e.Folder.CPtr());
@@ -173,7 +169,7 @@ void AutoHistory::WriteAll()
 
 void AutoHistory::Save()
 {
-	std::lock_guard<std::mutex> lock(_mtx);
+	std::scoped_lock lock(_mtx);
 	if (!bChanged) return;
 	WriteAll();
 }
@@ -184,7 +180,7 @@ void AutoHistory::Save()
 
 void AutoHistory::Add(const BookmarkEntry& entry)
 {
-	std::lock_guard<std::mutex> lock(_mtx);
+	std::scoped_lock lock(_mtx);
 
 	if (!entry.IsValid()) {
 		BookmarksLog::Log(BookmarksLog::Level::Warning,

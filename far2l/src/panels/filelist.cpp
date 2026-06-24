@@ -946,8 +946,7 @@ int FileList::ProcessKey(FarKey Key)
 		else if (Key >= KEY_RCTRL0 && Key <= KEY_RCTRL9) {
 			int Pos = Key - KEY_RCTRL0;
 			FARString path, plugin, file, data;
-			int EntryPos = 0;
-			if (BookmarksCache::ResolveForSlot(Pos, path, plugin, file, data, EntryPos)
+			if (int EntryPos = 0; BookmarksCache::ResolveForSlot(Pos, path, plugin, file, data, EntryPos)
 					== BookmarksCache::GetResult::Ok) {
 				ExecShortcutFolder(Pos, EntryPos);
 			}
@@ -956,8 +955,7 @@ int FileList::ProcessKey(FarKey Key)
 		else if (Key >= KEY_CTRLALT0 && Key <= KEY_CTRLALT9) {
 			int Pos = Key - KEY_CTRLALT0;
 			FARString path, plugin, file, data;
-			int EntryPos = 0;
-			if (BookmarksCache::ResolveForSlot(Pos, path, plugin, file, data, EntryPos)
+			if (int EntryPos = 0; BookmarksCache::ResolveForSlot(Pos, path, plugin, file, data, EntryPos)
 					== BookmarksCache::GetResult::Ok) {
 				ExecShortcutFolder(Pos, EntryPos);
 			}

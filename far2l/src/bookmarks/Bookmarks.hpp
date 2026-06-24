@@ -2,6 +2,7 @@
 #include <KeyFileHelper.h>
 #include "FARString.hpp"
 #include <vector>
+#include <array>
 #include <memory>
 #include <set>
 #include <cstddef>
@@ -30,6 +31,9 @@ struct BookmarkEntry
 	static_assert(kDisplayFront + 3 + kDisplayBack == kDisplayMaxLen,
 		"DisplayNameFor budget arithmetic depends on this invariant");
 
+	BookmarkEntry(BookmarkEntry&&) noexcept = default;
+	BookmarkEntry& operator=(BookmarkEntry&&) noexcept = default;
+
 	bool IsValid() const noexcept;
 
 	static FARString DisplayNameFor(const BookmarkEntry& entry);
@@ -50,7 +54,7 @@ class Bookmarks
 {
 	KeyFileHelper _kfh;
 	std::string _ini_path;
-	std::vector<BookmarkEntry> _entries[10];
+	std::array<std::vector<BookmarkEntry>, 10> _entries;
 	bool bChanged = false;
 	std::set<int> _warned_slots;
 	std::string _deferred_backup_path;

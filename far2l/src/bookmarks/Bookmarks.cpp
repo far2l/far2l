@@ -57,7 +57,7 @@ static FARString MiddleTruncate(const FARString& s)
 
 FARString BookmarkEntry::DisplayNameFor(const BookmarkEntry& entry)
 {
-	constexpr size_t kDisplayMaxLen = BookmarkEntry::kDisplayMaxLen;
+	constexpr size_t kMaxLen = BookmarkEntry::kDisplayMaxLen;
 
 	if (entry.Folder.IsEmpty()) {
 		FARString r;
@@ -97,12 +97,12 @@ FARString BookmarkEntry::DisplayNameFor(const BookmarkEntry& entry)
 	// is set on both menus per commit 5b8b0f08e).
 	const size_t suffix_overhead = entry.Name.GetLength() + 4; // " (X)"
 	FARString result;
-	if (suffix_overhead >= kDisplayMaxLen) {
+	if (suffix_overhead >= kMaxLen) {
 		// Name alone exceeds budget — drop the suffix and let the
 		// safety-net re-truncate below cap the result.
 		result = folder_visible;
 	} else {
-		const size_t folder_budget = kDisplayMaxLen - suffix_overhead;
+		const size_t folder_budget = kMaxLen - suffix_overhead;
 		if (folder_visible.GetLength() > folder_budget) {
 			FARString truncated(folder_visible.CPtr(), folder_budget);
 			result = truncated;
@@ -156,19 +156,17 @@ static std::string DefaultBookmarksIniPath()
 
 std::string Bookmarks::EntryKeyPrefix(int EntryPos)
 {
-	char buf[32];
-	std::snprintf(buf, sizeof(buf), "Shortcut%d/", EntryPos);
-	return std::string(buf);
+	return "Shortcut" + std::to_string(EntryPos) + "/";
 }
 
 Bookmarks::Bookmarks()
-	: _kfh(DefaultBookmarksIniPath().c_str(), true), _ini_path(DefaultBookmarksIniPath())
+	: _kfh(DefaultBookmarksIniPath(), true), _ini_path(DefaultBookmarksIniPath())
 {
 	Load();
 }
 
 Bookmarks::Bookmarks(const std::string& ini_path)
-	: _kfh(ini_path.c_str(), true), _ini_path(ini_path)
+	: _kfh(ini_path, true), _ini_path(ini_path)
 {
 	Load();
 }
@@ -176,11 +174,9 @@ Bookmarks::Bookmarks(const std::string& ini_path)
 Bookmarks::~Bookmarks()
 {
 	// Best-effort lazy save on destruction (D1). Failures are logged, not raised.
-	if (bChanged) {
-		if (!Save()) {
-			BookmarksLog::Log(BookmarksLog::Level::Warning,
-				"Bookmarks::~Bookmarks: save failed for %s", _ini_path.c_str());
-		}
+	if (bChanged && !Save()) {
+		BookmarksLog::Log(BookmarksLog::Level::Warning,
+			"Bookmarks::~Bookmarks: save failed for %s", _ini_path.c_str());
 	}
 }
 
@@ -214,6 +210,7 @@ void Bookmarks::Load()
 
 void Bookmarks::LoadSlot(int Pos)
 {
+	if (Pos < 0 || Pos >= 10) return;
 	const std::string sec = ToDec(Pos);
 	if (!_kfh.HasSection(sec)) {
 		_entries[Pos].clear();
@@ -261,6 +258,7 @@ void Bookmarks::LoadSlot(int Pos)
 
 void Bookmarks::WriteSlot(KeyFileHelper& out, int Pos) const
 {
+	if (Pos < 0 || Pos >= 10) return;
 	const std::string sec = ToDec(Pos);
 	out.RemoveSection(sec);
 	if (_entries[Pos].empty()) return;
@@ -294,7 +292,7 @@ bool Bookmarks::Save() noexcept
 	try {
 		const std::string tmp_path = _ini_path + ".tmp";
 		{
-			KeyFileHelper tmp_kfh(tmp_path.c_str(), false);
+			KeyFileHelper tmp_kfh(tmp_path, false);
 			for (int Pos = 0; Pos < 10; ++Pos) {
 				WriteSlot(tmp_kfh, Pos);
 			}
@@ -563,7 +561,7 @@ Bookmarks& BookmarksCache::Instance()
 	// single-threaded, so no additional synchronization is needed
 	// for the in-memory Bookmarks state they touch.
 	CacheState& state = Cache();
-	std::lock_guard<std::mutex> lock(state.mutex);
+	std::scoped_lock lock(state.mutex);
 	assert(!state.shutdown && "BookmarksCache::Instance() called after Shutdown()");
 	if (!state.instance) {
 		state.instance.reset(new Bookmarks());
@@ -574,7 +572,7 @@ Bookmarks& BookmarksCache::Instance()
 void BookmarksCache::Shutdown() noexcept
 {
 	CacheState& state = Cache();
-	std::lock_guard<std::mutex> lock(state.mutex);
+	std::scoped_lock lock(state.mutex);
 	if (state.instance) {
 		if (!state.instance->Save()) {
 			BookmarksLog::Log(BookmarksLog::Level::Warning,
@@ -589,7 +587,7 @@ void BookmarksCache::Shutdown() noexcept
 void BookmarksCache::ResetForTest(std::unique_ptr<Bookmarks> injected) noexcept
 {
 	CacheState& state = Cache();
-	std::lock_guard<std::mutex> lock(state.mutex);
+	std::scoped_lock lock(state.mutex);
 	state.instance = std::move(injected);
 	state.shutdown = false;
 }
@@ -674,6 +672,104 @@ static bool IsLegacyFlatFormat(const KeyFileHelper& kfh, int Pos) noexcept
 	return kfh.HasKey(sec, "Path") && !kfh.HasKey(sec, "Shortcut0/Folder");
 }
 
+
+static void MigrateLegacySlot(KeyFileHelper& kfh, int Pos, bool& bNeedsSave)
+{
+	if (!IsLegacyFlatFormat(kfh, Pos)) return;
+
+	const std::string sec = ToDec(Pos);
+	const std::string path_val = kfh.GetString(sec, "Path", "");
+	if (!path_val.empty()) {
+		kfh.SetString(sec, "Shortcut0/Folder", path_val.c_str());
+		if (kfh.HasKey(sec, "Plugin")) {
+			kfh.SetString(sec, "Shortcut0/Plugin",
+				kfh.GetString(sec, "Plugin", L"").c_str());
+			kfh.RemoveKey(sec, "Plugin");
+		}
+		if (kfh.HasKey(sec, "PluginFile")) {
+			kfh.SetString(sec, "Shortcut0/PluginFile",
+				kfh.GetString(sec, "PluginFile", L"").c_str());
+			kfh.RemoveKey(sec, "PluginFile");
+		}
+		if (kfh.HasKey(sec, "PluginData")) {
+			kfh.SetString(sec, "Shortcut0/PluginData",
+				kfh.GetString(sec, "PluginData", L"").c_str());
+			kfh.RemoveKey(sec, "PluginData");
+		}
+		// Only remove Path and flag save when an entry was actually
+		// migrated. An empty-but-present Path (corrupted slot) leaves
+		// nothing to migrate; removing the legacy keys would silently
+		// destroy the slot with no Shortcut0/ replacement.
+		kfh.RemoveKey(sec, "Path");
+		bNeedsSave = true;
+	}
+}
+
+static void CleanupLegacySlots(KeyFileHelper& kfh, std::vector<int>& dropped, bool& bNeedsSave)
+{
+	for (int Pos = 10; Pos < 110; ++Pos) {
+		const std::string sec = ToDec(Pos);
+		if (kfh.HasSection(sec)) {
+			dropped.push_back(Pos);
+			kfh.RemoveSection(sec);
+			bNeedsSave = true;
+		}
+	}
+	if (!dropped.empty()) {
+		BookmarksLog::Log(BookmarksLog::Level::Warning,
+			"MigrateIfNeeded: dropped legacy slots %d..%d (new far2l supports only 0..9)",
+			dropped.front(), dropped.back());
+	}
+}
+
+static void BackupIniFile(const std::string& ini_path, std::string& deferred_backup_path)
+{
+	const std::string backup_path = ini_path + ".backup";
+	int src_fd = open(ini_path.c_str(), O_RDONLY | O_CLOEXEC);
+	if (src_fd != -1) {
+		// Get source size for completeness verification.
+		struct stat src_st;
+		if (::fstat(src_fd, &src_st) != 0) {
+			BookmarksLog::Log(BookmarksLog::Level::Warning,
+				"BackupIniFile: fstat failed (errno=%d)", errno);
+			close(src_fd);
+		} else {
+			int dst_fd = open(backup_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+			if (dst_fd != -1) {
+				// ReadWritePiece copies only one read chunk (up to 32KB)
+				// per call — loop until EOF so the full file is backed
+				// up, and verify the total matches the source size to
+				// detect short copies (e.g. disk full mid-backup).
+				ssize_t total_copied = 0;
+				for (;;) {
+					ssize_t r = ReadWritePiece(src_fd, dst_fd);
+					if (r < 0) { total_copied = -1; break; }
+					if (r == 0) break; // EOF
+					total_copied += r;
+				}
+				if (total_copied < 0 || (size_t)total_copied != (size_t)src_st.st_size) {
+					BookmarksLog::Log(BookmarksLog::Level::Warning,
+						"BackupIniFile: backup incomplete (copied=%zd, expected=%lld, errno=%d)",
+						total_copied, (long long)src_st.st_size, errno);
+					unlink(backup_path.c_str());
+				} else {
+					BookmarksLog::Log(BookmarksLog::Level::Info,
+						"BackupIniFile: backed up %s (%zd bytes)",
+						backup_path.c_str(), total_copied);
+					deferred_backup_path = backup_path;
+				}
+				close(dst_fd);
+			} else {
+				BookmarksLog::Log(BookmarksLog::Level::Warning,
+					"BackupIniFile: could not create backup file (errno=%d)", errno);
+			}
+			close(src_fd);
+		}
+	} else {
+		BookmarksLog::Log(BookmarksLog::Level::Warning,
+			"BackupIniFile: could not open INI for reading (errno=%d)", errno);
+	}
+}
 void Bookmarks::MigrateIfNeeded()
 {
 	if (_migrated) return;
@@ -687,107 +783,18 @@ void Bookmarks::MigrateIfNeeded()
 
 	bool bNeedsSave = false;
 	for (int Pos = 0; Pos < 10; ++Pos) {
-		if (!IsLegacyFlatFormat(_kfh, Pos)) continue;
-
-		// Convert Path -> Shortcut0/Folder
-		const std::string sec = ToDec(Pos);
-		const std::string path_val = _kfh.GetString(sec, "Path", "");
-		if (!path_val.empty()) {
-			_kfh.SetString(sec, "Shortcut0/Folder", path_val.c_str());
-			if (_kfh.HasKey(sec, "Plugin")) {
-				_kfh.SetString(sec, "Shortcut0/Plugin",
-					_kfh.GetString(sec, "Plugin", L"").c_str());
-				_kfh.RemoveKey(sec, "Plugin");
-			}
-			if (_kfh.HasKey(sec, "PluginFile")) {
-				_kfh.SetString(sec, "Shortcut0/PluginFile",
-					_kfh.GetString(sec, "PluginFile", L"").c_str());
-				_kfh.RemoveKey(sec, "PluginFile");
-			}
-			if (_kfh.HasKey(sec, "PluginData")) {
-				_kfh.SetString(sec, "Shortcut0/PluginData",
-					_kfh.GetString(sec, "PluginData", L"").c_str());
-				_kfh.RemoveKey(sec, "PluginData");
-			}
-			// Only remove Path and flag save when an entry was actually
-			// migrated. An empty-but-present Path (corrupted slot) leaves
-			// nothing to migrate; removing the legacy keys would silently
-			// destroy the slot with no Shortcut0/ replacement.
-			_kfh.RemoveKey(sec, "Path");
-			bNeedsSave = true;
-		}
+		MigrateLegacySlot(_kfh, Pos, bNeedsSave);
 	}
 
-	// Walk-past-10 cleanup
 	std::vector<int> dropped;
-	for (int Pos = 10; Pos < 110; ++Pos) {
-		const std::string sec = ToDec(Pos);
-		if (_kfh.HasSection(sec)) {
-			dropped.push_back(Pos);
-			_kfh.RemoveSection(sec);
-			bNeedsSave = true;
-		}
-	}
+	CleanupLegacySlots(_kfh, dropped, bNeedsSave);
 	if (!dropped.empty()) {
-		BookmarksLog::Log(BookmarksLog::Level::Warning,
-			"MigrateIfNeeded: dropped legacy slots %d..%d (new far2l supports only 0..9)",
-			dropped.front(), dropped.back());
-		// Defer the user-facing notification: at this point in main.cpp
-		// CtrlObject is not yet initialized, so Message() cannot be shown.
-		// The bookmarks menu drains the deferred list via
-		// ConsumeDeferredNotifications() on first invocation.
 		_deferred_dropped_slots.insert(_deferred_dropped_slots.end(),
 			dropped.begin(), dropped.end());
 	}
 
-	// D22: Backup original INI before modifying. Only when
-	// migration is actually needed, to avoid unnecessary copies.
 	if (bNeedsSave) {
-		const std::string backup_path = _ini_path + ".backup";
-		int src_fd = open(_ini_path.c_str(), O_RDONLY | O_CLOEXEC);
-		if (src_fd != -1) {
-			// Get source size for completeness verification.
-			struct stat src_st;
-			if (::fstat(src_fd, &src_st) != 0) {
-				BookmarksLog::Log(BookmarksLog::Level::Warning,
-					"MigrateIfNeeded: fstat failed (errno=%d)", errno);
-				close(src_fd);
-			} else {
-				int dst_fd = open(backup_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
-				if (dst_fd != -1) {
-					// ReadWritePiece copies only one read chunk (up to 32KB)
-					// per call — loop until EOF so the full file is backed
-					// up, and verify the total matches the source size to
-					// detect short copies (e.g. disk full mid-backup).
-					ssize_t total_copied = 0;
-					for (;;) {
-						ssize_t r = ReadWritePiece(src_fd, dst_fd);
-						if (r < 0) { total_copied = -1; break; }
-						if (r == 0) break; // EOF
-						total_copied += r;
-					}
-					if (total_copied < 0 || (size_t)total_copied != (size_t)src_st.st_size) {
-						BookmarksLog::Log(BookmarksLog::Level::Warning,
-							"MigrateIfNeeded: backup incomplete (copied=%zd, expected=%lld, errno=%d)",
-							total_copied, (long long)src_st.st_size, errno);
-						unlink(backup_path.c_str());
-					} else {
-						BookmarksLog::Log(BookmarksLog::Level::Info,
-							"MigrateIfNeeded: backed up %s (%zd bytes)",
-							backup_path.c_str(), total_copied);
-						_deferred_backup_path = backup_path;
-					}
-					close(dst_fd);
-				} else {
-					BookmarksLog::Log(BookmarksLog::Level::Warning,
-						"MigrateIfNeeded: could not create backup file (errno=%d)", errno);
-				}
-				close(src_fd);
-			}
-		} else {
-			BookmarksLog::Log(BookmarksLog::Level::Warning,
-				"MigrateIfNeeded: could not open INI for reading (errno=%d)", errno);
-		}
+		BackupIniFile(_ini_path, _deferred_backup_path);
 	}
 
 	if (bNeedsSave) {
@@ -795,10 +802,6 @@ void Bookmarks::MigrateIfNeeded()
 			BookmarksLog::Log(BookmarksLog::Level::Warning,
 				"MigrateIfNeeded: save failed; will retry next session");
 		} else {
-			// _kfh now reflects the migrated on-disk state; the in-memory
-			// _entries were populated by Load() from the legacy fallback
-			// (LoadSlot reads "Path" when no Shortcut0/Folder exists), so
-			// they already match what we just wrote. Reload to be safe.
 			Load();
 		}
 	}
