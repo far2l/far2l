@@ -8527,6 +8527,17 @@ FSShortcut
 "Введіть нову закладку:"
 "Увядзіце новую закладку:"
 
+FSShortcutName
+"Имя:"
+"Name:"
+"Název:"
+"Name:"
+"Név:"
+"Nazwa:"
+"Nombre:"
+"Ім'я:"
+"Назва:"
+
 NeedNearPath
 "Перейти в ближайшую доступную папку?"
 "Jump to the nearest existing folder?"
@@ -8549,9 +8560,52 @@ SaveThisShortcut
 "Запам'ятати цю закладку?"
 "Запомніць гэтую закладку?"
 
+BookmarksSlotLarge
+"Внимание: слот содержит более 1000 закладок. Производительность может снижаться."
+"Warning: bookmark slot contains more than 1000 entries. Performance may degrade."
+"Upozornění: zkratka obsahuje více než 1000 záznamů. Výkon se může snížit."
+"Warnung: Mehr als 1000 Einträge im Lesezeichen-Slot. Leistung kann sinken."
+"Figyelem: a gyorsbillentyű 1000-nél több bejegyzést tartalmaz. A teljesítmény romolhat."
+"Uwaga: skrót zawiera ponad 1000 wpisów. Wydajność może spaść."
+"Aviso: el acceso contiene más de 1000 entradas. El rendimiento puede bajar."
+"Увага: слот містить понад 1000 закладок. Продуктивність може знизитися."
+"Увага: слот утрымлівае больш за 1000 закладак. Прадукцыйнасць можа знізіцца."
+
+BookmarksDropped
+"Legacy-закладки со слотов [10..109] были удалены. far2l поддерживает только 10 слотов (0-9)."
+"Legacy bookmarks at slots [10..109] were dropped. far2l supports only 10 slots (0-9)."
+"Staré zkratky ze slotů [10..109] byly odstraněny. far2l podporuje pouze 10 slotů (0-9)."
+"Alte Lesezeichen aus Slots [10..109] wurden entfernt. far2l unterstützt nur 10 Slots (0-9)."
+"A [10..109] slotok örökölt gyorsbillentyűi törölve. A far2l csak 10 slotot támogat (0-9)."
+"Starsze skróty ze slotów [10..109] zostały usunięte. far2l obsługuje tylko 10 slotów (0-9)."
+"Los accesos heredados en las ranuras [10..109] se eliminaron. far2l solo admite 10 ranuras (0-9)."
+"Застарілі закладки зі слотів [10..109] були видалені. far2l підтримує лише 10 слотів (0-9)."
+"Спадчынныя закладкі са слотаў [10..109] былі выдалены. far2l падтрымлівае толькі 10 слотаў (0-9)."
+
+BookmarksEmpty
+"Нет закладок папок"
+"No folder bookmarks"
+"Nejsou žádné záložky složek"
+"Keine Ordner-Lesezeichen"
+"Nincsenek mappa könyvjelzők"
+"Brak zakładek folderów"
+"No hay accesos de carpeta"
+"Немає закладок папок"
+"Няма закладак тэчак"
+
+BookmarksDroppedBackup
+"Исходный файл сохранён в"
+"Original file backed up to"
+"Původní soubor zálohován do"
+"Ursprüngliche Datei gesichert nach"
+"Az eredeti fájl biztonsági mentése"
+"Oryginalny plik zapisany w"
+"Archivo original respaldado en"
+"Оригінальний файл збережено в"
+"Арыгінальны файл захаваны ў"
+
 EditF1
 l:
-l://functional keys - 6 characters max, 12 keys, "OEM" is F8 dupe!
 "Помощь"
 "Help"
 "Pomoc"

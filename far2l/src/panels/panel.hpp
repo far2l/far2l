@@ -326,7 +326,7 @@ public:
 	virtual long GetFileCount() { return 0; }
 	virtual const void *GetItem(int) { return nullptr; };
 
-	bool ExecShortcutFolder(int Pos);
+	bool ExecShortcutFolder(int Pos, int EntryPos = 0);
 	bool SaveShortcutFolder(int Pos);
 
 	static void EndDrag();

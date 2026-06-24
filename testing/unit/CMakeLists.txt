@@ -2,6 +2,10 @@
 
 # Only build if TESTING is enabled
 if(TESTING)
+    # GoogleTest targets (gtest, gmock, gtest_main) are created by
+    # FetchContent in the parent testing/CMakeLists.txt via
+    # cmake/FindGoogleTest.cmake — no find_package needed here.
+
     # Create unit test executable
     add_executable(far2l_unit_tests
         test_tty_input_parser.cpp
@@ -14,14 +18,19 @@ if(TESTING)
         test_utils.cpp
         test_cregexp_hardening.cpp
         test_textparser_benchmarks.cpp
-        
+        # Bookmarks tests
+        test_bookmarks.cpp
+        test_bookmarks_minimal.cpp
+        test_isvalid.cpp
+        test_displayname.cpp
+        test_location_bookmarks.cpp
         # Main function
         main.cpp
         # Stub symbols for WinPort references that resolve in the far2l executable
         stubs.cpp
     )
-    
-    
+
+
     # Link with Google Test
     # Link with Google Test and WinPort
     target_link_libraries(far2l_unit_tests
@@ -29,9 +38,10 @@ if(TESTING)
         GoogleTest::gtest
         GoogleTest::gmock
         GoogleTest::gtest_main
+        utils
         WinPort
     )
-    
+
     # Include directories
     target_include_directories(far2l_unit_tests
         PRIVATE
@@ -41,6 +51,13 @@ if(TESTING)
         ${CMAKE_SOURCE_DIR}/WinPort/src/Backend/TTY
         ${CMAKE_SOURCE_DIR}/WinPort
         ${CMAKE_SOURCE_DIR}/far2l
+        ${CMAKE_SOURCE_DIR}/far2l/src/bookmarks
+        ${CMAKE_SOURCE_DIR}/far2l/src/base
+        ${CMAKE_SOURCE_DIR}/far2l/src/locale
+        ${CMAKE_SOURCE_DIR}/far2l/src/cfg
+        ${CMAKE_SOURCE_DIR}/far2l/src
+        ${CMAKE_SOURCE_DIR}/far2l/far2sdk
+        ${CMAKE_BINARY_DIR}/far2l
         ${CMAKE_SOURCE_DIR}/utils/include
     )
 
@@ -56,13 +73,13 @@ if(TESTING)
         -Werror
         -Wno-unused-parameter
     )
-    
+
     # Add test target
     add_test(NAME far2l_unit_tests
         COMMAND far2l_unit_tests
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
-    
+
     message(STATUS "Unit testing framework configured")
-    
+
 endif()

@@ -3822,19 +3822,40 @@ always equal to zero.
 @Bookmarks
 $ #Bookmarks#
     Bookmarks are designed to provide fast access to frequently used
-folders. Press #Ctrl-Shift-0..9#, to create a shortcut to the current folder.
-To change to the folder recorded in the shortcut, press #RightCtrl-0..9#. If
-#RightCtrl-0..9# pressed in edit line, it inserts the shortcut path into the
-line. Bookmarks are also available from Location menu.
+folders. Each shortcut slot #0-8# can hold up to #1000# entries. Slot #9#
+is a special auto-recording slot limited to #50# entries for visited plugin
+panels. To create a shortcut to the current folder, press #Ctrl-Shift-0..9#. To
+change to a folder recorded in the shortcut, press #RightCtrl-0..9#. If
+#RightCtrl-0..9# is pressed in edit line, it inserts the shortcut path into
+the line. Bookmarks are also available from Location menu.
+
+    When you press #RightCtrl-0..9# on a shortcut that contains more than
+one entry, a #submenu# opens showing all entries in that slot. Select an
+entry and press #Enter# to navigate to it.
+
+ #Submenu keyboard commands:#
+
+   #Enter#       Navigate to the selected entry.
+   #Ins#         Add the current folder as a new entry in this slot.
+   #Del#         Remove the selected entry from this slot.
+   #F4#          Edit the path of the selected entry.
+   #Shift+Up#    Exchange this slot with the slot above.
+   #Shift+Down#  Exchange this slot with the slot below.
+   #Esc#         Close the submenu.
+
+ #Main bookmarks menu keyboard commands:#
+
+   #Shift+Up#    Exchange the selected slot with the slot above.
+   #Shift+Down#  Exchange the selected slot with the slot below.
 
     The #Show bookmarks# item in the ~Commands menu~@CmdMenu@ may be
 used to view, set, edit and delete bookmarks on different shortcuts.
 
-    You can move selected bookmark to upper/lower position by pressing
-#Shift+Up# and #Shift+Down# keys.
-
     When you are editing a bookmark (#F4#), you cannot create a bookmark to a
 plugin panel.
+
+    Diagnostics are written to #bookmarks.log# in the active settings root
+directory (see the #-u# flag or ~$FARSETTINGS~@FAREnv@ environment variable).
 
     See also: common ~menu~@MenuCmd@ keyboard commands.
 

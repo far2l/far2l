@@ -638,7 +638,7 @@ const wchar_t *FarLangMsg::GetMsg(FarLangMsgID id)
 	return ::Lang.GetMsgWide(id);
 }
 
-const size_t FarLangMsg::GetMsgLen(FarLangMsgID id)
+size_t FarLangMsg::GetMsgLen(FarLangMsgID id)
 {
 	return ::Lang.GetMsgWLen(id);
 }

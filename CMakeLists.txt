@@ -640,6 +640,7 @@ add_subdirectory (packaging)
 add_subdirectory(man)
 add_subdirectory(bash-completion)
 
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     set(FIXUP_SCRIPT packaging/osx/FixupBundle.cmake)
     configure_file(${FIXUP_SCRIPT}.in ${PROJECT_BINARY_DIR}/${FIXUP_SCRIPT} @ONLY)
