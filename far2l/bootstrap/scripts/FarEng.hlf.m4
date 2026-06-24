@@ -3822,8 +3822,9 @@ always equal to zero.
 @Bookmarks
 $ #Bookmarks#
     Bookmarks are designed to provide fast access to frequently used
-folders. Each shortcut (#Ctrl-Shift-0..9#) can hold up to #1000# entries.
-To create a shortcut to the current folder, press #Ctrl-Shift-0..9#. To
+folders. Each shortcut slot #0-8# can hold up to #1000# entries. Slot #9#
+is a special auto-recording slot limited to #50# entries for visited plugin
+panels. To create a shortcut to the current folder, press #Ctrl-Shift-0..9#. To
 change to a folder recorded in the shortcut, press #RightCtrl-0..9#. If
 #RightCtrl-0..9# is pressed in edit line, it inserts the shortcut path into
 the line. Bookmarks are also available from Location menu.
@@ -3853,10 +3854,8 @@ used to view, set, edit and delete bookmarks on different shortcuts.
     When you are editing a bookmark (#F4#), you cannot create a bookmark to a
 plugin panel.
 
-    Diagnostics are written to #~/.config/far2l/bookmarks.log#.
-
-    Note: slot #9# is automatically used to record visited plugin panels
-    (up to 50 entries) for quick history navigation.
+    Diagnostics are written to #bookmarks.log# in the active settings root
+directory (see the #-u# flag or ~$FARSETTINGS~@FAREnv@ environment variable).
 
     See also: common ~menu~@MenuCmd@ keyboard commands.
 

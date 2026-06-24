@@ -2,7 +2,9 @@
 
 # Only build if TESTING is enabled
 if(TESTING)
-    find_package(GTest CONFIG REQUIRED)
+    # GoogleTest targets (gtest, gmock, gtest_main) are created by
+    # FetchContent in the parent testing/CMakeLists.txt via
+    # cmake/FindGoogleTest.cmake — no find_package needed here.
 
     # Create unit test executable
     add_executable(far2l_unit_tests

@@ -128,14 +128,22 @@ struct BookmarkEntry {
 	static constexpr size_t kDisplayBack   = 18;
 };
 
-// Drift guards: if Bookmarks.hpp:BookmarkEntry changes any of these, this
-// file fails to compile. Update either the production code or the mirror.
-static_assert(BookmarkEntry::kMaxFolderLen == 4096);
-static_assert(BookmarkEntry::kMaxNameLen == 256);
-static_assert(BookmarkEntry::kMaxPluginDataLen == 64 * 1024);
-static_assert(BookmarkEntry::kDisplayMaxLen == 36);
-static_assert(BookmarkEntry::kDisplayFront  == 15);
-static_assert(BookmarkEntry::kDisplayBack   == 18);
+// Expected constant values — if the real constants in Bookmarks.hpp change,
+// update both the mirror above and these expected values. If either is
+// updated without the other, the static_asserts will fail.
+static constexpr size_t kExpectedMaxFolderLen = 4096;
+static constexpr size_t kExpectedMaxNameLen = 256;
+static constexpr size_t kExpectedMaxPluginDataLen = 64 * 1024;
+static constexpr size_t kExpectedDisplayMaxLen = 36;
+static constexpr size_t kExpectedDisplayFront  = 15;
+static constexpr size_t kExpectedDisplayBack   = 18;
+
+static_assert(BookmarkEntry::kMaxFolderLen == kExpectedMaxFolderLen);
+static_assert(BookmarkEntry::kMaxNameLen == kExpectedMaxNameLen);
+static_assert(BookmarkEntry::kMaxPluginDataLen == kExpectedMaxPluginDataLen);
+static_assert(BookmarkEntry::kDisplayMaxLen == kExpectedDisplayMaxLen);
+static_assert(BookmarkEntry::kDisplayFront  == kExpectedDisplayFront);
+static_assert(BookmarkEntry::kDisplayBack   == kExpectedDisplayBack);
 static_assert(BookmarkEntry::kDisplayFront + 3 + BookmarkEntry::kDisplayBack
 	== BookmarkEntry::kDisplayMaxLen);
 
@@ -161,20 +169,18 @@ static FARString DisplayNameFor(const BookmarkEntry& entry)
 		return r;
 	}
 
-	FARString folder_visible;
+	FARString folder_visible = entry.Folder;
+	ReplaceStrings(folder_visible, L"&", L"", -1);
 	{
-		const wchar_t* str = entry.Folder.CPtr();
-		const size_t len   = entry.Folder.GetLength();
-		if (len <= kDisplayMaxLen) {
-			folder_visible = entry.Folder;
-		} else {
+		const wchar_t* str = folder_visible.CPtr();
+		const size_t len   = folder_visible.GetLength();
+		if (len > kDisplayMaxLen) {
 			FARString truncated(str, kDisplayFront);
 			truncated += L"...";
 			truncated += FARString(str + len - kDisplayBack, kDisplayBack);
 			folder_visible = truncated;
 		}
 	}
-	ReplaceStrings(folder_visible, L"&", L"", -1);
 
 	if (entry.Name.IsEmpty()) {
 		return folder_visible;

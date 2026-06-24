@@ -109,6 +109,21 @@ static MenuItemEx BuildSlotItem(int Pos, const FARString& display_name, size_t c
 	return item;
 }
 
+// Validate the shortcut path after dialog acceptance. Returns true if
+// the path is valid or the user confirms saving an invalid path.
+// Shared by main-menu F4, submenu Ins, and submenu F4 for consistency.
+static bool ValidateShortcutPath(const FARString& strNewDir)
+{
+	FARString strTemp;
+	apiExpandEnvironmentStrings(strNewDir, strTemp);
+	if (apiGetFileAttributes(strTemp) == INVALID_FILE_ATTRIBUTES) {
+		WINPORT(SetLastError)(ERROR_PATH_NOT_FOUND);
+		return !Message(MSG_WARNING | MSG_ERRORTYPE, 2, Msg::Error, strNewDir,
+				Msg::SaveThisShortcut, Msg::Yes, Msg::No);
+	}
+	return true;
+}
+
 // =============================================================================
 // Helper functions for ShowSubMenu
 // =============================================================================
@@ -197,6 +212,7 @@ static int SubMenuHandleInsert(int Pos, std::vector<BookmarkEntry>& entries, VMe
 	Unquote(strNewDir);
 	if (!IsLocalRootPath(strNewDir))
 		DeleteEndSlash(strNewDir);
+	if (!ValidateShortcutPath(strNewDir)) return kContinue;
 	edit_entry.Name = strNewName;
 	edit_entry.Folder = strNewDir;
 	if (edit_entry.Name == edit_entry.Folder) {
@@ -237,6 +253,7 @@ static int SubMenuHandleEdit(int Pos, int SelPos, std::vector<BookmarkEntry>& en
 		Unquote(strNewDir);
 		if (!IsLocalRootPath(strNewDir))
 			DeleteEndSlash(strNewDir);
+		if (!ValidateShortcutPath(strNewDir)) return kContinue;
 		edit_entry.Name = strNewName;
 		edit_entry.Folder = strNewDir;
 		if (edit_entry.Name == edit_entry.Folder) {
@@ -440,6 +457,9 @@ static int ShowBookmarksMenuIteration(int Pos)
 					FolderList.SetBottomTitle(L"Invalid bookmark entry");
 					continue;
 				}
+				if (!BookmarksCache::Save()) {
+					FolderList.SetBottomTitle(L"Failed to save bookmarks");
+				}
 				if (cnt > 0) {
 					FolderList.Hide();
 					ShowSubMenu(SelPos);
@@ -469,15 +489,7 @@ static int ShowBookmarksMenuIteration(int Pos)
 						Unquote(strNewDir);
 						if (!IsLocalRootPath(strNewDir))
 							DeleteEndSlash(strNewDir);
-						BOOL Saved = TRUE;
-						FARString strTemp;
-						apiExpandEnvironmentStrings(strNewDir, strTemp);
-						if (apiGetFileAttributes(strTemp) == INVALID_FILE_ATTRIBUTES) {
-							WINPORT(SetLastError)(ERROR_PATH_NOT_FOUND);
-							Saved = !Message(MSG_WARNING | MSG_ERRORTYPE, 2, Msg::Error, strNewDir,
-									Msg::SaveThisShortcut, Msg::Yes, Msg::No);
-						}
-						if (Saved) {
+						if (ValidateShortcutPath(strNewDir)) {
 							edit_entry.Name = strNewName;
 							edit_entry.Folder = strNewDir;
 							if (edit_entry.Name == edit_entry.Folder) {

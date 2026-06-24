@@ -36,6 +36,10 @@ bool BookmarkEntry::IsValid() const noexcept
 	// Note: FARString::Contains uses wcschr which always finds the buffer terminator,
 	// so we must use wmemchr over the explicit length instead.
 	if (wmemchr(Folder.CPtr(), L'\0', Folder.GetLength()) != nullptr) return false;
+	if (wmemchr(Name.CPtr(), L'\0', Name.GetLength()) != nullptr) return false;
+	if (wmemchr(PluginData.CPtr(), L'\0', PluginData.GetLength()) != nullptr) return false;
+	if (wmemchr(Plugin.CPtr(), L'\0', Plugin.GetLength()) != nullptr) return false;
+	if (wmemchr(PluginFile.CPtr(), L'\0', PluginFile.GetLength()) != nullptr) return false;
 	return true;
 }
 
@@ -734,7 +738,7 @@ static void BackupIniFile(const std::string& ini_path, std::string& deferred_bac
 				"BackupIniFile: fstat failed (errno=%d)", errno);
 			close(src_fd);
 		} else {
-			int dst_fd = open(backup_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+			int dst_fd = open(backup_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
 			if (dst_fd != -1) {
 				// ReadWritePiece copies only one read chunk (up to 32KB)
 				// per call — loop until EOF so the full file is backed

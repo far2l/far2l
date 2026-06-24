@@ -591,7 +591,10 @@ int Panel::ChangeDiskMenu(int Pos, int FirstCall)
 
 							case PanelMenuItem::SHORTCUT: {
 						(void)BookmarksCache::Clear(item->nItem);
-								(void)BookmarksCache::Save();
+						if (!BookmarksCache::Save()) {
+							BookmarksLog::Log(BookmarksLog::Level::Warning,
+								"ChangeDiskMenu: bookmark save failed on delete");
+						}
 								return SelPos;
 							}
 
@@ -1363,7 +1366,7 @@ static void AutoBookmarkIfPluginPanel(Panel *panel)
 
 	BookmarkEntry e;
 	HANDLE hPlugin = panel->GetPluginHandle();
-	if (!hPlugin) return;
+	if (!hPlugin || hPlugin == INVALID_HANDLE_VALUE) return;
 	if (auto *ph = static_cast<PluginHandle *>(hPlugin); ph && ph->pPlugin) {
 		e.Plugin = ph->pPlugin->GetModuleName();
 	}
@@ -1996,6 +1999,7 @@ bool Panel::SaveShortcutFolder(int Pos)
 
 	if (PanelMode == PLUGIN_PANEL) {
 		HANDLE hPlugin = GetPluginHandle();
+		if (hPlugin == INVALID_HANDLE_VALUE) return false;
 		auto *ph = static_cast<PluginHandle *>(hPlugin);
 		if (!ph || !ph->pPlugin) return false;
 		strPluginModule = ph->pPlugin->GetModuleName();
@@ -2027,7 +2031,10 @@ bool Panel::SaveShortcutFolder(int Pos)
 			"Panel::SaveShortcutFolder: Add failed for slot %d", Pos);
 		return false;
 	}
-	(void)BookmarksCache::Save();
+	if (!BookmarksCache::Save()) {
+		BookmarksLog::Log(BookmarksLog::Level::Warning,
+			"Panel::SaveShortcutFolder: save failed for slot %d", Pos);
+	}
 	return true;
 }
 

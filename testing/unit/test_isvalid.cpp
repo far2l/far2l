@@ -6,7 +6,10 @@ Deliberately does NOT include Bookmarks.hpp (avoids lang.hpp / -Werror tangle).
 Bookmarks::Add() validation is tested indirectly via its deferred T1a task.
 
 IMPORTANT: Keep this struct in sync with Bookmarks.hpp:BookmarkEntry.
-The static_asserts below catch limit drift at compile time.
+The static_asserts below compare the mirror constants against expected
+values defined separately in this file. If the production constants change
+and the mirror is updated but the expected values are not (or vice versa),
+the static_asserts will fail — catching drift between the two.
 */
 
 #include <gtest/gtest.h>
@@ -45,15 +48,23 @@ struct BookmarkEntry {
         if (Name.GetLength() > kMaxNameLen) return false;
         if (PluginData.GetLength() > kMaxPluginDataLen) return false;
         if (wmemchr(Folder.CPtr(), L'\0', Folder.GetLength()) != nullptr) return false;
+        if (wmemchr(Name.CPtr(), L'\0', Name.GetLength()) != nullptr) return false;
+        if (wmemchr(PluginData.CPtr(), L'\0', PluginData.GetLength()) != nullptr) return false;
+        if (wmemchr(Plugin.CPtr(), L'\0', Plugin.GetLength()) != nullptr) return false;
+        if (wmemchr(PluginFile.CPtr(), L'\0', PluginFile.GetLength()) != nullptr) return false;
         return true;
     }
 };
 
-// Compile-time guard: if the real kMax* constants change, this fails to compile
-// and forces the mirror to be updated.
-static_assert(BookmarkEntry::kMaxFolderLen == 4096);
-static_assert(BookmarkEntry::kMaxNameLen == 256);
-static_assert(BookmarkEntry::kMaxPluginDataLen == 64 * 1024);
+// Expected constant values — if the real constants in Bookmarks.hpp change,
+// these will no longer match the mirror and the static_asserts will fail.
+static constexpr size_t kExpectedMaxFolderLen = 4096;
+static constexpr size_t kExpectedMaxNameLen = 256;
+static constexpr size_t kExpectedMaxPluginDataLen = 64 * 1024;
+
+static_assert(BookmarkEntry::kMaxFolderLen == kExpectedMaxFolderLen);
+static_assert(BookmarkEntry::kMaxNameLen == kExpectedMaxNameLen);
+static_assert(BookmarkEntry::kMaxPluginDataLen == kExpectedMaxPluginDataLen);
 
 TEST(BookmarkEntryIsValid, RejectsEmptyFolder) {
     BookmarkEntry e;
