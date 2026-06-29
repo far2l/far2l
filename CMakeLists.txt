@@ -204,15 +204,17 @@ endif()
 
 include_directories(utils/include)
 
-# E.6.4: enable_testing() makes docs/casts/verify_casts.py and the
-# testing/* CTest tests visible to `ctest` at the top-level build dir.
-enable_testing()
-
 add_subdirectory (WinPort)
 add_subdirectory (utils)
-add_subdirectory (testing)
 add_subdirectory (far2l)
 add_subdirectory (themes)
+
+if (TESTING)
+    # E.6.4: enable_testing() makes docs/casts/verify_casts.py and the
+    # testing/* CTest tests visible to `ctest` at the top-level build dir.
+    enable_testing()
+    add_subdirectory (testing)
+endif()
 
 if (NOT ${USEWX})
     message(STATUS "Building without wxWidgets GUI backend due to USEWX=${USEWX}")

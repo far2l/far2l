@@ -28,6 +28,8 @@ public:
 		inspected.push_back(event);
 	}
 
+	void OnOSC52PasteReply(const std::string& s, bool is_primary_buffer) override {}
+
 	void Clear() {
 		inspected.clear();
 	}
