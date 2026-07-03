@@ -22,7 +22,8 @@ namespace
 	// GCC/MRC: @autoreleasepool does not drain on C++ exceptions.
 	// This RAII wrapper ensures the pool is always drained, even when
 	// OperationCancelledException propagates through the loop body.
-	struct AutoreleasePoolGuard {
+	struct AutoreleasePoolGuard
+	{
 		NSAutoreleasePool *pool;
 		AutoreleasePoolGuard() : pool([[NSAutoreleasePool alloc] init]) {}
 		~AutoreleasePoolGuard() { [pool drain]; }
@@ -33,11 +34,11 @@ namespace
 
 	// A temporary structure to hold application details fetched from the system
 	// before they are processed into the final CandidateInfo format.
-	struct MacCandidateTempInfo
+	struct AppBundleMetadata
 	{
 		std::wstring name;
-		std::wstring id;   // The full path to the .app bundle, used as a unique identifier.
-		std::wstring info; // Version string used for disambiguation if names conflict.
+		std::wstring id;             // The full path to the .app bundle, used as a unique identifier.
+		std::wstring version_string; // Used for disambiguation if names conflict.
 	};
 
 	// Helper to convert an NSURL object to a UTF-8 encoded std::string path.
@@ -48,9 +49,9 @@ namespace
 	}
 
 	// Helper to extract essential application metadata from its bundle.
-	MacCandidateTempInfo AppBundleToTempInfo(NSURL *appURL)
+	AppBundleMetadata ParseAppBundleMetadata(NSURL *appURL)
 	{
-		MacCandidateTempInfo c;
+		AppBundleMetadata metadata;
 		NSBundle *bundle = [NSBundle bundleWithURL:appURL];
 		NSDictionary *infoDict = [bundle infoDictionary];
 
@@ -61,17 +62,17 @@ namespace
 		NSString *bundleShortVersion = [infoDict objectForKey:@"CFBundleShortVersionString"];
 		NSString *bundleVersion = [infoDict objectForKey:@"CFBundleVersion"];
 
-		c.name = StrMB2Wide(bundleName ? [bundleName UTF8String] : NSURLToPath(appURL));
-		c.id = StrMB2Wide(NSURLToPath(appURL));
+		metadata.name = StrMB2Wide(bundleName ? [bundleName UTF8String] : NSURLToPath(appURL));
+		metadata.id = StrMB2Wide(NSURLToPath(appURL));
 
 		// Store the most descriptive version string available for disambiguation.
 		if (bundleShortVersion) {
-			c.info = StrMB2Wide([bundleShortVersion UTF8String]);
+			metadata.version_string = StrMB2Wide([bundleShortVersion UTF8String]);
 		} else if (bundleVersion) {
-			c.info = StrMB2Wide([bundleVersion UTF8String]);
+			metadata.version_string = StrMB2Wide([bundleVersion UTF8String]);
 		}
 
-		return c;
+		return metadata;
 	}
 
 	std::wstring EscapeForShell(const std::wstring& arg)
@@ -100,18 +101,18 @@ namespace openwith
 	// Find application candidates that can open all specified files.
 	// The logic uses a scoring system to rank candidates.
 	// The default application for a file type receives a higher score, ensuring it appears first in the list.
-	// To optimize performance when handling many files, this function caches the application lists
-	// based on the file's Uniform Type Identifier (UTI).
+	// To optimize performance for large file selections, parsed application metadata is cached locally
+	// per-invocation based on the file's Uniform Type Identifier (UTI).
+
 	AppProvider::GetCandidatesResult MacOSAppProvider::GetAppCandidates(const std::vector<std::wstring>& filepaths, ProgressCallback progress, const std::atomic<bool>* cancel_flag)
 	{
-		// Purge state from previous invocations. As a long-lived singleton instance,
-		// clearing the cache prevents cross-pollination of UTI profiles.
+		// Purge accumulated profile state from previous invocations to prevent cross-pollination.
 		_last_uti_profiles.clear();
 
-		GetCandidatesResult final_result;
+		GetCandidatesResult result;
 
 		if (filepaths.empty()) {
-			return final_result;
+			return result;
 		}
 
 		OperationGuard guard(*this, std::move(progress), cancel_flag);
@@ -127,13 +128,13 @@ namespace openwith
 
 				// A map to store definitive metadata for every unique app encountered.
 				// Key: application ID (full path), Value: application metadata.
-				std::unordered_map<std::wstring, MacCandidateTempInfo> all_apps_info;
+				std::unordered_map<std::wstring, AppBundleMetadata> all_apps_metadata;
 
 				// A map to accumulate scores for each candidate application.
 				std::unordered_map<std::wstring, int> app_scores;
 
 				// A map to count how many of the selected files each application can open.
-				std::unordered_map<std::wstring, int> app_occurrence_count;
+				std::unordered_map<std::wstring, int> app_supported_file_count;
 
 				// Base scoring weights: Default applications receive a dominant multiplier (10) to enforce priority
 				// ranking over generic handlers, even in multi-file selections.
@@ -144,24 +145,22 @@ namespace openwith
 				// This dramatically speeds up processing when many files of the same type are selected.
 				struct CachedAppList
 				{
-					std::optional<MacCandidateTempInfo> default_app;
-					std::vector<MacCandidateTempInfo> all_apps;
+					std::optional<AppBundleMetadata> default_app_metadata;
+					std::vector<AppBundleMetadata> all_apps_metadata;
 				};
 				std::unordered_map<std::string, CachedAppList> uti_cache;
 
 				ReportProgress({GetMsg(MsgID::DiscoveringApplications), nullptr});
 
-				size_t file_index = 0;
-				const size_t total_files = filepaths.size();
+				const size_t total = filepaths.size();
+				size_t processed = 0;
 
 				// Iterate through each selected file to find and score compatible applications.
 				for (const auto& filepath : filepaths) {
+					wchar_t status_buf[256];
+					swprintf(status_buf, std::size(status_buf), GetMsg(MsgID::ProcessingFiles), ++processed, total);
+					ReportProgress({nullptr, status_buf});
 					CheckCancellation();
-
-					file_index++;
-					wchar_t status_msg[256];
-					swprintf(status_msg, std::size(status_msg), GetMsg(MsgID::ProcessingFiles), file_index, total_files);
-					ReportProgress({nullptr, status_msg});
 
 #ifdef __clang__
 					@autoreleasepool {
@@ -186,15 +185,13 @@ namespace openwith
 						std::string uti_std_str = uti_cstr ? uti_cstr : "";
 
 						if (error || !uti) {
-							// Failed to get UTI (e.g., file not found, permissions), cache as inaccessible
+							// Failed to resolve UTI (e.g., file not found, lack of permissions); record as inaccessible.
 							_last_uti_profiles.insert({ uti_std_str, false });
 							continue;
 						}
 
-						// --- Begin: Profile Caching Logic ---
-						// Cache the file profile (UTI and accessible status).
+						// Record the profile to resolve its MIME type later if requested.
 						_last_uti_profiles.insert({ uti_std_str, true });
-						// --- End: Profile Caching Logic ---
 
 						// Fetch application lists from local UTI cache, falling back to system query on miss.
 						auto cache_it = uti_cache.find(uti_std_str);
@@ -203,7 +200,7 @@ namespace openwith
 
 							NSURL* defaultAppURL = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:fileURL];
 							if (defaultAppURL) {
-								entry.default_app = AppBundleToTempInfo(defaultAppURL);
+								entry.default_app_metadata = ParseAppBundleMetadata(defaultAppURL);
 							}
 
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 101000 && defined(__clang__)
@@ -230,32 +227,32 @@ namespace openwith
 							for (NSUInteger i = 0; i < [allAppURLs count]; i++) {
 								NSURL *appURL = [allAppURLs objectAtIndex:i];
 #endif
-								entry.all_apps.push_back(AppBundleToTempInfo(appURL));
+								entry.all_apps_metadata.push_back(ParseAppBundleMetadata(appURL));
 							}
 
 							cache_it = uti_cache.insert({uti_std_str, std::move(entry)}).first;
 						}
 
-						std::unordered_set<std::wstring> processed_apps_for_this_file;
+						std::unordered_set<std::wstring> processed_app_ids;
 
 						// Process the default application.
-						if (cache_it->second.default_app) {
-							const auto& info = *cache_it->second.default_app;
-							all_apps_info.try_emplace(info.id, info);
-							app_scores[info.id] += DEFAULT_APP_SCORE;
-							processed_apps_for_this_file.insert(info.id);
-							app_occurrence_count[info.id]++;
+						if (cache_it->second.default_app_metadata) {
+							const auto& metadata = *cache_it->second.default_app_metadata;
+							all_apps_metadata.try_emplace(metadata.id, metadata);
+							app_scores[metadata.id] += DEFAULT_APP_SCORE;
+							processed_app_ids.insert(metadata.id);
+							app_supported_file_count[metadata.id]++;
 						}
 
 						// Process all other compatible applications.
-						for (const auto& info : cache_it->second.all_apps) {
-							if (processed_apps_for_this_file.count(info.id)) {
+						for (const auto& metadata : cache_it->second.all_apps_metadata) {
+							if (processed_app_ids.count(metadata.id)) {
 								continue;
 							}
-							all_apps_info.try_emplace(info.id, info);
-							app_scores[info.id] += OTHER_APP_SCORE;
-							processed_apps_for_this_file.insert(info.id);
-							app_occurrence_count[info.id]++;
+							all_apps_metadata.try_emplace(metadata.id, metadata);
+							app_scores[metadata.id] += OTHER_APP_SCORE;
+							processed_app_ids.insert(metadata.id);
+							app_supported_file_count[metadata.id]++;
 						}
 
 #ifdef __clang__
@@ -272,61 +269,62 @@ namespace openwith
 				// A temporary structure to hold candidates that can open all files, along with their final score.
 				struct RankedCandidate
 				{
-					MacCandidateTempInfo info;
+					AppBundleMetadata bundle_metadata;
 					int score;
 					bool operator<(const RankedCandidate& other) const
 					{
 						if (score != other.score) return score > other.score;
-						return info.name < other.info.name;
+						return bundle_metadata.name < other.bundle_metadata.name;
 					}
 				};
 
-				std::vector<RankedCandidate> finalists;
+				std::vector<RankedCandidate> ranked_finalists;
 				const size_t num_files = filepaths.size();
 
 				// Filter the list, keeping only applications that can open every selected file.
-				for (const auto& [app_id, count] : app_occurrence_count) {
+				for (const auto& [app_id, count] : app_supported_file_count) {
 					if (count == num_files) {
-						finalists.push_back({ all_apps_info.at(app_id), app_scores.at(app_id) });
+						ranked_finalists.push_back({ all_apps_metadata.at(app_id), app_scores.at(app_id) });
 					}
 				}
 
-				std::sort(finalists.begin(), finalists.end());
+				std::sort(ranked_finalists.begin(), ranked_finalists.end());
 
 				// --- Part 3: Final List Generation ---
 
-				std::vector<CandidateInfo> result;
-				if (!finalists.empty()) {
-					result.reserve(finalists.size());
+				std::vector<CandidateInfo> out_candidates;
+				if (!ranked_finalists.empty()) {
+					out_candidates.reserve(ranked_finalists.size());
 
 					// Count name occurrences to identify duplicates that need disambiguation.
 					std::unordered_map<std::wstring, int> name_counts;
-					for (const auto& candidate : finalists) {
-						name_counts[candidate.info.name]++;
+					for (const auto& ranked_finalist : ranked_finalists) {
+						name_counts[ranked_finalist.bundle_metadata.name]++;
 					}
 
 					// Build the final list in the correct format.
-					for (const auto& candidate : finalists) {
-						CandidateInfo final_c;
-						final_c.id = candidate.info.id;
-						final_c.terminal = false;
-						final_c.name = candidate.info.name;
-						final_c.multi_file_aware = true;
+					for (const auto& ranked_finalist : ranked_finalists) {
+						CandidateInfo out_candidate;
+						out_candidate.id = ranked_finalist.bundle_metadata.id;
+						out_candidate.terminal = false;
+						out_candidate.name = ranked_finalist.bundle_metadata.name;
+						out_candidate.multi_file_aware = true;
 
 						// If an app name is duplicated, append its version string to make it unique in the UI.
-						if (name_counts[candidate.info.name] > 1 && !candidate.info.info.empty()) {
-							final_c.name += L" (" + candidate.info.info + L")";
+						if (name_counts[ranked_finalist.bundle_metadata.name] > 1 && !ranked_finalist.bundle_metadata.version_string.empty()) {
+							out_candidate.name += L" (" + ranked_finalist.bundle_metadata.version_string + L")";
 						}
-						result.push_back(final_c);
+						out_candidates.push_back(out_candidate);
 					}
 				}
 
 				// Populate candidates on normal successful exit
-				final_result.candidates = std::move(result);
+				result.candidates = std::move(out_candidates);
 
 			} catch (const OperationCancelledException&) {
+				result.was_cancelled = true;
+				// Discard any partially accumulated profiles to prevent GetMimeTypes() from returning incomplete data.
 				_last_uti_profiles.clear();
-				final_result.was_cancelled = true;
 			}
 #ifdef __clang__
 		} // end of outer @autoreleasepool
@@ -334,7 +332,7 @@ namespace openwith
 		} // end of outer AutoreleasePoolGuard
 #endif
 
-		return final_result;
+		return result;
 	}
 
 
@@ -402,12 +400,11 @@ namespace openwith
 
 		for (const auto& profile : _last_uti_profiles) {
 			if (!profile.accessible) {
-				// File was inaccessible (invalid path, permissions, etc.)
 				unique_profile_strings.insert(L"(inaccessible)");
 				continue;
 			}
 
-			// File was accessible, convert its cached UTI to a MIME type.
+			// File was accessible; convert its recorded UTI to a MIME type.
 			std::wstring result_mime;
 			NSString *uti = [NSString stringWithUTF8String:profile.uti.c_str()];
 
@@ -440,10 +437,8 @@ namespace openwith
 #endif
 
 			if (result_mime.empty()) {
-				// File was accessible, UTI was found, but no MIME type equivalent.
 				unique_profile_strings.insert(L"(none)");
 			} else {
-				// File was accessible and had a corresponding MIME type.
 				unique_profile_strings.insert(L"(" + result_mime + L")");
 			}
 		}
