@@ -130,8 +130,6 @@ namespace openwith
 			AutoreleasePoolGuard outer_pool_guard;
 #endif
 			try {
-				// --- Part 1: Candidate discovery and scoring with caching ---
-
 				std::unordered_map<std::string, AppListForUti> uti_to_apps_cache;
 				std::unordered_map<std::string, RankedCandidate> candidates_pool;
 				std::unordered_set<std::string> app_ids_seen_for_file;
@@ -163,7 +161,11 @@ namespace openwith
 							continue;
 						}
 
-						// Determine the file's UTI to use it as a cache key.
+						// ---------- UTI resolution via NSURLTypeIdentifierKey ----------
+						// Retrieve the Uniform Type Identifier (UTI) for the file using the
+						// NSURL resource value API. This is the canonical macOS type identifier
+						// used by Launch Services to determine application bindings.
+
 						NSString *uti = nil;
 						NSError *error = nil;
 						BOOL success = [file_url getResourceValue:&uti forKey:NSURLTypeIdentifierKey error:&error];
@@ -178,7 +180,14 @@ namespace openwith
 						auto uti_std_str = std::string([uti UTF8String]);
 						_last_uti_profiles.insert({uti_std_str, true});
 
-						// Fetch application lists from local UTI cache, falling back to system query on miss.
+						// ---------- Launch Services query with UTI-based caching ----------
+						// Check whether we have already queried Launch Services for this UTI.
+						// If not, perform two queries:
+						//   1. URLForApplicationToOpenURL: returns the default handler for this file.
+						//   2. URLsForApplicationsToOpenURL: returns all apps that claim support.
+						// On macOS < 11, URLsForApplicationsToOpenURL is unavailable, so we fall
+						// back to a single-element array containing only the default app.
+
 						auto cache_it = uti_to_apps_cache.find(uti_std_str);
 						if (cache_it == uti_to_apps_cache.end()) {
 							AppListForUti new_cache_entry;
@@ -218,6 +227,13 @@ namespace openwith
 							cache_it = uti_to_apps_cache.insert({uti_std_str, std::move(new_cache_entry)}).first;
 						}
 
+						// ---------- Per-file scoring and accumulation ----------
+						// For each file, iterate over the cached app list. The default app gets
+						// DEFAULT_APP_SCORE (10) to prioritize it; every other compatible app
+						// gets OTHER_APP_SCORE (1). The app_ids_seen_for_file set prevents
+						// scoring the same app twice within a single file (deduplication against
+						// the default app potentially appearing in both lists).
+
 						const AppListForUti& app_list_for_uti = cache_it->second;
 						auto register_app = [&](const AppBundleMetadata& metadata, int score_weight) {
 							if (!app_ids_seen_for_file.insert(metadata.id).second) {
@@ -247,13 +263,15 @@ namespace openwith
 #endif
 				}
 
-				// --- Part 2: Filtering and sorting ---
+				// ---------- Filtering and sorting ----------
+				// Only applications that can open every selected file survive the intersection.
+				// match_count must equal the total number of files. Finalists are then sorted
+				// by descending score (default apps first) and then by ascending display name.
 
 				ReportProgress({nullptr, GetMsg(MsgID::MatchingFilteringRanking)});
 
 				std::vector<RankedCandidate> ranked_finalists;
 
-				// Filter the list, keeping only applications that can open every selected file.
 				for (auto& [app_id, ranked_candidate] : candidates_pool) {
 					if (ranked_candidate.match_count == files_total) {
 						ranked_finalists.push_back(std::move(ranked_candidate));
@@ -262,18 +280,19 @@ namespace openwith
 
 				std::sort(ranked_finalists.begin(), ranked_finalists.end());
 
-				// --- Part 3: Final list generation ---
+				// ---------- Final list generation ----------
+				// Convert internal structures to CandidateInfo output. If multiple bundles share
+				// the same display name, append the version string to disambiguate them in the UI.
 
 				std::vector<CandidateInfo> out_candidates;
 				if (!ranked_finalists.empty()) {
 					out_candidates.reserve(ranked_finalists.size());
-					// Count name occurrences to identify duplicates that need disambiguation.
+
 					std::unordered_map<std::string_view, int> app_name_frequencies;
 					for (const auto& ranked_finalist : ranked_finalists) {
 						app_name_frequencies[ranked_finalist.metadata->name]++;
 					}
 
-					// Build the final list in the output format.
 					for (const auto& ranked_finalist : ranked_finalists) {
 						CandidateInfo out_candidate;
 						out_candidate.id = StrMB2Wide(ranked_finalist.metadata->id);
@@ -281,7 +300,7 @@ namespace openwith
 						out_candidate.multi_file_aware = true;
 
 						std::string display_name = ranked_finalist.metadata->name;
-						// If an app name is duplicated, append its version string to make it unique in the UI.
+
 						if (app_name_frequencies[ranked_finalist.metadata->name] > 1 && !ranked_finalist.metadata->version_string.empty()) {
 							display_name += " (" + ranked_finalist.metadata->version_string + ")";
 						}
@@ -290,7 +309,6 @@ namespace openwith
 					}
 				}
 
-				// Populate candidates on normal successful exit
 				result.candidates = std::move(out_candidates);
 
 			} catch (const OperationCancelledException&) {
@@ -307,7 +325,6 @@ namespace openwith
 	}
 
 
-	// Constructs a single command line using the 'open' utility, which natively handles multiple files.
 	std::vector<std::wstring> MacOSAppProvider::ConstructLaunchCommands(const CandidateInfo& candidate, const std::vector<std::wstring>& filepaths)
 	{
 		if (candidate.id.empty() || filepaths.empty()) {
@@ -324,7 +341,6 @@ namespace openwith
 	}
 
 
-	// Fetches detailed information about a candidate application from its bundle.
 	std::vector<Field> MacOSAppProvider::GetCandidateDetails(const CandidateInfo& candidate)
 	{
 		std::vector<Field> details;
@@ -376,8 +392,6 @@ namespace openwith
 	}
 
 
-	// Collects unique formatted profile strings based on the last GetAppCandidates call.
-	// This function performs the UTI-to-MIME-type conversion on demand.
 	std::vector<std::wstring> MacOSAppProvider::GetMimeTypes()
 	{
 		std::unordered_set<std::string> unique_profile_strings;
@@ -445,8 +459,7 @@ namespace openwith
 #else
 		} // end of AutoreleasePoolGuard
 #endif
-
-		// Perform UTF-8 to Wide conversion strictly once per unique MIME profile string.
+		
 		std::vector<std::wstring> result_vec;
 		result_vec.reserve(unique_profile_strings.size());
 		for (const auto& mime_str : unique_profile_strings) {

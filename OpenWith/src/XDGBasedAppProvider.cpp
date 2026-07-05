@@ -140,8 +140,8 @@ namespace openwith
 
 				// --- Multiple files intersection logic ---
 
-				const size_t total = filepaths_wide.size();
-				size_t processed = 0;
+				const size_t files_total = filepaths_wide.size();
+				size_t files_processed = 0;
 
 				// 1. Profile Deduplication. Group N files into K unique MIME profiles.
 
@@ -149,7 +149,7 @@ namespace openwith
 
 				for (const auto& filepath_wide : filepaths_wide) {
 					wchar_t status_buf[256];
-					swprintf(status_buf, std::size(status_buf), GetMsg(MsgID::ProcessingFiles), ++processed, total);
+					swprintf(status_buf, std::size(status_buf), GetMsg(MsgID::ProcessingFiles), ++files_processed, files_total);
 					ReportProgress({nullptr, status_buf});
 					CheckCancellation();
 

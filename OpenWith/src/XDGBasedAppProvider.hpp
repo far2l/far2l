@@ -436,9 +436,6 @@ namespace openwith
 		// DATA MEMBERS
 		// ******************************************************************************
 
-		// CRITICAL: Must use std::map (not std::unordered_map) to guarantee pointer stability!
-		// RankedCandidate holds non-owning pointers to DesktopEntry objects stored here,
-		// which would be invalidated by unordered_map rehashing.
 		std::map<std::string, std::optional<DesktopEntry>> _desktop_id_to_desktop_entry_cache;
 
 		// Maps a candidate's ID to its source info, i.e. where the association came from (e.g., 'mimeapps.list').

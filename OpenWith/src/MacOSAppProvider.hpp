@@ -30,10 +30,10 @@ namespace openwith
 		void SavePlatformSettings(KeyFileHelper& key_writer) override {}
 
 	private:
-		// A struct to cache the results of a file type query. It stores the file's UTI and accessibility state.
+
 		struct MacFileProfile
 		{
-			std::string uti; // Contains the resolved UTI string, or an empty string if the file is inaccessible.
+			std::string uti; // UTI, or an empty string if the file is inaccessible.
 			bool accessible; // true if the file was accessible and its UTI was successfully resolved.
 
 			bool operator==(const MacFileProfile& other) const
@@ -56,7 +56,6 @@ namespace openwith
 
 		static std::wstring EscapeForShell(const std::wstring& arg);
 
-		// Accumulates unique file profiles processed during the last GetAppCandidates() call, used later by GetMimeTypes().
 		std::unordered_set<MacFileProfile, MacFileProfile::Hash> _last_uti_profiles;
 	};
 } // namespace openwith
