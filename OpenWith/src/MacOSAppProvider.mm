@@ -67,9 +67,15 @@ namespace
 	struct RankedCandidate
 	{
 		const AppBundleMetadata* metadata = nullptr;
+
+		// Number of selected files this application is capable of opening
 		int match_count = 0;
-		int default_count = 0;    // Number of files where this application is the OS default handler
-		int suitability_rank = 0; // Sum of Launch Services array indices (lower means higher OS preference)
+
+		// Number of files where this application is the OS default handler
+		int default_count = 0;
+
+		// Running mean of normalized Launch Services ranks: from 0.0 (best) to 1.0 (worst).
+		double mean_suitability_percentile = 0.0;
 	};
 
 
@@ -146,11 +152,7 @@ namespace
 			new_cache_entry.default_app_metadata = ParseAppBundleMetadata(default_app_url);
 		}
 
-#if __has_feature(objc_generics)
-		NSArray<NSURL *>* all_app_urls;
-#else
 		NSArray *all_app_urls;
-#endif
 
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
 		all_app_urls = [[NSWorkspace sharedWorkspace] URLsForApplicationsToOpenURL:file_url];
@@ -164,12 +166,8 @@ namespace
 		}
 #endif
 
-#ifdef __clang__
-		for (NSURL *app_url in all_app_urls) {
-#else
 		for (NSUInteger i = 0; i < [all_app_urls count]; i++) {
 			NSURL *app_url = [all_app_urls objectAtIndex:i];
-#endif
 			new_cache_entry.compatible_apps_metadata.push_back(ParseAppBundleMetadata(app_url));
 		}
 
@@ -274,10 +272,10 @@ namespace openwith
 							_last_uti_profiles.insert({ std::string(""), false });
 							continue;
 						}
-						
+
 						auto [uti_std_str, accessible] = ResolveUtiForFile(file_url);
 						_last_uti_profiles.insert({ uti_std_str, accessible });
-						
+
 						if (!accessible || uti_std_str.empty()) {
 							continue;
 						}
@@ -288,20 +286,23 @@ namespace openwith
 						// The app_ids_seen_for_file set prevents scoring the same app twice within a single file
 						// (deduplication against the default app potentially appearing in both lists).
 
-						auto register_app = [&](const AppBundleMetadata& metadata, bool is_default, int rank_index) {
-							if (!app_ids_seen_for_file.insert(metadata.id).second) {
-								return;
-							}
-							auto [it, inserted] = candidates_pool.try_emplace(metadata.id);
-							RankedCandidate& ranked_candidate = it->second;
-							if (inserted) {
-								ranked_candidate.metadata = &metadata;
-							}
-							if (is_default) {
-								ranked_candidate.default_count++;
-							}
-							ranked_candidate.suitability_rank += rank_index;
+						auto register_app = [&](const AppBundleMetadata& metadata, bool is_default, int rank_index, size_t list_size) {
+						    if (!app_ids_seen_for_file.insert(metadata.id).second) {
+						        return;
+						    }
+						    auto [it, inserted] = candidates_pool.try_emplace(metadata.id);
+						    RankedCandidate& ranked_candidate = it->second;
+						    if (inserted) {
+						        ranked_candidate.metadata = &metadata;
+						    }
+						    if (is_default) {
+						        ranked_candidate.default_count++;
+						    }
+
+							double current_file_percentile = (list_size > 1) ? static_cast<double>(rank_index) / (list_size - 1) : 0.0;
 							ranked_candidate.match_count++;
+							ranked_candidate.mean_suitability_percentile += 
+								(current_file_percentile - ranked_candidate.mean_suitability_percentile) / ranked_candidate.match_count;
 						};
 
 						std::string_view default_id = app_list_for_uti.default_app_metadata
@@ -309,17 +310,19 @@ namespace openwith
 							: std::string_view();
 
 						// Iterate all compatible apps returned by Launch Services in their native suitability order.
-						for (size_t i = 0; i < app_list_for_uti.compatible_apps_metadata.size(); ++i) {
-							const auto& metadata = app_list_for_uti.compatible_apps_metadata[i];
-							const bool is_default = (!default_id.empty() && metadata.id == default_id);
-							register_app(metadata, is_default, static_cast<int>(i));
+						const auto& compatible_apps = app_list_for_uti.compatible_apps_metadata;
+						for (size_t i = 0; i < compatible_apps.size(); ++i) {
+						    const auto& metadata = compatible_apps[i];
+						    const bool is_default = (!default_id.empty() && metadata.id == default_id);
+						    register_app(metadata, is_default, static_cast<int>(i), compatible_apps.size());
 						}
 
 						// Fallback: Ensure the default app is registered even if Launch Services omitted it
 						// from URLsForApplicationsToOpenURL (e.g., on older macOS versions or legacy handlers).
 
 						if (app_list_for_uti.default_app_metadata) {
-							register_app(*app_list_for_uti.default_app_metadata, true, 0);
+						    size_t effective_size = std::max(size_t(1), app_list_for_uti.compatible_apps_metadata.size());
+						    register_app(*app_list_for_uti.default_app_metadata, true, 0, effective_size);
 						}
 
 					END_AUTORELEASE_POOL
@@ -340,28 +343,31 @@ namespace openwith
 				}
 
 				std::sort(ranked_finalists.begin(), ranked_finalists.end(),
-					[alphabetical = _sort_alphabetically,
-					 use_sys_rank = _respect_system_ranking](const RankedCandidate& a, const RankedCandidate& b) {
+				    [alphabetical = _sort_alphabetically,
+				     use_sys_rank = _respect_system_ranking](const RankedCandidate& a, const RankedCandidate& b) {
+
 						// If strict global alphabetical sorting is enabled, it overrides everything
-						if (alphabetical) {
-							return a.metadata->name < b.metadata->name;
-						}
+				        if (alphabetical) {
+				            return a.metadata->name < b.metadata->name;
+				        }
 
 						// Default handlers for the selected files always take top priority
-						if (a.default_count != b.default_count) {
-							return a.default_count > b.default_count;
-						}
+				        if (a.default_count != b.default_count) {
+				            return a.default_count > b.default_count;
+				        }
 
-						// If enabled, sort by Launch Services suitability order (lower index sum is better)
+						// If enabled, sort by Launch Services suitability (lower mean percentile is better)
 						if (use_sys_rank) {
-							if (a.suitability_rank != b.suitability_rank) {
-								return a.suitability_rank < b.suitability_rank;
-							}
+							 constexpr double epsilon = 1e-9;
+							 const double diff = a.mean_suitability_percentile - b.mean_suitability_percentile;
+							 if (std::abs(diff) > epsilon) {
+							     return diff < 0.0; 
+							 }
 						}
 
 						// Alphabetical tie-breaker when ranks are equal
-						return a.metadata->name < b.metadata->name;
-					});
+				        return a.metadata->name < b.metadata->name;
+				    });
 
 				// ---------- Final list generation ----------
 				// Convert internal structures to CandidateInfo output. If multiple bundles share
@@ -423,7 +429,7 @@ namespace openwith
 	std::vector<Field> MacOSAppProvider::GetCandidateDetails(const CandidateInfo& candidate)
 	{
 		std::vector<Field> details;
-		
+
 		BEGIN_AUTORELEASE_POOL(pool_guard)
 			NSString *ns_path = [NSString stringWithUTF8String:StrWide2MB(candidate.id).c_str()];
 			NSURL *app_url = [NSURL fileURLWithPath:ns_path];
@@ -459,7 +465,7 @@ namespace openwith
 				details.push_back({GetMsg(MsgID::BundleVersion), StrMB2Wide([bundle_version UTF8String])});
 			}
 		END_AUTORELEASE_POOL
-		
+
 		return details;
 	}
 
@@ -533,7 +539,7 @@ namespace openwith
 				}
 			}
 		END_AUTORELEASE_POOL
-		
+
 		std::vector<std::wstring> result_vec;
 		result_vec.reserve(unique_profile_strings.size());
 		for (const auto& mime_str : unique_profile_strings) {

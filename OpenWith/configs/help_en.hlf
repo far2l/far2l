@@ -37,7 +37,7 @@ $^#Details Dialog (F3)#
 
  #-# File types
    #Linux/BSD#: "Raw" results from all detection methods (xdg-mime, file, etc) enabled in the ~configuration dialog~@ConfigurationDialog@. If tools disagree on the same file, the results are combined into a semicolon‑separated list: "(text/plain;application/x-shellscript)".
-   #macOS#: The MIME type corresponding to the system UTI, or (if the "Show UTI instead of MIME types" option is enabled in the ~configuration dialog~@ConfigurationDialog@) the UTI itself.
+   #macOS#: The MIME type corresponding to the system UTI, or the UTI itself if the option "Show UTI instead of MIME types" is enabled in the ~configuration dialog~@ConfigurationDialog@.
    For multiple files, all unique combinations of detected types are shown.
 
  #-# Launch command
