@@ -35,7 +35,7 @@ $^#Details Dialog (F3)#
  #-# Filepaths
    The full (absolute) paths to the selected files, formatted as a semicolon-separated list.
 
- #-# MIME profiles
+ #-# Profiles
    The file type(s) detected by the plugin. For multiple files, all unique detected profiles are shown. Format depends on the OS:
    #Linux/BSD#: "Raw" results from all detection methods (xdg-mime, file, etc) enabled in the ~configuration dialog~@ConfigurationDialog@. If tools disagree on the same file, the results are combined into a semicolon‑separated list: "(text/plain;application/x-shellscript)".
    #macOS#: The MIME type corresponding to the file's system UTI.

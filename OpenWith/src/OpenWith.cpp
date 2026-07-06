@@ -531,7 +531,7 @@ namespace openwith
 			details.push_back(Field{GetMsg(MsgID::FilesSelected), std::to_wstring(file_count)});
 		}
 		details.push_back(Field{GetMsg(MsgID::Filepaths), JoinStrings(filepaths, L"; ")});
-		details.push_back(Field{GetMsg(MsgID::MimeProfiles), JoinStrings(unique_mime_profiles, L"; ")});
+		details.push_back(Field{GetMsg(MsgID::Profiles), JoinStrings(unique_mime_profiles, L"; ")});
 		details.push_back(std::nullopt); // separator
 		for (const auto& field : application_info) {
 			details.push_back(field);

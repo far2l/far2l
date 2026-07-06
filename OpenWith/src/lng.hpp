@@ -41,15 +41,19 @@ namespace openwith
 		UseMimeinfoCache,
 		FilterByShowIn,
 		ValidateTryExec,
-		SortAlphabetically,
 		TreatUrlsAsPaths,
 		ShowPackageTags,
+
+		ShowUtiInsteadOfMime,
+		RespectSystemRanking,
+
+		SortAlphabetically,
 
 		Details,
 
 		FilesSelected,
 		Filepaths,
-		MimeProfiles,
+		Profiles,
 		LaunchCommand,
 		Close,
 		Launch,
@@ -71,10 +75,14 @@ namespace openwith
 
 		Working,
 		PleaseWait,
-		IdentifyingMimes,
 		ProcessingFiles,
+
+		IdentifyingMimes,
 		DiscoveringApplications,
 		MatchingFilteringRanking,
+
+		IdentifyingUTIsDiscoveringApps,
+		FilteringSortingResults,
 
 		ConfirmLaunchTitle,
 		ConfirmLaunchMessage,

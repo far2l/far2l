@@ -4,7 +4,9 @@
 
 #include "AppProvider.hpp"
 #include "common.hpp"
+#include "lng.hpp"
 #include <atomic>
+#include <map>
 #include <functional>
 #include <string>
 #include <unordered_set>
@@ -24,10 +26,12 @@ namespace openwith
 		std::vector<std::wstring> ConstructLaunchCommands(const CandidateInfo& candidate, const std::vector<std::wstring>& filepaths) override;
 		std::vector<std::wstring> GetMimeTypes() override;
 		std::vector<Field> GetCandidateDetails(const CandidateInfo& candidate) override;
-		std::vector<ProviderSetting> GetPlatformSettings() override { return {}; }
-		void SetPlatformSettings(const std::vector<ProviderSetting>& settings) override {}
-		void LoadPlatformSettings(const KeyFileReadHelper &key_reader) override {}
-		void SavePlatformSettings(KeyFileHelper& key_writer) override {}
+
+		std::vector<ProviderSetting> GetPlatformSettings() override;
+		void SetPlatformSettings(const std::vector<ProviderSetting>& settings) override;
+		void LoadPlatformSettings(const KeyFileReadHelper &key_reader) override;
+		void SavePlatformSettings(KeyFileHelper& key_writer) override;
+
 
 	private:
 
@@ -54,9 +58,26 @@ namespace openwith
 			};
 		};
 
+
+		struct PlatformSettingDefinition
+		{
+			std::string internal_key;                 // persistent INI key and internal identifier
+			MsgID display_name_id;                    // ID to fetch the localized UI label
+			bool MacOSAppProvider::* member_variable; // pointer to the linked boolean class member
+			bool default_value;                       // fallback value if missing in the INI file
+			bool affects_candidates;                  // true if changing this setting affects the contents or order of the candidate list
+		};
+
+
 		static std::wstring EscapeForShell(const std::wstring& arg);
 
+		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;
+		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
 		std::unordered_set<MacFileProfile, MacFileProfile::Hash> _last_uti_profiles;
+
+		bool _show_uti_instead_of_mime;
+		bool _respect_system_ranking;
+		bool _sort_alphabetically;
 	};
 } // namespace openwith
 

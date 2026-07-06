@@ -125,7 +125,7 @@ namespace openwith
 
 				// --- Single file logic ---
 
-				ReportProgress({GetMsg(MsgID::IdentifyingMimes), nullptr});
+				ReportProgress({GetMsg(MsgID::IdentifyingMimes), GetMsg(MsgID::PleaseWait)});
 
 				auto profile = GetRawMimeProfile(StrWide2MB(filepaths_wide[0]));
 				_last_unique_mime_profiles.insert(profile);
@@ -145,7 +145,7 @@ namespace openwith
 
 				// 1. Profile Deduplication. Group N files into K unique MIME profiles.
 
-				ReportProgress({GetMsg(MsgID::IdentifyingMimes), nullptr});
+				ReportProgress({GetMsg(MsgID::IdentifyingMimes), GetMsg(MsgID::PleaseWait)});
 
 				for (const auto& filepath_wide : filepaths_wide) {
 					wchar_t status_buf[256];

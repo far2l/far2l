@@ -20,6 +20,7 @@
 #include "MacOSAppProvider.hpp"
 #include "common.hpp"
 #include "lng.hpp"
+#include "KeyFileHelper.h"
 #include "utils.h"
 #include "WideMB.h"
 #include <optional>
@@ -66,15 +67,9 @@ namespace
 	struct RankedCandidate
 	{
 		const AppBundleMetadata* metadata = nullptr;
-		int score = 0;
 		int match_count = 0;
-		bool operator<(const RankedCandidate& other) const
-		{
-			if (score != other.score) {
-				return score > other.score;
-			}
-			return metadata->name < other.metadata->name;
-		}
+		int default_count = 0;        // Number of files where this application is the OS default handler
+		int suitability_rank_sum = 0; // Sum of Launch Services array indices (lower means higher OS preference)
 	};
 
 
@@ -185,7 +180,61 @@ namespace
 
 namespace openwith
 {
-	MacOSAppProvider::MacOSAppProvider() = default;
+	constexpr const char* INI_SECTION_MAC_PROVIDER = "Settings.MAC";
+
+
+	MacOSAppProvider::MacOSAppProvider()
+	{
+		_platform_settings_definitions = {
+			{ "ShowUtiInsteadOfMime", MsgID::ShowUtiInsteadOfMime, &MacOSAppProvider::_show_uti_instead_of_mime, false, false},
+			{ "RespectSystemRanking", MsgID::RespectSystemRanking, &MacOSAppProvider::_respect_system_ranking,   true,  true},
+			{ "SortAlphabetically",   MsgID::SortAlphabetically,   &MacOSAppProvider::_sort_alphabetically,      false, true}
+		};
+
+		for (const auto& def : _platform_settings_definitions) {
+			_key_wide_to_member_map[StrMB2Wide(def.internal_key)] = def.member_variable;
+			this->*(def.member_variable) = def.default_value;
+		}
+	}
+
+
+	void MacOSAppProvider::LoadPlatformSettings(const KeyFileReadHelper &key_reader)
+	{
+		for (const auto& def : _platform_settings_definitions) {
+			this->*(def.member_variable) = key_reader.GetInt(INI_SECTION_MAC_PROVIDER, def.internal_key, def.default_value) != 0;
+		}
+	}
+
+
+	void MacOSAppProvider::SavePlatformSettings(KeyFileHelper& key_writer)
+	{
+		for (const auto& def : _platform_settings_definitions) {
+			key_writer.SetInt(INI_SECTION_MAC_PROVIDER, def.internal_key, this->*(def.member_variable));
+		}
+	}
+
+
+	std::vector<ProviderSetting> MacOSAppProvider::GetPlatformSettings()
+	{
+		std::vector<ProviderSetting> settings;
+		settings.reserve(_platform_settings_definitions.size());
+		const bool is_disabled = false;
+		for (const auto& def : _platform_settings_definitions) {
+			settings.push_back({StrMB2Wide(def.internal_key), GetMsg(def.display_name_id), this->*(def.member_variable),
+								is_disabled, def.affects_candidates});
+		}
+		return settings;
+	}
+
+
+	void MacOSAppProvider::SetPlatformSettings(const std::vector<ProviderSetting>& settings)
+	{
+		for (const auto& s : settings) {
+			if (auto it = _key_wide_to_member_map.find(s.internal_key); it != _key_wide_to_member_map.end()) {
+				this->*(it->second) = s.value;
+			}
+		}
+	}
 
 
 	AppProvider::GetCandidatesResult MacOSAppProvider::GetAppCandidates(const std::vector<std::wstring>& filepaths, ProgressCallback progress, const std::atomic<bool>* cancel_flag)
@@ -204,10 +253,8 @@ namespace openwith
 				std::unordered_map<std::string, AppListForUti> uti_to_apps_cache;
 				std::unordered_map<std::string, RankedCandidate> candidates_pool;
 				std::unordered_set<std::string> app_ids_seen_for_file;
-				constexpr int DEFAULT_APP_SCORE = 10;
-				constexpr int OTHER_APP_SCORE   = 1;
 
-				ReportProgress({GetMsg(MsgID::DiscoveringApplications), nullptr});
+				ReportProgress({GetMsg(MsgID::IdentifyingUTIsDiscoveringApps), GetMsg(MsgID::PleaseWait)});
 				const size_t files_total = filepaths.size();
 				size_t files_processed = 0;
 
@@ -240,8 +287,8 @@ namespace openwith
 						// ---------- Per-file scoring and accumulation ----------
 						// The app_ids_seen_for_file set prevents scoring the same app twice within a single file
 						// (deduplication against the default app potentially appearing in both lists).
-						
-						auto register_app = [&](const AppBundleMetadata& metadata, int score_weight) {
+
+						auto register_app = [&](const AppBundleMetadata& metadata, bool is_default, int rank_index) {
 							if (!app_ids_seen_for_file.insert(metadata.id).second) {
 								return;
 							}
@@ -250,16 +297,29 @@ namespace openwith
 							if (inserted) {
 								ranked_candidate.metadata = &metadata;
 							}
-							ranked_candidate.score += score_weight;
+							if (is_default) {
+								ranked_candidate.default_count++;
+							}
+							ranked_candidate.suitability_rank_sum += rank_index;
 							ranked_candidate.match_count++;
 						};
 
-						if (app_list_for_uti.default_app_metadata) {
-							register_app(*app_list_for_uti.default_app_metadata, DEFAULT_APP_SCORE);
+						std::string_view default_id = app_list_for_uti.default_app_metadata
+							? std::string_view(app_list_for_uti.default_app_metadata->id)
+							: std::string_view();
+
+						// Iterate all compatible apps returned by Launch Services in their native suitability order.
+						for (size_t i = 0; i < app_list_for_uti.compatible_apps_metadata.size(); ++i) {
+							const auto& metadata = app_list_for_uti.compatible_apps_metadata[i];
+							const bool is_default = (!default_id.empty() && metadata.id == default_id);
+							register_app(metadata, is_default, static_cast<int>(i));
 						}
 
-						for (const auto& metadata : app_list_for_uti.compatible_apps_metadata) {
-							register_app(metadata, OTHER_APP_SCORE);
+						// Fallback: Ensure the default app is registered even if Launch Services omitted it
+						// from URLsForApplicationsToOpenURL (e.g., on older macOS versions or legacy handlers).
+
+						if (app_list_for_uti.default_app_metadata) {
+							register_app(*app_list_for_uti.default_app_metadata, true, 0);
 						}
 
 					END_AUTORELEASE_POOL
@@ -267,10 +327,9 @@ namespace openwith
 
 				// ---------- Filtering and sorting ----------
 				// Only applications that can open every selected file survive the intersection.
-				// match_count must equal the total number of files. Finalists are then sorted
-				// by descending score (default apps first) and then by ascending display name.
+				// match_count must equal the total number of files.
 
-				ReportProgress({nullptr, GetMsg(MsgID::MatchingFilteringRanking)});
+				ReportProgress({GetMsg(MsgID::FilteringSortingResults), GetMsg(MsgID::PleaseWait)});
 
 				std::vector<RankedCandidate> ranked_finalists;
 
@@ -280,7 +339,29 @@ namespace openwith
 					}
 				}
 
-				std::sort(ranked_finalists.begin(), ranked_finalists.end());
+				std::sort(ranked_finalists.begin(), ranked_finalists.end(),
+					[alphabetical = _sort_alphabetically,
+					 use_sys_rank = _respect_system_ranking](const RankedCandidate& a, const RankedCandidate& b) {
+						// If strict global alphabetical sorting is enabled, it overrides everything
+						if (alphabetical) {
+							return a.metadata->name < b.metadata->name;
+						}
+
+						// Default handlers for the selected files always take top priority
+						if (a.default_count != b.default_count) {
+							return a.default_count > b.default_count;
+						}
+
+						// If enabled, sort by Launch Services suitability order (lower index sum is better)
+						if (use_sys_rank) {
+							if (a.suitability_rank_sum != b.suitability_rank_sum) {
+								return a.suitability_rank_sum < b.suitability_rank_sum;
+							}
+						}
+
+						// Alphabetical tie-breaker when ranks are equal
+						return a.metadata->name < b.metadata->name;
+					});
 
 				// ---------- Final list generation ----------
 				// Convert internal structures to CandidateInfo output. If multiple bundles share
@@ -389,13 +470,24 @@ namespace openwith
 		unique_profile_strings.reserve(_last_uti_profiles.size());
 
 		BEGIN_AUTORELEASE_POOL(pool_guard)
+
 			for (const auto& profile : _last_uti_profiles) {
+
 				if (!profile.accessible) {
 					unique_profile_strings.insert("(inaccessible)");
 					continue;
 				}
 
-				// File was accessible; convert its recorded UTI to a MIME type.
+				if (_show_uti_instead_of_mime) {
+					if (profile.uti.empty()) {
+						unique_profile_strings.insert("(none)");
+					} else {
+						unique_profile_strings.insert("(" + profile.uti + ")");
+					}
+					continue;
+				}
+
+				// Convert UTI -> MIME type.
 				std::string out_mime_str;
 				NSString *uti = [NSString stringWithUTF8String:profile.uti.c_str()];
 				if (uti && [uti length] > 0) {
