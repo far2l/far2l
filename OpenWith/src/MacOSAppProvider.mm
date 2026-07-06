@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <utility>
 
 namespace
 {
@@ -44,6 +45,14 @@ namespace
 		AutoreleasePoolGuard(const AutoreleasePoolGuard&) = delete;
 		AutoreleasePoolGuard& operator=(const AutoreleasePoolGuard&) = delete;
 	};
+#endif
+
+#ifdef __clang__
+	#define BEGIN_AUTORELEASE_POOL(name) @autoreleasepool {
+	#define END_AUTORELEASE_POOL         }
+#else
+	#define BEGIN_AUTORELEASE_POOL(name) { AutoreleasePoolGuard name;
+	#define END_AUTORELEASE_POOL         }
 #endif
 
 	struct AppBundleMetadata
@@ -105,6 +114,72 @@ namespace
 
 		return metadata;
 	}
+
+
+	std::pair<std::string, bool> ResolveUtiForFile(NSURL* file_url)
+	{
+		NSString *uti = nil;
+		NSError *error = nil;
+		BOOL success = [file_url getResourceValue:&uti forKey:NSURLTypeIdentifierKey error:&error];
+		if (!success) {
+			return { "", false };
+		}
+		if (!uti) {
+			return { "", true };
+		}
+		return { std::string([uti UTF8String]), true };
+	}
+
+
+	const AppListForUti& FetchCompatibleApps(const std::string& uti_std_str, NSURL* file_url, std::unordered_map<std::string, AppListForUti>& cache)
+	{
+		// Check whether we have already queried Launch Services for this UTI.  If not, perform two queries:
+		//   1. URLForApplicationToOpenURL: returns the default handler for this file.
+		//   2. URLsForApplicationsToOpenURL: returns all apps that claim support.
+		// On macOS < 11, URLsForApplicationsToOpenURL is unavailable, so we fallback to a single-element array
+		// containing only the default app.
+
+		auto cache_it = cache.find(uti_std_str);
+		if (cache_it != cache.end()) {
+			return cache_it->second;
+		}
+
+		AppListForUti new_cache_entry;
+
+		NSURL* default_app_url = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:file_url];
+		if (default_app_url) {
+			new_cache_entry.default_app_metadata = ParseAppBundleMetadata(default_app_url);
+		}
+
+#if __has_feature(objc_generics)
+		NSArray<NSURL *>* all_app_urls;
+#else
+		NSArray *all_app_urls;
+#endif
+
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
+		all_app_urls = [[NSWorkspace sharedWorkspace] URLsForApplicationsToOpenURL:file_url];
+#elif __has_feature(objc_array_literals)
+		all_app_urls = default_app_url ? @[default_app_url] : @[];
+#else
+		if (default_app_url) {
+			all_app_urls = [NSArray arrayWithObject:default_app_url];
+		} else {
+			all_app_urls = [NSArray array];
+		}
+#endif
+
+#ifdef __clang__
+		for (NSURL *app_url in all_app_urls) {
+#else
+		for (NSUInteger i = 0; i < [all_app_urls count]; i++) {
+			NSURL *app_url = [all_app_urls objectAtIndex:i];
+#endif
+			new_cache_entry.compatible_apps_metadata.push_back(ParseAppBundleMetadata(app_url));
+		}
+
+		return cache.insert({uti_std_str, std::move(new_cache_entry)}).first->second;
+	}
 }
 
 
@@ -123,12 +198,8 @@ namespace openwith
 		}
 
 		OperationGuard guard(*this, std::move(progress), cancel_flag);
-#ifdef __clang__
-		@autoreleasepool {
-#else
-		{
-			AutoreleasePoolGuard outer_pool_guard;
-#endif
+
+		BEGIN_AUTORELEASE_POOL(outer_pool_guard)
 			try {
 				std::unordered_map<std::string, AppListForUti> uti_to_apps_cache;
 				std::unordered_map<std::string, RankedCandidate> candidates_pool;
@@ -147,94 +218,29 @@ namespace openwith
 					swprintf(status_buf, std::size(status_buf), GetMsg(MsgID::ProcessingFiles), ++files_processed, files_total);
 					ReportProgress({nullptr, status_buf});
 					CheckCancellation();
-#ifdef __clang__
-					@autoreleasepool {
-#else
-					{
-						AutoreleasePoolGuard inner_pool_guard;
-#endif
+
+					BEGIN_AUTORELEASE_POOL(inner_pool_guard)
+
 						NSString *ns_filepath = [NSString stringWithUTF8String:StrWide2MB(filepath).c_str()];
 						NSURL *file_url = [NSURL fileURLWithPath:ns_filepath];
-
 						if (!file_url) {
 							_last_uti_profiles.insert({ std::string(""), false });
 							continue;
 						}
-
-						// ---------- UTI resolution via NSURLTypeIdentifierKey ----------
-						// Retrieve the Uniform Type Identifier (UTI) for the file using the
-						// NSURL resource value API. This is the canonical macOS type identifier
-						// used by Launch Services to determine application bindings.
-
-						NSString *uti = nil;
-						NSError *error = nil;
-						BOOL success = [file_url getResourceValue:&uti forKey:NSURLTypeIdentifierKey error:&error];
-						if (!success) {
-							 _last_uti_profiles.insert({ "", false });
+						
+						auto [uti_std_str, accessible] = ResolveUtiForFile(file_url);
+						_last_uti_profiles.insert({ uti_std_str, accessible });
+						
+						if (!accessible || uti_std_str.empty()) {
 							continue;
 						}
-						if (!uti) {
-							_last_uti_profiles.insert({ "", true });
-							continue;
-						}
-						auto uti_std_str = std::string([uti UTF8String]);
-						_last_uti_profiles.insert({uti_std_str, true});
 
-						// ---------- Launch Services query with UTI-based caching ----------
-						// Check whether we have already queried Launch Services for this UTI.
-						// If not, perform two queries:
-						//   1. URLForApplicationToOpenURL: returns the default handler for this file.
-						//   2. URLsForApplicationsToOpenURL: returns all apps that claim support.
-						// On macOS < 11, URLsForApplicationsToOpenURL is unavailable, so we fall
-						// back to a single-element array containing only the default app.
-
-						auto cache_it = uti_to_apps_cache.find(uti_std_str);
-						if (cache_it == uti_to_apps_cache.end()) {
-							AppListForUti new_cache_entry;
-
-							NSURL* default_app_url = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:file_url];
-							if (default_app_url) {
-								new_cache_entry.default_app_metadata = ParseAppBundleMetadata(default_app_url);
-							}
-
-#if __has_feature(objc_generics)
-							NSArray<NSURL *>* all_app_urls;
-#else
-							NSArray *all_app_urls;
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
-							all_app_urls = [[NSWorkspace sharedWorkspace] URLsForApplicationsToOpenURL:file_url];
-#elif __has_feature(objc_array_literals)
-							all_app_urls = default_app_url ? @[default_app_url] : @[];
-#else
-							if (default_app_url) {
-								all_app_urls = [NSArray arrayWithObject:default_app_url];
-							} else {
-								all_app_urls = [NSArray array];
-							}
-#endif
-
-#ifdef __clang__
-							for (NSURL *app_url in all_app_urls) {
-#else
-							for (NSUInteger i = 0; i < [all_app_urls count]; i++) {
-								NSURL *app_url = [all_app_urls objectAtIndex:i];
-#endif
-								new_cache_entry.compatible_apps_metadata.push_back(ParseAppBundleMetadata(app_url));
-							}
-
-							cache_it = uti_to_apps_cache.insert({uti_std_str, std::move(new_cache_entry)}).first;
-						}
+						const AppListForUti& app_list_for_uti = FetchCompatibleApps(uti_std_str, file_url, uti_to_apps_cache);
 
 						// ---------- Per-file scoring and accumulation ----------
-						// For each file, iterate over the cached app list. The default app gets
-						// DEFAULT_APP_SCORE (10) to prioritize it; every other compatible app
-						// gets OTHER_APP_SCORE (1). The app_ids_seen_for_file set prevents
-						// scoring the same app twice within a single file (deduplication against
-						// the default app potentially appearing in both lists).
-
-						const AppListForUti& app_list_for_uti = cache_it->second;
+						// The app_ids_seen_for_file set prevents scoring the same app twice within a single file
+						// (deduplication against the default app potentially appearing in both lists).
+						
 						auto register_app = [&](const AppBundleMetadata& metadata, int score_weight) {
 							if (!app_ids_seen_for_file.insert(metadata.id).second) {
 								return;
@@ -256,11 +262,7 @@ namespace openwith
 							register_app(metadata, OTHER_APP_SCORE);
 						}
 
-#ifdef __clang__
-					} // end of inner @autoreleasepool
-#else
-					} // end of inner AutoreleasePoolGuard
-#endif
+					END_AUTORELEASE_POOL
 				}
 
 				// ---------- Filtering and sorting ----------
@@ -315,11 +317,7 @@ namespace openwith
 				result.was_cancelled = true;
 				_last_uti_profiles.clear();
 			}
-#ifdef __clang__
-		} // end of outer @autoreleasepool
-#else
-		} // end of outer AutoreleasePoolGuard
-#endif
+		END_AUTORELEASE_POOL
 
 		return result;
 	}
@@ -344,12 +342,8 @@ namespace openwith
 	std::vector<Field> MacOSAppProvider::GetCandidateDetails(const CandidateInfo& candidate)
 	{
 		std::vector<Field> details;
-#ifdef __clang__
-		@autoreleasepool {
-#else
-		{
-			AutoreleasePoolGuard pool_guard;
-#endif
+		
+		BEGIN_AUTORELEASE_POOL(pool_guard)
 			NSString *ns_path = [NSString stringWithUTF8String:StrWide2MB(candidate.id).c_str()];
 			NSURL *app_url = [NSURL fileURLWithPath:ns_path];
 			if (!app_url) {
@@ -383,11 +377,8 @@ namespace openwith
 			if (bundle_version) {
 				details.push_back({GetMsg(MsgID::BundleVersion), StrMB2Wide([bundle_version UTF8String])});
 			}
-#ifdef __clang__
-		} // end of @autoreleasepool
-#else
-		} // end of AutoreleasePoolGuard
-#endif
+		END_AUTORELEASE_POOL
+		
 		return details;
 	}
 
@@ -397,12 +388,7 @@ namespace openwith
 		std::unordered_set<std::string> unique_profile_strings;
 		unique_profile_strings.reserve(_last_uti_profiles.size());
 
-#ifdef __clang__
-		@autoreleasepool {
-#else
-		{
-			AutoreleasePoolGuard pool_guard;
-#endif
+		BEGIN_AUTORELEASE_POOL(pool_guard)
 			for (const auto& profile : _last_uti_profiles) {
 				if (!profile.accessible) {
 					unique_profile_strings.insert("(inaccessible)");
@@ -454,11 +440,7 @@ namespace openwith
 					unique_profile_strings.insert("(" + out_mime_str + ")");
 				}
 			}
-#ifdef __clang__
-		} // end of @autoreleasepool
-#else
-		} // end of AutoreleasePoolGuard
-#endif
+		END_AUTORELEASE_POOL
 		
 		std::vector<std::wstring> result_vec;
 		result_vec.reserve(unique_profile_strings.size());

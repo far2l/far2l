@@ -58,10 +58,6 @@
 "GoTo .d&esktop"
 "GoTo &TryExec"
 "GoTo s&ource"
-"OpenWith: identifying MIME types"
-"Processing file %zu of %zu..."
-"OpenWith: Discovering applications"
-"Matching, filtering and ranking..."
 
 "Name: "
 "Location: "
@@ -69,8 +65,12 @@
 "Version: "
 "Build Version: "
 
-"OpenWith: confirm launch"
-"Are you sure you want to open %zu files with application '%ls'?"
-
 "OpenWith: working"
 "Please, wait..."
+"OpenWith: identifying MIME types"
+"Processing file %zu of %zu..."
+"OpenWith: Discovering applications"
+"Matching, filtering and ranking..."
+
+"OpenWith: confirm launch"
+"Are you sure you want to open %zu files with application '%ls'?"
