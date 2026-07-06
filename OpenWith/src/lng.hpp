@@ -53,7 +53,7 @@ namespace openwith
 
 		FilesSelected,
 		Filepaths,
-		Profiles,
+		FileTypes,
 		LaunchCommand,
 		Close,
 		Launch,

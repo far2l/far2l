@@ -62,7 +62,7 @@ namespace openwith
 				FilterOutTerminalCandidates(*app_candidates, filepaths.size());
 
 				if ((*app_candidates).empty()) {
-					ShowErrorDlg({ GetMsg(MsgID::NoAppsFound), JoinStrings(provider->GetMimeTypes(), L"; ") });
+					ShowErrorDlg({ GetMsg(MsgID::NoAppsFound), JoinStrings(provider->GetFileTypes(), L"; ") });
 					return;  // No application candidates; exit the plugin.
 				}
 
@@ -98,14 +98,14 @@ namespace openwith
 
 			switch (menu_action) {
 				case MenuAction::DETAILS: {
-					const auto mime_profiles = provider->GetMimeTypes();
+					const auto filetypes = provider->GetFileTypes();
 					const auto app_info = provider->GetCandidateDetails(selected_app);
 					const auto cmds = provider->ConstructLaunchCommands(selected_app, filepaths);
 					const auto locations = provider->GetCandidateContextLocations(selected_app);
 
 					bool keep_showing = true;
 					while (keep_showing) {
-						const auto details_dlg_result = ShowDetailsDlg(filepaths, mime_profiles, app_info, cmds, locations);
+						const auto details_dlg_result = ShowDetailsDlg(filepaths, filetypes, app_info, cmds, locations);
 						switch (details_dlg_result.action) {
 							case DetailsDlgResult::Action::Launch: {
 								if (AskForLaunchConfirmation(selected_app, filepaths.size())) {
@@ -520,7 +520,7 @@ namespace openwith
 
 
 	Plugin::DetailsDlgResult Plugin::ShowDetailsDlg(const std::vector<std::wstring>& filepaths,
-											   const std::vector<std::wstring>& unique_mime_profiles,
+											   const std::vector<std::wstring>& unique_filetypes,
 											   const std::vector<Field>& application_info,
 											   const std::vector<std::wstring>& cmds,
 											   const std::vector<CandidateContextLocation>& locations)
@@ -531,7 +531,7 @@ namespace openwith
 			details.push_back(Field{GetMsg(MsgID::FilesSelected), std::to_wstring(file_count)});
 		}
 		details.push_back(Field{GetMsg(MsgID::Filepaths), JoinStrings(filepaths, L"; ")});
-		details.push_back(Field{GetMsg(MsgID::Profiles), JoinStrings(unique_mime_profiles, L"; ")});
+		details.push_back(Field{GetMsg(MsgID::FileTypes), JoinStrings(unique_filetypes, L"; ")});
 		details.push_back(std::nullopt); // separator
 		for (const auto& field : application_info) {
 			details.push_back(field);

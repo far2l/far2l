@@ -368,7 +368,7 @@ namespace openwith
 
 	// Formats the unique MIME profiles collected during the last candidate search
 	// into human-readable strings for display in the Details dialog.
-	std::vector<std::wstring> XDGBasedAppProvider::GetMimeTypes()
+	std::vector<std::wstring> XDGBasedAppProvider::GetFileTypes()
 	{
 		std::set<std::wstring> unique_representations_wide;
 		bool has_none = false;

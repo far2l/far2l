@@ -68,8 +68,8 @@ namespace
 	{
 		const AppBundleMetadata* metadata = nullptr;
 		int match_count = 0;
-		int default_count = 0;        // Number of files where this application is the OS default handler
-		int suitability_rank_sum = 0; // Sum of Launch Services array indices (lower means higher OS preference)
+		int default_count = 0;    // Number of files where this application is the OS default handler
+		int suitability_rank = 0; // Sum of Launch Services array indices (lower means higher OS preference)
 	};
 
 
@@ -300,7 +300,7 @@ namespace openwith
 							if (is_default) {
 								ranked_candidate.default_count++;
 							}
-							ranked_candidate.suitability_rank_sum += rank_index;
+							ranked_candidate.suitability_rank += rank_index;
 							ranked_candidate.match_count++;
 						};
 
@@ -354,8 +354,8 @@ namespace openwith
 
 						// If enabled, sort by Launch Services suitability order (lower index sum is better)
 						if (use_sys_rank) {
-							if (a.suitability_rank_sum != b.suitability_rank_sum) {
-								return a.suitability_rank_sum < b.suitability_rank_sum;
+							if (a.suitability_rank != b.suitability_rank) {
+								return a.suitability_rank < b.suitability_rank;
 							}
 						}
 
@@ -464,7 +464,7 @@ namespace openwith
 	}
 
 
-	std::vector<std::wstring> MacOSAppProvider::GetMimeTypes()
+	std::vector<std::wstring> MacOSAppProvider::GetFileTypes()
 	{
 		std::unordered_set<std::string> unique_profile_strings;
 		unique_profile_strings.reserve(_last_uti_profiles.size());

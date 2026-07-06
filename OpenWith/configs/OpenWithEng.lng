@@ -40,8 +40,8 @@
 "Pass pla&in paths instead of file:// URIs"
 "Show package &qualifiers"
 
-"Show UTI instead of MIME types"
-"Respect system ranking"
+"Show UTI &instead of MIME types"
+"Respect system &ranking"
 
 "Disable ranking and sort al&phabetically"
 
@@ -49,7 +49,7 @@
 
 "F&iles selected: "
 "&Filepaths: "
-"&Profiles: "
+"File t&ypes: "
 "L&aunch command: "
 "&Close"
 "&Launch"

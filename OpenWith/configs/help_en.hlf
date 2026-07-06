@@ -35,10 +35,10 @@ $^#Details Dialog (F3)#
  #-# Filepaths
    The full (absolute) paths to the selected files, formatted as a semicolon-separated list.
 
- #-# Profiles
-   The file type(s) detected by the plugin. For multiple files, all unique detected profiles are shown. Format depends on the OS:
+ #-# File types
    #Linux/BSD#: "Raw" results from all detection methods (xdg-mime, file, etc) enabled in the ~configuration dialog~@ConfigurationDialog@. If tools disagree on the same file, the results are combined into a semicolon‑separated list: "(text/plain;application/x-shellscript)".
-   #macOS#: The MIME type corresponding to the file's system UTI.
+   #macOS#: The MIME type corresponding to the system UTI, or (if the "Show UTI instead of MIME types" option is enabled in the ~configuration dialog~@ConfigurationDialog@) the UTI itself.
+   For multiple files, all unique combinations of detected types are shown.
 
  #-# Launch command
    The final command line that will be executed if you press #Enter# or ~Shift+Enter~@ShiftEnter@.
@@ -219,7 +219,14 @@ $^#Configuration Dialog (F9)#
 
  #2.2. macOS Settings#
 
- There are no platform‑specific settings for macOS. The plugin uses the native Launch Services framework and requires no additional configuration. Launch Services centrally and automatically manages application‑to‑document bindings and maintains a database of installed apps and their Uniform Type Identifiers (UTIs).
+ #-# Show UTI instead of MIME types
+   Display the native Uniform Type Identifier (UTI) instead of the derived MIME type in the ~Details dialog~@DetailsDialog@.
+
+ #-# Respect system ranking
+   Apply the Launch Services rating when sorting candidates: after default handlers, applications deemed more suitable by the system are placed higher.
+
+ #-# Disable ranking and sort alphabetically
+   Override the complex ranking logic and list the applications strictly by name.
 
    ~Contents~@Contents@
 

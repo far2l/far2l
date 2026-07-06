@@ -63,7 +63,7 @@ namespace openwith
 
 		virtual GetCandidatesResult GetAppCandidates(const std::vector<std::wstring>& filepaths, ProgressCallback progress = nullptr,
 													 const std::atomic<bool>* cancel_flag = nullptr) = 0;
-		virtual std::vector<std::wstring> GetMimeTypes() = 0;
+		virtual std::vector<std::wstring> GetFileTypes() = 0;
 		virtual std::vector<std::wstring> ConstructLaunchCommands(const CandidateInfo& candidate, const std::vector<std::wstring>& filepaths) = 0;
 		virtual std::vector<Field> GetCandidateDetails(const CandidateInfo& candidate) = 0;
 		virtual std::vector<CandidateContextLocation> GetCandidateContextLocations(const CandidateInfo& candidate) { return {}; }

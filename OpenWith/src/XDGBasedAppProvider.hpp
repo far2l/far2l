@@ -30,7 +30,7 @@ namespace openwith
 		GetCandidatesResult GetAppCandidates(const std::vector<std::wstring>& filepaths_wide, ProgressCallback progress = nullptr,
 											 const std::atomic<bool>* cancel_flag = nullptr) override;
 		std::vector<std::wstring> ConstructLaunchCommands(const CandidateInfo& candidate, const std::vector<std::wstring>& filepaths_wide) override;
-		std::vector<std::wstring> GetMimeTypes() override;
+		std::vector<std::wstring> GetFileTypes() override;
 		std::vector<Field> GetCandidateDetails(const CandidateInfo& candidate) override;
 		std::vector<CandidateContextLocation> GetCandidateContextLocations(const CandidateInfo& candidate) override;
 
