@@ -107,12 +107,13 @@ namespace openwith
 
 		static std::wstring EscapeForShell(const std::wstring& arg);
 		const AppBundleMetadata* GetOrParseMetadata(const std::string& app_id);
-		const AppListForUti& FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str, std::unordered_map<std::string, AppListForUti>& cache);
+		const AppListForUti& FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str);
 
 		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;
 		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
 		std::unordered_set<MacFileProfile, MacFileProfile::Hash> _last_uti_profiles;
-		std::unordered_map<std::string, AppBundleMetadata> _app_bundle_metadata_cache;
+		std::unordered_map<std::string, std::optional<AppBundleMetadata>> _app_bundle_metadata_cache;
+		std::unordered_map<std::string, AppListForUti> _uti_to_apps_cache;
 
 		bool _show_uti_instead_of_mime;
 		bool _respect_system_ranking;

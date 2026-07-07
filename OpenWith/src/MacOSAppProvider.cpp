@@ -83,8 +83,9 @@ namespace openwith
 			return nullptr;
 		}
 
-		if (auto it = _app_bundle_metadata_cache.find(app_id); it != _app_bundle_metadata_cache.end()) {
-			return &it->second;
+		auto [it, inserted] = _app_bundle_metadata_cache.try_emplace(app_id, std::nullopt);
+		if (!inserted) {
+			return it->second.has_value() ? &(*it->second) : nullptr;
 		}
 
 		std::vector<std::string> keys = {
@@ -102,10 +103,10 @@ namespace openwith
 			metadata.id = app_id;
 
 			std::string bundle_name;
-			if (auto it = plist_data.find("CFBundleDisplayName"); it != plist_data.end()) {
-				bundle_name = it->second;
-			} else if (auto it = plist_data.find("CFBundleName"); it != plist_data.end()) {
-				bundle_name = it->second;
+			if (auto k = plist_data.find("CFBundleDisplayName"); k != plist_data.end()) {
+				bundle_name = k->second;
+			} else if (auto k = plist_data.find("CFBundleName"); k != plist_data.end()) {
+				bundle_name = k->second;
 			}
 
 			if (!bundle_name.empty()) {
@@ -116,37 +117,36 @@ namespace openwith
 				metadata.has_display_name = false;
 			}
 
-			if (auto it = plist_data.find("CFBundleShortVersionString"); it != plist_data.end()) {
-				metadata.short_version = it->second;
+			if (auto k = plist_data.find("CFBundleShortVersionString"); k != plist_data.end()) {
+				metadata.short_version = k->second;
 				metadata.version_string = metadata.short_version;
 			}
-			if (auto it = plist_data.find("CFBundleVersion"); it != plist_data.end()) {
-				metadata.build_version = it->second;
+			if (auto k = plist_data.find("CFBundleVersion"); k != plist_data.end()) {
+				metadata.build_version = k->second;
 				if (metadata.version_string.empty()) {
 					metadata.version_string = metadata.build_version;
 				}
 			}
-			if (auto it = plist_data.find("CFBundleExecutable"); it != plist_data.end()) {
-				metadata.executable_name = it->second;
+			if (auto k = plist_data.find("CFBundleExecutable"); k != plist_data.end()) {
+				metadata.executable_name = k->second;
 			}
 
-			return &_app_bundle_metadata_cache.insert({app_id, std::move(metadata)}).first->second;
+			it->second = std::move(metadata);
+			return &(*it->second);
 		}
 
 		return nullptr;
 	}
 
 
-	const MacOSAppProvider::AppListForUti& MacOSAppProvider::FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str, std::unordered_map<std::string, AppListForUti>& cache)
+	const MacOSAppProvider::AppListForUti& MacOSAppProvider::FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str)
 	{
-		// Check whether we have already queried Launch Services for this UTI.
-		// If not, perform query through the bridge and fetch/parse metadata on demand.
-		auto cache_it = cache.find(uti_std_str);
-		if (cache_it != cache.end()) {
-			return cache_it->second;
+		auto [it, inserted] = _uti_to_apps_cache.try_emplace(uti_std_str);
+		if (!inserted) {
+			return it->second;
 		}
 
-		AppListForUti new_cache_entry;
+		AppListForUti& new_cache_entry = it->second;
 		auto default_app_id_opt = openwith::mac_bridge::GetDefaultAppId(filepath);
 		auto compatible_app_ids = openwith::mac_bridge::GetCompatibleAppIds(filepath);
 
@@ -160,13 +160,15 @@ namespace openwith
 			}
 		}
 
-		return cache.insert({uti_std_str, std::move(new_cache_entry)}).first->second;
+		return new_cache_entry;
 	}
 
 
 	AppProvider::GetCandidatesResult MacOSAppProvider::GetAppCandidates(const std::vector<std::wstring>& filepaths, ProgressCallback progress, const std::atomic<bool>* cancel_flag)
 	{
 		_last_uti_profiles.clear();
+		_app_bundle_metadata_cache.clear();
+		_uti_to_apps_cache.clear();
 
 		GetCandidatesResult result;
 		if (filepaths.empty()) {
@@ -176,9 +178,8 @@ namespace openwith
 		OperationGuard guard(*this, std::move(progress), cancel_flag);
 
 		try {
-			std::unordered_map<std::string, AppListForUti> uti_to_apps_cache;
 			std::unordered_map<std::string, RankedCandidate> candidates_pool;
-			std::unordered_set<std::string> app_ids_seen_for_file;
+			std::unordered_set<std::string_view> app_ids_seen_for_file;
 
 			ReportProgress({GetMsg(MsgID::IdentifyingUTIsDiscoveringApps), GetMsg(MsgID::PleaseWait)});
 			const size_t files_total = filepaths.size();
@@ -204,7 +205,7 @@ namespace openwith
 					continue;
 				}
 
-				const AppListForUti& app_list_for_uti = FetchCompatibleApps(filepath_str, uti_std_str, uti_to_apps_cache);
+				const AppListForUti& app_list_for_uti = FetchCompatibleApps(filepath_str, uti_std_str);
 
 				// ---------- Per-file scoring and accumulation ----------
 				// The app_ids_seen_for_file set prevents scoring the same app twice within a single file
@@ -367,11 +368,11 @@ namespace openwith
 		std::string app_id = StrWide2MB(candidate.id);
 		auto it = _app_bundle_metadata_cache.find(app_id);
 
-		if (it == _app_bundle_metadata_cache.end()) {
+		if (it == _app_bundle_metadata_cache.end() || !it->second.has_value()) {
 			return details;
 		}
 
-		const auto& metadata = it->second;
+		const auto& metadata = *it->second;
 
 		if (metadata.has_display_name) {
 			details.push_back({GetMsg(MsgID::AppName), StrMB2Wide(metadata.name)});
