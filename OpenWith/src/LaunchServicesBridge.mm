@@ -126,53 +126,37 @@ namespace openwith::mac_bridge
 	}
 
 
-	std::optional<openwith::AppBundleMetadata> ParseAppBundleMetadata(const std::string& app_id)
+	std::optional<std::unordered_map<std::string, std::string>> ParseAppBundleMetadata(const std::string& app_id, const std::vector<std::string>& keys)
 	{
+		std::optional<std::unordered_map<std::string, std::string>> result;
 		BEGIN_AUTORELEASE_POOL(pool)
 			NSString *ns_path = [NSString stringWithUTF8String:app_id.c_str()];
 			NSURL *app_url = [NSURL fileURLWithPath:ns_path];
 			if (!app_url) {
-				return std::nullopt;
+				return result;
 			}
 
 			NSBundle *bundle = [NSBundle bundleWithURL:app_url];
 			if (!bundle) {
-				return std::nullopt;
+				return result;
 			}
 
 			NSDictionary *info_dict = [bundle infoDictionary];
-			NSString *bundle_name = [info_dict objectForKey:@"CFBundleDisplayName"] ?: [info_dict objectForKey:@"CFBundleName"];
-			NSString *bundle_short_version = [info_dict objectForKey:@"CFBundleShortVersionString"];
-			NSString *bundle_version = [info_dict objectForKey:@"CFBundleVersion"];
-			NSString *bundle_executable = [info_dict objectForKey:@"CFBundleExecutable"];
-
-			openwith::AppBundleMetadata metadata;
-			metadata.id = app_id;
-			
-			if (bundle_name) {
-				metadata.name = [bundle_name UTF8String];
-				metadata.has_display_name = true;
-			} else {
-				metadata.name = app_id;
-				metadata.has_display_name = false;
+			if (!info_dict) {
+				return result;
 			}
 
-			if (bundle_short_version) {
-				metadata.short_version = [bundle_short_version UTF8String];
-				metadata.version_string = metadata.short_version;
-			}
-			if (bundle_version) {
-				metadata.build_version = [bundle_version UTF8String];
-				if (metadata.version_string.empty()) {
-					metadata.version_string = metadata.build_version;
+			std::unordered_map<std::string, std::string> res_map;
+			for (const auto& key : keys) {
+				NSString *ns_key = [NSString stringWithUTF8String:key.c_str()];
+				NSString *ns_value = [info_dict objectForKey:ns_key];
+				if (ns_value && [ns_value isKindOfClass:[NSString class]]) {
+					res_map[key] = [ns_value UTF8String];
 				}
 			}
-			if (bundle_executable) {
-				metadata.executable_name = [bundle_executable UTF8String];
-			}
-
-			return metadata;
+			result = std::move(res_map);
 		END_AUTORELEASE_POOL
+		return result;
 	}
 
 

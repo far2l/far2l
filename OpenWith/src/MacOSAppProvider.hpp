@@ -18,18 +18,6 @@ class KeyFileHelper;
 
 namespace openwith
 {
-	struct AppBundleMetadata
-	{
-		std::string name;
-		std::string id;
-		std::string version_string;
-		std::string short_version;
-		std::string build_version;
-		std::string executable_name;
-		bool has_display_name = false;
-	};
-
-
 	class MacOSAppProvider : public AppProvider
 	{
 	public:
@@ -47,6 +35,18 @@ namespace openwith
 
 
 	private:
+
+		struct AppBundleMetadata
+		{
+			std::string name;
+			std::string id;
+			std::string version_string;
+			std::string short_version;
+			std::string build_version;
+			std::string executable_name;
+			bool has_display_name = false;
+		};
+
 
 		struct MacFileProfile
 		{
@@ -75,7 +75,7 @@ namespace openwith
 
 		struct RankedCandidate
 		{
-			const openwith::AppBundleMetadata* metadata = nullptr;
+			const AppBundleMetadata* metadata = nullptr;
 			// Number of selected files this application is capable of opening
 			int match_count = 0;
 			// Number of files where this application is the OS default handler
@@ -87,8 +87,8 @@ namespace openwith
 
 		struct AppListForUti
 		{
-			const openwith::AppBundleMetadata* default_app_metadata = nullptr;
-			std::vector<const openwith::AppBundleMetadata*> compatible_apps_metadata;
+			const AppBundleMetadata* default_app_metadata = nullptr;
+			std::vector<const AppBundleMetadata*> compatible_apps_metadata;
 		};
 
 
@@ -106,7 +106,7 @@ namespace openwith
 
 
 		static std::wstring EscapeForShell(const std::wstring& arg);
-		const openwith::AppBundleMetadata* GetOrParseMetadata(const std::string& app_id);
+		const AppBundleMetadata* GetOrParseMetadata(const std::string& app_id);
 		const AppListForUti& FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str, std::unordered_map<std::string, AppListForUti>& cache);
 
 		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;

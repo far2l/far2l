@@ -77,7 +77,7 @@ namespace openwith
 	}
 
 
-	const openwith::AppBundleMetadata* MacOSAppProvider::GetOrParseMetadata(const std::string& app_id)
+	const MacOSAppProvider::AppBundleMetadata* MacOSAppProvider::GetOrParseMetadata(const std::string& app_id)
 	{
 		if (app_id.empty()) {
 			return nullptr;
@@ -87,8 +87,50 @@ namespace openwith
 			return &it->second;
 		}
 
-		if (auto meta_opt = openwith::mac_bridge::ParseAppBundleMetadata(app_id)) {
-			return &_app_bundle_metadata_cache.insert({app_id, std::move(*meta_opt)}).first->second;
+		std::vector<std::string> keys = {
+			"CFBundleDisplayName",
+			"CFBundleName",
+			"CFBundleShortVersionString",
+			"CFBundleVersion",
+			"CFBundleExecutable"
+		};
+
+		if (auto plist_opt = openwith::mac_bridge::ParseAppBundleMetadata(app_id, keys)) {
+			const auto& plist_data = *plist_opt;
+			
+			AppBundleMetadata metadata;
+			metadata.id = app_id;
+
+			std::string bundle_name;
+			if (auto it = plist_data.find("CFBundleDisplayName"); it != plist_data.end()) {
+				bundle_name = it->second;
+			} else if (auto it = plist_data.find("CFBundleName"); it != plist_data.end()) {
+				bundle_name = it->second;
+			}
+
+			if (!bundle_name.empty()) {
+				metadata.name = bundle_name;
+				metadata.has_display_name = true;
+			} else {
+				metadata.name = app_id;
+				metadata.has_display_name = false;
+			}
+
+			if (auto it = plist_data.find("CFBundleShortVersionString"); it != plist_data.end()) {
+				metadata.short_version = it->second;
+				metadata.version_string = metadata.short_version;
+			}
+			if (auto it = plist_data.find("CFBundleVersion"); it != plist_data.end()) {
+				metadata.build_version = it->second;
+				if (metadata.version_string.empty()) {
+					metadata.version_string = metadata.build_version;
+				}
+			}
+			if (auto it = plist_data.find("CFBundleExecutable"); it != plist_data.end()) {
+				metadata.executable_name = it->second;
+			}
+
+			return &_app_bundle_metadata_cache.insert({app_id, std::move(metadata)}).first->second;
 		}
 
 		return nullptr;
@@ -168,7 +210,7 @@ namespace openwith
 				// The app_ids_seen_for_file set prevents scoring the same app twice within a single file
 				// (deduplication against the default app potentially appearing in both lists).
 
-				auto register_app = [&](const openwith::AppBundleMetadata* metadata, bool is_default, int rank_index, size_t list_size) {
+				auto register_app = [&](const AppBundleMetadata* metadata, bool is_default, int rank_index, size_t list_size) {
 					if (!metadata) return;
 
 					if (!app_ids_seen_for_file.insert(metadata->id).second) {

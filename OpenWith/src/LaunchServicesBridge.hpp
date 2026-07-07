@@ -2,9 +2,9 @@
 
 #if defined(__APPLE__)
 
-#include "MacOSAppProvider.hpp"
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace openwith::mac_bridge
@@ -18,8 +18,8 @@ namespace openwith::mac_bridge
 	// Обращается к Launch Services и возвращает пути (ID) всех совместимых приложений.
 	std::vector<std::string> GetCompatibleAppIds(const std::string& filepath);
 
-	// Извлекает данные из бандла (Info.plist) по указанному пути.
-	std::optional<openwith::AppBundleMetadata> ParseAppBundleMetadata(const std::string& app_id);
+	// Извлекает данные из бандла (Info.plist) по указанному пути для заданного списка ключей.
+	std::optional<std::unordered_map<std::string, std::string>> ParseAppBundleMetadata(const std::string& app_id, const std::vector<std::string>& keys);
 
 	// Конвертирует системный UTI в стандартный MIME-тип.
 	std::string ConvertUTIToMime(const std::string& uti);
