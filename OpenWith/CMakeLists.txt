@@ -5,10 +5,11 @@ src/OpenWith.cpp
 src/AppProvider.cpp
 src/XDGBasedAppProvider.cpp
 src/ExtensionMimeMap.cpp
+src/MacOSAppProvider.cpp
 )
 
 if(APPLE)
-    list(APPEND SOURCES src/MacOSAppProvider.mm)
+    list(APPEND SOURCES src/LaunchServicesBridge.mm)
 endif()
 
 add_library (${PROJECT_NAME} MODULE ${SOURCES})

@@ -50,9 +50,10 @@ namespace openwith
 
 		struct MacFileProfile
 		{
-			std::string uti; // UTI, or an empty string if the file is inaccessible.
-			bool accessible; // true if the file was accessible and its UTI was successfully resolved.
-
+			std::string uti;
+			// UTI, or an empty string if the file is inaccessible.
+			bool accessible;
+			// true if the file was accessible and its UTI was successfully resolved.
 			bool operator==(const MacFileProfile& other) const
 			{
 				return accessible == other.accessible && uti == other.uti;
@@ -74,16 +75,18 @@ namespace openwith
 
 		struct PlatformSettingDefinition
 		{
-			std::string internal_key;                 // persistent INI key and internal identifier
+			std::string internal_key;
+			// persistent INI key and internal identifier
 			MsgID display_name_id;                    // ID to fetch the localized UI label
-			bool MacOSAppProvider::* member_variable; // pointer to the linked boolean class member
+			bool MacOSAppProvider::* member_variable;
+			// pointer to the linked boolean class member
 			bool default_value;                       // fallback value if missing in the INI file
-			bool affects_candidates;                  // true if changing this setting affects the contents or order of the candidate list
+			bool affects_candidates;
+			// true if changing this setting affects the contents or order of the candidate list
 		};
 
 
 		static std::wstring EscapeForShell(const std::wstring& arg);
-
 		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;
 		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
 		std::unordered_set<MacFileProfile, MacFileProfile::Hash> _last_uti_profiles;
