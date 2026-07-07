@@ -5,22 +5,18 @@
 #include "MacOSAppProvider.hpp"
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace openwith::mac_bridge
 {
-	struct AppSupportList
-	{
-		std::string default_app_id;
-		std::vector<std::string> compatible_app_ids;
-	};
+	// Возвращает UTI файла, либо std::nullopt, если файл недоступен или произошла ошибка.
+	std::optional<std::string> ResolveFileUTI(const std::string& filepath);
 
-	// Возвращает пару {UTI, is_accessible} для переданного пути файла.
-	std::pair<std::string, bool> ResolveFileUTI(const std::string& filepath);
+	// Обращается к Launch Services и возвращает путь (ID) приложения по умолчанию.
+	std::optional<std::string> GetDefaultAppId(const std::string& filepath);
 
-	// Обращается к Launch Services и возвращает пути (ID) совместимых приложений.
-	AppSupportList FetchCompatibleAppIds(const std::string& filepath);
+	// Обращается к Launch Services и возвращает пути (ID) всех совместимых приложений.
+	std::vector<std::string> GetCompatibleAppIds(const std::string& filepath);
 
 	// Извлекает данные из бандла (Info.plist) по указанному пути.
 	std::optional<openwith::AppBundleMetadata> ParseAppBundleMetadata(const std::string& app_id);

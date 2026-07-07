@@ -73,6 +73,25 @@ namespace openwith
 		};
 
 
+		struct RankedCandidate
+		{
+			const openwith::AppBundleMetadata* metadata = nullptr;
+			// Number of selected files this application is capable of opening
+			int match_count = 0;
+			// Number of files where this application is the OS default handler
+			int default_count = 0;
+			// Running mean of normalized Launch Services ranks: from 0.0 (best) to 1.0 (worst).
+			double mean_suitability_percentile = 0.0;
+		};
+
+
+		struct AppListForUti
+		{
+			const openwith::AppBundleMetadata* default_app_metadata = nullptr;
+			std::vector<const openwith::AppBundleMetadata*> compatible_apps_metadata;
+		};
+
+
 		struct PlatformSettingDefinition
 		{
 			std::string internal_key;
@@ -87,6 +106,9 @@ namespace openwith
 
 
 		static std::wstring EscapeForShell(const std::wstring& arg);
+		const openwith::AppBundleMetadata* GetOrParseMetadata(const std::string& app_id);
+		const AppListForUti& FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str, std::unordered_map<std::string, AppListForUti>& cache);
+
 		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;
 		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
 		std::unordered_set<MacFileProfile, MacFileProfile::Hash> _last_uti_profiles;

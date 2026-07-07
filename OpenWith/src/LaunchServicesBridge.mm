@@ -48,32 +48,47 @@ namespace
 
 namespace openwith::mac_bridge
 {
-	std::pair<std::string, bool> ResolveFileUTI(const std::string& filepath)
+	std::optional<std::string> ResolveFileUTI(const std::string& filepath)
 	{
 		BEGIN_AUTORELEASE_POOL(pool)
 			NSString *ns_filepath = [NSString stringWithUTF8String:filepath.c_str()];
 			NSURL *file_url = [NSURL fileURLWithPath:ns_filepath];
 			if (!file_url) {
-				return { "", false };
+				return std::nullopt;
 			}
 
 			NSString *uti = nil;
 			NSError *error = nil;
 			BOOL success = [file_url getResourceValue:&uti forKey:NSURLTypeIdentifierKey error:&error];
-			if (!success) {
-				return { "", false };
+			if (!success || !uti) {
+				return std::nullopt;
 			}
-			if (!uti) {
-				return { "", true };
-			}
-			return { std::string([uti UTF8String]), true };
+			return std::string([uti UTF8String]);
 		END_AUTORELEASE_POOL
 	}
 
 
-	AppSupportList FetchCompatibleAppIds(const std::string& filepath)
+	std::optional<std::string> GetDefaultAppId(const std::string& filepath)
 	{
-		AppSupportList result;
+		BEGIN_AUTORELEASE_POOL(pool)
+			NSString *ns_filepath = [NSString stringWithUTF8String:filepath.c_str()];
+			NSURL *file_url = [NSURL fileURLWithPath:ns_filepath];
+			if (!file_url) {
+				return std::nullopt;
+			}
+
+			NSURL* default_app_url = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:file_url];
+			if (default_app_url && [default_app_url path]) {
+				return std::string([[default_app_url path] UTF8String]);
+			}
+		END_AUTORELEASE_POOL
+		return std::nullopt;
+	}
+
+
+	std::vector<std::string> GetCompatibleAppIds(const std::string& filepath)
+	{
+		std::vector<std::string> result;
 		BEGIN_AUTORELEASE_POOL(pool)
 			NSString *ns_filepath = [NSString stringWithUTF8String:filepath.c_str()];
 			NSURL *file_url = [NSURL fileURLWithPath:ns_filepath];
@@ -81,18 +96,15 @@ namespace openwith::mac_bridge
 				return result;
 			}
 
-			// 1. Узнаем дефолтное приложение
-			NSURL* default_app_url = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:file_url];
-			if (default_app_url && [default_app_url path]) {
-				result.default_app_id = std::string([[default_app_url path] UTF8String]);
-			}
-
 			NSArray *all_app_urls;
 
-			// 2. Получаем все поддерживаемые приложения (с учетом обратной совместимости)
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
 			all_app_urls = [[NSWorkspace sharedWorkspace] URLsForApplicationsToOpenURL:file_url];
-#elif __has_feature(objc_array_literals)
+#else
+			// On macOS < 11, URLsForApplicationsToOpenURL is unavailable, so we fallback to a single-element array
+			// containing only the default app.
+			NSURL* default_app_url = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:file_url];
+#if __has_feature(objc_array_literals)
 			all_app_urls = default_app_url ? @[default_app_url] : @[];
 #else
 			if (default_app_url) {
@@ -101,11 +113,12 @@ namespace openwith::mac_bridge
 				all_app_urls = [NSArray array];
 			}
 #endif
+#endif
 
 			for (NSUInteger i = 0; i < [all_app_urls count]; i++) {
 				NSURL *app_url = [all_app_urls objectAtIndex:i];
 				if (app_url && [app_url path]) {
-					result.compatible_app_ids.push_back([[app_url path] UTF8String]);
+					result.push_back([[app_url path] UTF8String]);
 				}
 			}
 		END_AUTORELEASE_POOL

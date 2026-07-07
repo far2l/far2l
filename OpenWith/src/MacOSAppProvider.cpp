@@ -17,68 +17,6 @@
 #include <vector>
 #include <utility>
 
-namespace
-{
-	struct RankedCandidate
-	{
-		const openwith::AppBundleMetadata* metadata = nullptr;
-		// Number of selected files this application is capable of opening
-		int match_count = 0;
-		// Number of files where this application is the OS default handler
-		int default_count = 0;
-		// Running mean of normalized Launch Services ranks: from 0.0 (best) to 1.0 (worst).
-		double mean_suitability_percentile = 0.0;
-	};
-
-	struct AppListForUti
-	{
-		const openwith::AppBundleMetadata* default_app_metadata = nullptr;
-		std::vector<const openwith::AppBundleMetadata*> compatible_apps_metadata;
-	};
-
-
-	const openwith::AppBundleMetadata* GetOrParseMetadata(const std::string& app_id, std::unordered_map<std::string, openwith::AppBundleMetadata>& meta_cache)
-	{
-		if (app_id.empty()) {
-			return nullptr;
-		}
-
-		if (auto it = meta_cache.find(app_id); it != meta_cache.end()) {
-			return &it->second;
-		}
-
-		if (auto meta_opt = openwith::mac_bridge::ParseAppBundleMetadata(app_id)) {
-			return &meta_cache.insert({app_id, std::move(*meta_opt)}).first->second;
-		}
-
-		return nullptr;
-	}
-
-
-	const AppListForUti& FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str, std::unordered_map<std::string, AppListForUti>& cache, std::unordered_map<std::string, openwith::AppBundleMetadata>& meta_cache)
-	{
-		// Check whether we have already queried Launch Services for this UTI.
-		// If not, perform query through the bridge and fetch/parse metadata on demand.
-		auto cache_it = cache.find(uti_std_str);
-		if (cache_it != cache.end()) {
-			return cache_it->second;
-		}
-
-		AppListForUti new_cache_entry;
-		auto app_ids = openwith::mac_bridge::FetchCompatibleAppIds(filepath);
-
-		new_cache_entry.default_app_metadata = GetOrParseMetadata(app_ids.default_app_id, meta_cache);
-
-		for (const auto& app_id : app_ids.compatible_app_ids) {
-			if (const auto* meta = GetOrParseMetadata(app_id, meta_cache)) {
-				new_cache_entry.compatible_apps_metadata.push_back(meta);
-			}
-		}
-
-		return cache.insert({uti_std_str, std::move(new_cache_entry)}).first->second;
-	}
-}
-
 
 namespace openwith
 {
@@ -139,6 +77,51 @@ namespace openwith
 	}
 
 
+	const openwith::AppBundleMetadata* MacOSAppProvider::GetOrParseMetadata(const std::string& app_id)
+	{
+		if (app_id.empty()) {
+			return nullptr;
+		}
+
+		if (auto it = _app_bundle_metadata_cache.find(app_id); it != _app_bundle_metadata_cache.end()) {
+			return &it->second;
+		}
+
+		if (auto meta_opt = openwith::mac_bridge::ParseAppBundleMetadata(app_id)) {
+			return &_app_bundle_metadata_cache.insert({app_id, std::move(*meta_opt)}).first->second;
+		}
+
+		return nullptr;
+	}
+
+
+	const MacOSAppProvider::AppListForUti& MacOSAppProvider::FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str, std::unordered_map<std::string, AppListForUti>& cache)
+	{
+		// Check whether we have already queried Launch Services for this UTI.
+		// If not, perform query through the bridge and fetch/parse metadata on demand.
+		auto cache_it = cache.find(uti_std_str);
+		if (cache_it != cache.end()) {
+			return cache_it->second;
+		}
+
+		AppListForUti new_cache_entry;
+		auto default_app_id_opt = openwith::mac_bridge::GetDefaultAppId(filepath);
+		auto compatible_app_ids = openwith::mac_bridge::GetCompatibleAppIds(filepath);
+
+		if (default_app_id_opt) {
+			new_cache_entry.default_app_metadata = GetOrParseMetadata(*default_app_id_opt);
+		}
+
+		for (const auto& app_id : compatible_app_ids) {
+			if (const auto* meta = GetOrParseMetadata(app_id)) {
+				new_cache_entry.compatible_apps_metadata.push_back(meta);
+			}
+		}
+
+		return cache.insert({uti_std_str, std::move(new_cache_entry)}).first->second;
+	}
+
+
 	AppProvider::GetCandidatesResult MacOSAppProvider::GetAppCandidates(const std::vector<std::wstring>& filepaths, ProgressCallback progress, const std::atomic<bool>* cancel_flag)
 	{
 		_last_uti_profiles.clear();
@@ -168,14 +151,18 @@ namespace openwith
 				CheckCancellation();
 
 				std::string filepath_str = StrWide2MB(filepath);
-				auto [uti_std_str, accessible] = mac_bridge::ResolveFileUTI(filepath_str);
+				auto uti_opt = openwith::mac_bridge::ResolveFileUTI(filepath_str);
+				
+				std::string uti_std_str = uti_opt.value_or("");
+				bool accessible = uti_opt.has_value();
+
 				_last_uti_profiles.insert({ uti_std_str, accessible });
 
 				if (!accessible || uti_std_str.empty()) {
 					continue;
 				}
 
-				const AppListForUti& app_list_for_uti = FetchCompatibleApps(filepath_str, uti_std_str, uti_to_apps_cache, _app_bundle_metadata_cache);
+				const AppListForUti& app_list_for_uti = FetchCompatibleApps(filepath_str, uti_std_str, uti_to_apps_cache);
 
 				// ---------- Per-file scoring and accumulation ----------
 				// The app_ids_seen_for_file set prevents scoring the same app twice within a single file
