@@ -57,28 +57,6 @@ namespace
 	#define END_AUTORELEASE_POOL         }
 #endif
 
-
-	struct RankedCandidate
-	{
-		const openwith::AppBundleMetadata* metadata = nullptr;
-		// Number of selected files this application is capable of opening
-		int match_count = 0;
-
-		// Number of files where this application is the OS default handler
-		int default_count = 0;
-
-		// Running mean of normalized Launch Services ranks: from 0.0 (best) to 1.0 (worst).
-		double mean_suitability_percentile = 0.0;
-	};
-
-
-	struct AppListForUti
-	{
-		const openwith::AppBundleMetadata* default_app_metadata = nullptr;
-		std::vector<const openwith::AppBundleMetadata*> compatible_apps_metadata;
-	};
-
-
 	std::string NSURLToPath(NSURL *url)
 	{
 		if (!url) {
@@ -101,112 +79,6 @@ namespace
 		}
 		return { std::string([uti UTF8String]), true };
 	}
-
-
-	class DiscoveryService
-	{
-	public:
-		explicit DiscoveryService(std::unordered_map<std::string, openwith::AppBundleMetadata>& meta_cache)
-			: _meta_cache(meta_cache)
-		{
-		}
-
-		const AppListForUti& FetchCompatibleApps(const std::string& uti_std_str, NSURL* file_url)
-		{
-			// Check whether we have already queried Launch Services for this UTI.
-			// If not, perform two queries:
-			//   1. URLForApplicationToOpenURL: returns the default handler for this file.
-			//   2. URLsForApplicationsToOpenURL: returns all apps that claim support.
-			// On macOS < 11, URLsForApplicationsToOpenURL is unavailable, so we fallback to a single-element array
-			// containing only the default app.
-			auto cache_it = _uti_to_apps_cache.find(uti_std_str);
-			if (cache_it != _uti_to_apps_cache.end()) {
-				return cache_it->second;
-			}
-
-			AppListForUti new_cache_entry;
-
-			NSURL* default_app_url = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:file_url];
-			if (default_app_url) {
-				new_cache_entry.default_app_metadata = ParseAppBundleMetadata(default_app_url);
-			}
-
-			NSArray *all_app_urls;
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
-			all_app_urls = [[NSWorkspace sharedWorkspace] URLsForApplicationsToOpenURL:file_url];
-#elif __has_feature(objc_array_literals)
-			all_app_urls = default_app_url ? @[default_app_url] : @[];
-#else
-			if (default_app_url) {
-				all_app_urls = [NSArray arrayWithObject:default_app_url];
-			} else {
-				all_app_urls = [NSArray array];
-			}
-#endif
-
-			for (NSUInteger i = 0; i < [all_app_urls count]; i++) {
-				NSURL *app_url = [all_app_urls objectAtIndex:i];
-				if (const auto* meta = ParseAppBundleMetadata(app_url)) {
-					new_cache_entry.compatible_apps_metadata.push_back(meta);
-				}
-			}
-
-			return _uti_to_apps_cache.insert({uti_std_str, std::move(new_cache_entry)}).first->second;
-		}
-
-	private:
-		const openwith::AppBundleMetadata* ParseAppBundleMetadata(NSURL *app_url)
-		{
-			std::string app_id = NSURLToPath(app_url);
-			if (app_id.empty()) {
-				return nullptr;
-			}
-
-			if (auto it = _meta_cache.find(app_id); it != _meta_cache.end()) {
-				return &it->second;
-			}
-
-			NSBundle *bundle = [NSBundle bundleWithURL:app_url];
-			NSDictionary *info_dict = [bundle infoDictionary];
-			NSString *bundle_name = [info_dict objectForKey:@"CFBundleDisplayName"] ?: [info_dict objectForKey:@"CFBundleName"];
-			NSString *bundle_short_version = [info_dict objectForKey:@"CFBundleShortVersionString"];
-			NSString *bundle_version = [info_dict objectForKey:@"CFBundleVersion"];
-			NSString *bundle_executable = [info_dict objectForKey:@"CFBundleExecutable"];
-
-			openwith::AppBundleMetadata metadata;
-			metadata.id = app_id;
-			
-			if (bundle_name) {
-				metadata.name = [bundle_name UTF8String];
-				metadata.has_display_name = true;
-			} else {
-				metadata.name = app_id;
-				metadata.has_display_name = false;
-			}
-
-			if (bundle_short_version) {
-				metadata.short_version = [bundle_short_version UTF8String];
-				metadata.version_string = metadata.short_version;
-			}
-			if (bundle_version) {
-				metadata.build_version = [bundle_version UTF8String];
-				if (metadata.version_string.empty()) {
-					metadata.version_string = metadata.build_version;
-				}
-			}
-			if (bundle_executable) {
-				metadata.executable_name = [bundle_executable UTF8String];
-			}
-
-			auto [it, inserted] = _meta_cache.insert({app_id, std::move(metadata)});
-			const auto& new_metadata = it->second;
-			return &new_metadata;
-		}
-
-		std::unordered_map<std::string, openwith::AppBundleMetadata>& _meta_cache;
-		std::unordered_map<std::string, AppListForUti> _uti_to_apps_cache;
-	};
 }
 
 
@@ -319,7 +191,7 @@ namespace openwith
 						// ---------- Per-file scoring and accumulation ----------
 						// The app_ids_seen_for_file set prevents scoring the same app twice within a single file
 						// (deduplication against the default app potentially appearing in both lists).
-						auto register_app = [&](const openwith::AppBundleMetadata* metadata, bool is_default, int rank_index, size_t list_size) {
+						auto register_app = [&](const AppBundleMetadata* metadata, bool is_default, int rank_index, size_t list_size) {
 							if (!metadata) return;
 							if (!app_ids_seen_for_file.insert(metadata->id).second) {
 						        return;
@@ -335,7 +207,7 @@ namespace openwith
 
 							double current_file_percentile = (list_size > 1) ? static_cast<double>(rank_index) / (list_size - 1) : 0.0;
 							ranked_candidate.match_count++;
-							ranked_candidate.mean_suitability_percentile += 
+							ranked_candidate.mean_suitability_percentile +=
 								(current_file_percentile - ranked_candidate.mean_suitability_percentile) / ranked_candidate.match_count;
 						};
 
@@ -395,7 +267,7 @@ namespace openwith
 							 constexpr double epsilon = 1e-9;
 							 const double diff = a.mean_suitability_percentile - b.mean_suitability_percentile;
 							 if (std::abs(diff) > epsilon) {
-							     return diff < 0.0; 
+							     return diff < 0.0;
 							 }
 						}
 
@@ -589,5 +461,110 @@ namespace openwith
 		return out;
 	}
 
+
+	class DiscoveryService
+	{
+	public:
+		explicit DiscoveryService(std::unordered_map<std::string, AppBundleMetadata>& meta_cache)
+			: _meta_cache(meta_cache)
+		{
+		}
+
+		const AppListForUti& FetchCompatibleApps(const std::string& uti_std_str, NSURL* file_url)
+		{
+			// Check whether we have already queried Launch Services for this UTI.
+			// If not, perform two queries:
+			//   1. URLForApplicationToOpenURL: returns the default handler for this file.
+			//   2. URLsForApplicationsToOpenURL: returns all apps that claim support.
+			// On macOS < 11, URLsForApplicationsToOpenURL is unavailable, so we fallback to a single-element array
+			// containing only the default app.
+			auto cache_it = _uti_to_apps_cache.find(uti_std_str);
+			if (cache_it != _uti_to_apps_cache.end()) {
+				return cache_it->second;
+			}
+
+			AppListForUti new_cache_entry;
+
+			NSURL* default_app_url = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:file_url];
+			if (default_app_url) {
+				new_cache_entry.default_app_metadata = ParseAppBundleMetadata(default_app_url);
+			}
+
+			NSArray *all_app_urls;
+
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
+			all_app_urls = [[NSWorkspace sharedWorkspace] URLsForApplicationsToOpenURL:file_url];
+#elif __has_feature(objc_array_literals)
+			all_app_urls = default_app_url ? @[default_app_url] : @[];
+#else
+			if (default_app_url) {
+				all_app_urls = [NSArray arrayWithObject:default_app_url];
+			} else {
+				all_app_urls = [NSArray array];
+			}
+#endif
+
+			for (NSUInteger i = 0; i < [all_app_urls count]; i++) {
+				NSURL *app_url = [all_app_urls objectAtIndex:i];
+				if (const auto* meta = ParseAppBundleMetadata(app_url)) {
+					new_cache_entry.compatible_apps_metadata.push_back(meta);
+				}
+			}
+
+			return _uti_to_apps_cache.insert({uti_std_str, std::move(new_cache_entry)}).first->second;
+		}
+
+	private:
+		const AppBundleMetadata* ParseAppBundleMetadata(NSURL *app_url)
+		{
+			std::string app_id = NSURLToPath(app_url);
+			if (app_id.empty()) {
+				return nullptr;
+			}
+
+			if (auto it = _meta_cache.find(app_id); it != _meta_cache.end()) {
+				return &it->second;
+			}
+
+			NSBundle *bundle = [NSBundle bundleWithURL:app_url];
+			NSDictionary *info_dict = [bundle infoDictionary];
+			NSString *bundle_name = [info_dict objectForKey:@"CFBundleDisplayName"] ?: [info_dict objectForKey:@"CFBundleName"];
+			NSString *bundle_short_version = [info_dict objectForKey:@"CFBundleShortVersionString"];
+			NSString *bundle_version = [info_dict objectForKey:@"CFBundleVersion"];
+			NSString *bundle_executable = [info_dict objectForKey:@"CFBundleExecutable"];
+
+			AppBundleMetadata metadata;
+			metadata.id = app_id;
+
+			if (bundle_name) {
+				metadata.name = [bundle_name UTF8String];
+				metadata.has_display_name = true;
+			} else {
+				metadata.name = app_id;
+				metadata.has_display_name = false;
+			}
+
+			if (bundle_short_version) {
+				metadata.short_version = [bundle_short_version UTF8String];
+				metadata.version_string = metadata.short_version;
+			}
+			if (bundle_version) {
+				metadata.build_version = [bundle_version UTF8String];
+				if (metadata.version_string.empty()) {
+					metadata.version_string = metadata.build_version;
+				}
+			}
+			if (bundle_executable) {
+				metadata.executable_name = [bundle_executable UTF8String];
+			}
+
+			auto [it, inserted] = _meta_cache.insert({app_id, std::move(metadata)});
+			const auto& new_metadata = it->second;
+			return &new_metadata;
+		}
+
+		std::unordered_map<std::string, AppBundleMetadata>& _meta_cache;
+		std::unordered_map<std::string, AppListForUti> _uti_to_apps_cache;
+	};
 } // namespace openwith
 #endif // __APPLE__

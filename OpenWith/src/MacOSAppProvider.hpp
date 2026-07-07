@@ -18,18 +18,6 @@ class KeyFileHelper;
 
 namespace openwith
 {
-	struct AppBundleMetadata
-	{
-		std::string name;
-		std::string id;
-		std::string version_string;
-		std::string short_version;
-		std::string build_version;
-		std::string executable_name;
-		bool has_display_name = false;
-	};
-
-
 	class MacOSAppProvider : public AppProvider
 	{
 	public:
@@ -47,6 +35,7 @@ namespace openwith
 
 
 	private:
+		friend class DiscoveryService;
 
 		struct MacFileProfile
 		{
@@ -69,6 +58,39 @@ namespace openwith
 					return seed;
 				}
 			};
+		};
+
+
+		struct AppBundleMetadata
+		{
+			std::string name;
+			std::string id;
+			std::string version_string;
+			std::string short_version;
+			std::string build_version;
+			std::string executable_name;
+			bool has_display_name = false;
+		};
+
+
+		struct RankedCandidate
+		{
+			const AppBundleMetadata* metadata = nullptr;
+			// Number of selected files this application is capable of opening
+			int match_count = 0;
+
+			// Number of files where this application is the OS default handler
+			int default_count = 0;
+
+			// Running mean of normalized Launch Services ranks: from 0.0 (best) to 1.0 (worst).
+			double mean_suitability_percentile = 0.0;
+		};
+
+
+		struct AppListForUti
+		{
+			const AppBundleMetadata* default_app_metadata = nullptr;
+			std::vector<const AppBundleMetadata*> compatible_apps_metadata;
 		};
 
 
