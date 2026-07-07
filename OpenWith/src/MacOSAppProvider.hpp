@@ -9,6 +9,7 @@
 #include <map>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -17,6 +18,18 @@ class KeyFileHelper;
 
 namespace openwith
 {
+	struct AppBundleMetadata
+	{
+		std::string name;
+		std::string id;
+		std::string version_string;
+		std::string short_version;
+		std::string build_version;
+		std::string executable_name;
+		bool has_display_name = false;
+	};
+
+
 	class MacOSAppProvider : public AppProvider
 	{
 	public:
@@ -74,6 +87,7 @@ namespace openwith
 		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;
 		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
 		std::unordered_set<MacFileProfile, MacFileProfile::Hash> _last_uti_profiles;
+		std::unordered_map<std::string, AppBundleMetadata> _app_bundle_metadata_cache;
 
 		bool _show_uti_instead_of_mime;
 		bool _respect_system_ranking;
