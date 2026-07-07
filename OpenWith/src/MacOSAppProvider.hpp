@@ -38,13 +38,15 @@ namespace openwith
 
 		struct AppBundleMetadata
 		{
-			std::string name;
 			std::string id;
-			std::string version_string;
-			std::string short_version;
-			std::string build_version;
-			std::string executable_name;
-			bool has_display_name = false;
+			std::string bundle_display_name;
+			std::string bundle_name;
+			std::string bundle_short_version_string;
+			std::string bundle_version;
+			std::string bundle_executable;
+			std::string bundle_identifier;
+			std::string name;
+			std::string version;
 		};
 
 

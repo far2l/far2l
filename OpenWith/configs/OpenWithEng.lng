@@ -63,11 +63,13 @@
 "GoTo &TryExec"
 "GoTo s&ource"
 
-"Name: "
 "Location: "
-"Executable: "
-"Version: "
-"Build Version: "
+"Bundle display name: "
+"Bundle name: "
+"Bundle short version string: "
+"Bundle version: "  
+"Bundle executable: "
+"Bundle identifier: "
 
 "OpenWith: working"
 "Please, wait..."

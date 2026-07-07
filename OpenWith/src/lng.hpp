@@ -67,11 +67,13 @@ namespace openwith
 		GotoTryExec,
 		GotoSource,
 
-		AppName,
-		FullPath,
-		ExecutableFile,
-		Version,
+		Location,
+		BundleDisplayName,
+		BundleName,
+		BundleShortVersionString,
 		BundleVersion,
+		BundleExecutable,
+		BundleIdentifier,
 
 		Working,
 		PleaseWait,

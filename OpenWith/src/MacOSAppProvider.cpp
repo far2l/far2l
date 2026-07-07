@@ -93,7 +93,8 @@ namespace openwith
 			"CFBundleName",
 			"CFBundleShortVersionString",
 			"CFBundleVersion",
-			"CFBundleExecutable"
+			"CFBundleExecutable",
+			"CFBundleIdentifier"
 		};
 
 		if (auto plist_opt = openwith::mac_bridge::ParseAppBundleMetadata(app_id, keys)) {
@@ -102,33 +103,39 @@ namespace openwith
 			AppBundleMetadata metadata;
 			metadata.id = app_id;
 
-			std::string bundle_name;
 			if (auto k = plist_data.find("CFBundleDisplayName"); k != plist_data.end()) {
-				bundle_name = k->second;
-			} else if (auto k = plist_data.find("CFBundleName"); k != plist_data.end()) {
-				bundle_name = k->second;
+				metadata.bundle_display_name = k->second;
 			}
-
-			if (!bundle_name.empty()) {
-				metadata.name = bundle_name;
-				metadata.has_display_name = true;
-			} else {
-				metadata.name = app_id;
-				metadata.has_display_name = false;
+			if (auto k = plist_data.find("CFBundleName"); k != plist_data.end()) {
+				metadata.bundle_name = k->second;
 			}
-
 			if (auto k = plist_data.find("CFBundleShortVersionString"); k != plist_data.end()) {
-				metadata.short_version = k->second;
-				metadata.version_string = metadata.short_version;
+				metadata.bundle_short_version_string = k->second;
 			}
 			if (auto k = plist_data.find("CFBundleVersion"); k != plist_data.end()) {
-				metadata.build_version = k->second;
-				if (metadata.version_string.empty()) {
-					metadata.version_string = metadata.build_version;
-				}
+				metadata.bundle_version = k->second;
 			}
 			if (auto k = plist_data.find("CFBundleExecutable"); k != plist_data.end()) {
-				metadata.executable_name = k->second;
+				metadata.bundle_executable = k->second;
+			}
+			if (auto k = plist_data.find("CFBundleIdentifier"); k != plist_data.end()) {
+				metadata.bundle_identifier = k->second;
+			}
+
+			if (!metadata.bundle_display_name.empty()) {
+				metadata.name = metadata.bundle_display_name;
+			} else if (!metadata.bundle_name.empty()) {
+				metadata.name = metadata.bundle_name;
+			} else if (!metadata.bundle_executable.empty()) {
+				metadata.name = metadata.bundle_executable;
+			} else {
+				metadata.name = app_id;
+			}
+
+			if (!metadata.bundle_short_version_string.empty()) {
+				metadata.version = metadata.bundle_short_version_string;
+			} else if (!metadata.bundle_version.empty()) {
+				metadata.version = metadata.bundle_version;
 			}
 
 			it->second = std::move(metadata);
@@ -321,8 +328,8 @@ namespace openwith
 
 					std::string display_name = ranked_finalist.metadata->name;
 
-					if (app_name_frequency[ranked_finalist.metadata->name] > 1 && !ranked_finalist.metadata->version_string.empty()) {
-						display_name += " (" + ranked_finalist.metadata->version_string + ")";
+					if (app_name_frequency[ranked_finalist.metadata->name] > 1 && !ranked_finalist.metadata->version.empty()) {
+						display_name += " (" + ranked_finalist.metadata->version + ")";
 
 					}
 					out_candidate.name = StrMB2Wide(display_name);
@@ -374,22 +381,30 @@ namespace openwith
 
 		const auto& metadata = *it->second;
 
-		if (metadata.has_display_name) {
-			details.push_back({GetMsg(MsgID::AppName), StrMB2Wide(metadata.name)});
+		details.push_back({GetMsg(MsgID::Location), StrMB2Wide(metadata.id)});
+
+		if (!metadata.bundle_display_name.empty()) {
+			details.push_back({GetMsg(MsgID::BundleDisplayName), StrMB2Wide(metadata.bundle_display_name)});
 		}
 
-		details.push_back({GetMsg(MsgID::FullPath), candidate.id});
-
-		if (!metadata.executable_name.empty()) {
-			details.push_back({GetMsg(MsgID::ExecutableFile), StrMB2Wide(metadata.executable_name)});
+		if (!metadata.bundle_name.empty()) {
+			details.push_back({GetMsg(MsgID::BundleName), StrMB2Wide(metadata.bundle_name)});
 		}
 
-		if (!metadata.short_version.empty()) {
-			details.push_back({GetMsg(MsgID::Version), StrMB2Wide(metadata.short_version)});
+		if (!metadata.bundle_short_version_string.empty()) {
+			details.push_back({GetMsg(MsgID::BundleShortVersionString), StrMB2Wide(metadata.bundle_short_version_string)});
 		}
 
-		if (!metadata.build_version.empty()) {
-			details.push_back({GetMsg(MsgID::BundleVersion), StrMB2Wide(metadata.build_version)});
+		if (!metadata.bundle_version.empty()) {
+			details.push_back({GetMsg(MsgID::BundleVersion), StrMB2Wide(metadata.bundle_version)});
+		}
+
+		if (!metadata.bundle_executable.empty()) {
+			details.push_back({GetMsg(MsgID::BundleExecutable), StrMB2Wide(metadata.bundle_executable)});
+		}
+
+		if (!metadata.bundle_identifier.empty()) {
+			details.push_back({GetMsg(MsgID::BundleIdentifier), StrMB2Wide(metadata.bundle_identifier)});
 		}
 
 		return details;
