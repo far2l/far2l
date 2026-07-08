@@ -76,6 +76,12 @@ namespace openwith
 	}
 
 
+	std::vector<CandidateContextLocation> MacOSAppProvider::GetCandidateContextLocations(const CandidateInfo& candidate)
+	{
+		return {{GetMsg(MsgID::GoToBundle), candidate.id}};
+	}
+
+
 	void MacOSAppProvider::ClearLastQueryCaches()
 	{
 		_last_uti_profiles.clear();

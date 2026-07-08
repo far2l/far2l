@@ -74,6 +74,7 @@ namespace openwith
 		BundleVersion,
 		BundleExecutable,
 		BundleIdentifier,
+		GoToBundle,
 
 		Working,
 		PleaseWait,
