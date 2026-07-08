@@ -85,13 +85,14 @@ namespace openwith
 	}
 
 
-	const MacOSAppProvider::AppBundleMetadata* MacOSAppProvider::GetOrParseMetadata(const std::string& app_id)
+	const MacOSAppProvider::AppBundleMetadata* MacOSAppProvider::GetOrParseMetadata(const std::string& bundle_path)
 	{
-		if (app_id.empty()) {
+		if (bundle_path.empty()) {
 			return nullptr;
 		}
 
-		auto [it, inserted] = _app_bundle_metadata_cache.try_emplace(app_id, std::nullopt);
+		auto [it, inserted] = _app_bundle_metadata_cache.try_emplace(bundle_path, std::nullopt);
+
 		if (!inserted) {
 			return it->second.has_value() ? &(*it->second) : nullptr;
 		}
@@ -114,11 +115,11 @@ namespace openwith
 				return v;
 			}();
 
-		if (auto plist_opt = openwith::mac_bridge::ParseAppBundleMetadata(app_id, keys)) {
+		if (auto plist_opt = openwith::mac_os_api::ParseAppBundleMetadata(bundle_path, keys)) {
 			const auto& plist_data = *plist_opt;
 			
 			AppBundleMetadata metadata;
-			metadata.id = app_id;
+			metadata.bundle_path = bundle_path;
 
 			for (const auto& [key, member_ptr] : plist_map) {
 				if (auto k = plist_data.find(key); k != plist_data.end()) {
@@ -130,7 +131,7 @@ namespace openwith
 				metadata.bundle_display_name,
 				metadata.bundle_name,
 				metadata.bundle_executable,
-				app_id
+				bundle_path
 			}));
 
 			metadata.version = std::string(GetFirstNonEmpty({
@@ -154,15 +155,16 @@ namespace openwith
 		}
 
 		AppListForUti& new_cache_entry = it->second;
-		auto default_app_id_opt = openwith::mac_bridge::GetDefaultAppId(filepath);
-		auto compatible_app_ids = openwith::mac_bridge::GetCompatibleAppIds(filepath);
 
-		if (default_app_id_opt) {
-			new_cache_entry.default_app_metadata = GetOrParseMetadata(*default_app_id_opt);
+		auto default_bundle_path_opt = openwith::mac_os_api::GetDefaultBundlePath(filepath);
+		auto compatible_bundle_paths = openwith::mac_os_api::GetCompatibleBundlePaths(filepath);
+
+		if (default_bundle_path_opt) {
+			new_cache_entry.default_app_metadata = GetOrParseMetadata(*default_bundle_path_opt);
 		}
 
-		for (const auto& app_id : compatible_app_ids) {
-			if (const auto* meta = GetOrParseMetadata(app_id)) {
+		for (const auto& bundle_path : compatible_bundle_paths) {
+			if (const auto* meta = GetOrParseMetadata(bundle_path)) {
 				new_cache_entry.compatible_apps_metadata.push_back(meta);
 			}
 		}
@@ -184,14 +186,14 @@ namespace openwith
 
 		try {
 			std::unordered_map<std::string, RankedCandidate> candidates_pool;
-			std::unordered_set<std::string_view> app_ids_seen_for_file;
+			std::unordered_set<std::string_view> bundle_paths_seen_for_file;
 
 			ReportProgress({GetMsg(MsgID::IdentifyingUTIsDiscoveringApps), GetMsg(MsgID::PleaseWait)});
 			const size_t files_total = filepaths.size();
 			size_t files_processed = 0;
 
 			for (const auto& filepath : filepaths) {
-				app_ids_seen_for_file.clear();
+				bundle_paths_seen_for_file.clear();
 
 				wchar_t status_buf[256];
 				swprintf(status_buf, std::size(status_buf), GetMsg(MsgID::ProcessingFiles), ++files_processed, files_total);
@@ -199,10 +201,11 @@ namespace openwith
 				CheckCancellation();
 
 				std::string filepath_str = StrWide2MB(filepath);
-				auto uti_opt = openwith::mac_bridge::ResolveFileUTI(filepath_str);
+				auto uti_opt = openwith::mac_os_api::ResolveFileUTI(filepath_str);
 				
 				static const std::string empty_string;
-				const std::string& uti_std_str = uti_opt ? *uti_opt : empty_string;
+				const std::string& uti_std_str = uti_opt ?
+					*uti_opt : empty_string;
 				bool accessible = uti_opt.has_value();
 
 				_last_uti_profiles.insert({ uti_std_str, accessible });
@@ -218,11 +221,11 @@ namespace openwith
 				// (deduplication against the default app potentially appearing in both lists).
 
 				auto register_app = [&](const AppBundleMetadata* metadata, bool is_default, int rank_index, size_t list_size) {
-					if (!metadata || (metadata->id == filepath_str)|| (!app_ids_seen_for_file.insert(metadata->id).second)) {
+					if (!metadata || (metadata->bundle_path == filepath_str)|| (!bundle_paths_seen_for_file.insert(metadata->bundle_path).second)) {
 						return;
 					}
 
-					auto [it, inserted] = candidates_pool.try_emplace(metadata->id);
+					auto [it, inserted] = candidates_pool.try_emplace(metadata->bundle_path);
 
 					RankedCandidate& ranked_candidate = it->second;
 					if (inserted) {
@@ -232,15 +235,15 @@ namespace openwith
 						ranked_candidate.default_count++;
 					}
 
-					double current_file_percentile = (list_size > 1) ? static_cast<double>(rank_index) / (list_size - 1) : 0.0;
-					ranked_candidate.match_count++;
+					double current_file_suitability_rank = (list_size > 1) ? static_cast<double>(rank_index) / (list_size - 1) : 0.0;
+					ranked_candidate.supported_files_count++;
 
-					ranked_candidate.mean_suitability_percentile += 
-						(current_file_percentile - ranked_candidate.mean_suitability_percentile) / ranked_candidate.match_count;
+					ranked_candidate.avg_suitability_rank += 
+						(current_file_suitability_rank - ranked_candidate.avg_suitability_rank) / ranked_candidate.supported_files_count;
 				};
 
-				std::string_view default_id = app_list_for_uti.default_app_metadata
-					? std::string_view(app_list_for_uti.default_app_metadata->id)
+				std::string_view default_bundle_path = app_list_for_uti.default_app_metadata
+					? std::string_view(app_list_for_uti.default_app_metadata->bundle_path)
 					: std::string_view();
 
 				// Iterate all compatible apps returned by Launch Services in their native suitability order.
@@ -249,7 +252,7 @@ namespace openwith
 				for (size_t i = 0; i < compatible_apps.size(); ++i) {
 					const auto* metadata = compatible_apps[i];
 
-					const bool is_default = (!default_id.empty() && metadata->id == default_id);
+					const bool is_default = (!default_bundle_path.empty() && metadata->bundle_path == default_bundle_path);
 					register_app(metadata, is_default, static_cast<int>(i), compatible_apps.size());
 				}
 
@@ -270,8 +273,8 @@ namespace openwith
 
 			std::vector<RankedCandidate> ranked_finalists;
 
-			for (auto& [app_id, ranked_candidate] : candidates_pool) {
-				if (ranked_candidate.match_count == files_total) {
+			for (auto& [bundle_path, ranked_candidate] : candidates_pool) {
+				if (ranked_candidate.supported_files_count == files_total) {
 					ranked_finalists.push_back(std::move(ranked_candidate));
 				}
 			}
@@ -293,7 +296,7 @@ namespace openwith
 					// If enabled, sort by Launch Services suitability (lower mean percentile is better)
 					if (use_sys_rank) {
 						 constexpr double epsilon = 1e-9;
-						 const double diff = a.mean_suitability_percentile - b.mean_suitability_percentile;
+						 const double diff = a.avg_suitability_rank - b.avg_suitability_rank;
 						 if (std::abs(diff) > epsilon) {
 							 return diff < 0.0; 
 						 }
@@ -306,6 +309,7 @@ namespace openwith
 
 			// ---------- Final list generation ----------
 			// Convert internal structures to CandidateInfo output.
+
 			// If multiple bundles share
 			// the same display name, append the version string to disambiguate them in the UI.
 
@@ -320,7 +324,7 @@ namespace openwith
 
 				for (const auto& ranked_finalist : ranked_finalists) {
 					CandidateInfo out_candidate;
-					out_candidate.id = StrMB2Wide(ranked_finalist.metadata->id);
+					out_candidate.id = StrMB2Wide(ranked_finalist.metadata->bundle_path);
 					out_candidate.terminal = false;
 					out_candidate.multi_file_aware = true;
 
@@ -328,7 +332,6 @@ namespace openwith
 
 					if (app_name_frequency[ranked_finalist.metadata->name] > 1 && !ranked_finalist.metadata->version.empty()) {
 						display_name += " (" + ranked_finalist.metadata->version + ")";
-
 					}
 					out_candidate.name = StrMB2Wide(display_name);
 					out_candidates.push_back(out_candidate);
@@ -342,6 +345,7 @@ namespace openwith
 			result.was_cancelled = true;
 		}
 		return result;
+
 	}
 
 
@@ -368,8 +372,8 @@ namespace openwith
 	{
 		std::vector<Field> details;
 
-		std::string app_id = StrWide2MB(candidate.id);
-		auto it = _app_bundle_metadata_cache.find(app_id);
+		std::string bundle_path = StrWide2MB(candidate.id);
+		auto it = _app_bundle_metadata_cache.find(bundle_path);
 
 		if (it == _app_bundle_metadata_cache.end() || !it->second.has_value()) {
 			return details;
@@ -378,7 +382,7 @@ namespace openwith
 		const auto& metadata = *it->second;
 
 		static constexpr std::pair<MsgID, std::string AppBundleMetadata::*> field_map[] = {
-			{MsgID::Location,                 &AppBundleMetadata::id},
+			{MsgID::Location,                 &AppBundleMetadata::bundle_path},
 			{MsgID::BundleDisplayName,        &AppBundleMetadata::bundle_display_name},
 			{MsgID::BundleName,               &AppBundleMetadata::bundle_name},
 			{MsgID::BundleShortVersionString, &AppBundleMetadata::bundle_short_version_string},
@@ -395,6 +399,7 @@ namespace openwith
 		}
 
 		return details;
+
 	}
 
 
@@ -413,7 +418,6 @@ namespace openwith
 			if (_show_uti_instead_of_mime) {
 				if (profile.uti.empty()) {
 					unique_profile_strings.insert("(none)");
-
 				} else {
 					unique_profile_strings.insert("(" + profile.uti + ")");
 				}
@@ -421,7 +425,7 @@ namespace openwith
 			}
 
 			// Convert UTI -> MIME type through the bridge.
-			std::string out_mime_str = mac_bridge::ConvertUTIToMime(profile.uti);
+			std::string out_mime_str = openwith::mac_os_api::ConvertUTIToMime(profile.uti);
 
 			if (out_mime_str.empty()) {
 				unique_profile_strings.insert("(none)");
@@ -433,6 +437,7 @@ namespace openwith
 
 		std::vector<std::wstring> result_vec;
 		result_vec.reserve(unique_profile_strings.size());
+
 		for (const auto& mime_str : unique_profile_strings) {
 			result_vec.push_back(StrMB2Wide(mime_str));
 		}

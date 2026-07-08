@@ -46,7 +46,7 @@ namespace
 
 } // namespace
 
-namespace openwith::mac_bridge
+namespace openwith::mac_os_api
 {
 	std::optional<std::string> ResolveFileUTI(const std::string& filepath)
 	{
@@ -68,7 +68,7 @@ namespace openwith::mac_bridge
 	}
 
 
-	std::optional<std::string> GetDefaultAppId(const std::string& filepath)
+	std::optional<std::string> GetDefaultBundlePath(const std::string& filepath)
 	{
 		BEGIN_AUTORELEASE_POOL(pool)
 			NSString *ns_filepath = [NSString stringWithUTF8String:filepath.c_str()];
@@ -86,7 +86,7 @@ namespace openwith::mac_bridge
 	}
 
 
-	std::vector<std::string> GetCompatibleAppIds(const std::string& filepath)
+	std::vector<std::string> GetCompatibleBundlePaths(const std::string& filepath)
 	{
 		std::vector<std::string> result;
 		BEGIN_AUTORELEASE_POOL(pool)
@@ -126,11 +126,11 @@ namespace openwith::mac_bridge
 	}
 
 
-	std::optional<std::unordered_map<std::string, std::string>> ParseAppBundleMetadata(const std::string& app_id, const std::vector<std::string>& keys)
+	std::optional<std::unordered_map<std::string, std::string>> ParseAppBundleMetadata(const std::string& bundle_path, const std::vector<std::string>& keys)
 	{
 		std::optional<std::unordered_map<std::string, std::string>> result;
 		BEGIN_AUTORELEASE_POOL(pool)
-			NSString *ns_path = [NSString stringWithUTF8String:app_id.c_str()];
+			NSString *ns_path = [NSString stringWithUTF8String:bundle_path.c_str()];
 			NSURL *app_url = [NSURL fileURLWithPath:ns_path];
 			if (!app_url) {
 				return result;
@@ -204,6 +204,6 @@ namespace openwith::mac_bridge
 		return out_mime_str;
 	}
 
-} // namespace openwith::mac_bridge
+} // namespace openwith::mac_os_api
 
 #endif // __APPLE__
