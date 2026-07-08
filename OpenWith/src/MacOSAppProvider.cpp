@@ -151,19 +151,19 @@ namespace openwith
 	}
 
 
-	const MacOSAppProvider::UtiCompatibleAppsCacheEntry& MacOSAppProvider::GetCachedCompatibleApps(const std::string& filepath, const std::string& uti)
+	const MacOSAppProvider::CompatibleAppsMetadata& MacOSAppProvider::GetCachedCompatibleApps(const std::string& filepath, const std::string& uti)
 	{
 		auto [it, inserted] = _uti_compatibility_cache.try_emplace(uti);
 		if (!inserted) {
 			return it->second;
 		}
 
-		UtiCompatibleAppsCacheEntry& new_cache_entry = it->second;
+		CompatibleAppsMetadata& new_cache_entry = it->second;
 		auto compatible_bundle_paths = openwith::launch_services::GetCompatibleBundlePaths(filepath);
 
 		for (const auto& bundle_path : compatible_bundle_paths) {
 			if (const auto* meta = GetOrParseMetadata(bundle_path)) {
-				new_cache_entry.compatible_apps_metadata.push_back(meta);
+				new_cache_entry.push_back(meta);
 			}
 		}
 
@@ -218,7 +218,7 @@ namespace openwith
 				}
 
 				// Fetch generic compatible apps (Caching by UTI is safe here as this reflects system-wide capabilities).
-				const UtiCompatibleAppsCacheEntry& cached_compatible_apps = GetCachedCompatibleApps(filepath, uti);
+				const auto& compatible_apps = GetCachedCompatibleApps(filepath, uti);
 
 				// ---------- Per-file scoring and accumulation ----------
 				// The bundle_paths_seen_for_file set prevents scoring the same app twice within a single file
@@ -244,8 +244,6 @@ namespace openwith
 
 				std::string_view default_bundle_path = default_app_metadata ? std::string_view(default_app_metadata->bundle_path) : std::string_view();
 
-				const auto& compatible_apps = cached_compatible_apps.compatible_apps_metadata;
-
 				for (size_t i = 0; i < compatible_apps.size(); ++i) {
 					const auto* metadata = compatible_apps[i];
 					const bool is_default = (!default_bundle_path.empty() && metadata->bundle_path == default_bundle_path);
@@ -256,7 +254,7 @@ namespace openwith
 				// from URLsForApplicationsToOpenURL (e.g., on older macOS versions or legacy handlers).
 
 				if (default_app_metadata) {
-					size_t effective_size = std::max(size_t(1), cached_compatible_apps.compatible_apps_metadata.size());
+					size_t effective_size = std::max(size_t(1), compatible_apps.size());
 					register_app(default_app_metadata, true, 0, effective_size);
 				}
 			}

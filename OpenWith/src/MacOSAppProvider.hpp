@@ -71,7 +71,6 @@ namespace openwith
 				}
 			};
 		};
-
 		struct RankedCandidate
 		{
 			const AppBundleMetadata* metadata = nullptr;
@@ -79,11 +78,7 @@ namespace openwith
 			int default_handler_count = 0;
 			double avg_suitability_rank = 0.0;
 		};
-
-		struct UtiCompatibleAppsCacheEntry
-		{
-			std::vector<const AppBundleMetadata*> compatible_apps_metadata;
-		};
+		using CompatibleAppsMetadata = std::vector<const AppBundleMetadata*>;
 
 
 		struct PlatformSettingDefinition
@@ -98,7 +93,7 @@ namespace openwith
 
 		void ClearLastQueryCaches();
 		const AppBundleMetadata* GetOrParseMetadata(const std::string& bundle_path);
-		const UtiCompatibleAppsCacheEntry& GetCachedCompatibleApps(const std::string& filepath, const std::string& uti);
+		const CompatibleAppsMetadata& GetCachedCompatibleApps(const std::string& filepath, const std::string& uti);
 		static std::string_view GetFirstNonEmpty(std::initializer_list<std::string_view> items);
 		static std::wstring QuoteArgForShell(const std::wstring& arg);
 
@@ -106,8 +101,7 @@ namespace openwith
 		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
 		std::unordered_set<FileUtiRecord, FileUtiRecord::Hash> _last_resolved_utis;
 		std::unordered_map<std::string, std::optional<AppBundleMetadata>> _app_bundle_metadata_cache;
-		std::unordered_map<std::string, UtiCompatibleAppsCacheEntry> _uti_compatibility_cache;
-
+		std::unordered_map<std::string, CompatibleAppsMetadata> _uti_compatibility_cache;
 		bool _show_uti_instead_of_mime;
 		bool _respect_system_ranking;
 		bool _sort_alphabetically;
