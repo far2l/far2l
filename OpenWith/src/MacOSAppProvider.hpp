@@ -52,10 +52,8 @@ namespace openwith
 
 		struct MacFileProfile
 		{
-			std::string uti;
-			// UTI, or an empty string if the file is inaccessible.
-			bool accessible;
-			// true if the file was accessible and its UTI was successfully resolved.
+			std::string uti; // UTI, or an empty string if the file is inaccessible.
+			bool accessible; // true if the file was accessible and its UTI was successfully resolved.
 			bool operator==(const MacFileProfile& other) const
 			{
 				return accessible == other.accessible && uti == other.uti;
@@ -78,11 +76,8 @@ namespace openwith
 		{
 			const AppBundleMetadata* metadata = nullptr;
 			int supported_files_count = 0;
-			// Number of selected files this application is capable of opening
-			int default_count = 0;
-			// Number of files where this application is the OS default handler
+			int default_handler_count = 0;
 			double avg_suitability_rank = 0.0;
-			// Running mean of normalized Launch Services ranks: from 0.0 (best) to 1.0 (worst).
 		};
 
 		struct AppListForUti
@@ -104,7 +99,7 @@ namespace openwith
 
 		void ClearLastQueryCaches();
 		const AppBundleMetadata* GetOrParseMetadata(const std::string& bundle_path);
-		const AppListForUti& FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str);
+		const AppListForUti& FetchCompatibleApps(const std::string& filepath, const std::string& uti);
 		static std::string_view GetFirstNonEmpty(std::initializer_list<std::string_view> items);
 		static std::wstring EscapeForShell(const std::wstring& arg);
 

@@ -600,9 +600,9 @@ namespace openwith
 
 
 		add_doublebox();
-		for (const auto& opt_field : details) {
-			if (opt_field.has_value()) {
-				add_field_row(opt_field.value());
+		for (const auto& field_opt : details) {
+			if (field_opt.has_value()) {
+				add_field_row(field_opt.value());
 			} else {
 				add_separator();
 			}

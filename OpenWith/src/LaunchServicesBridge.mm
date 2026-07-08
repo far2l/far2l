@@ -7,9 +7,6 @@
 #ifndef __has_feature
 	#define __has_feature(x) 0
 #endif
-#ifndef __has_extension
-	#define __has_extension __has_feature
-#endif
 
 #import <Cocoa/Cocoa.h>
 
@@ -46,7 +43,7 @@ namespace
 
 } // namespace
 
-namespace openwith::mac_os_api
+namespace openwith::launch_services
 {
 	std::optional<std::string> ResolveFileUTI(const std::string& filepath)
 	{
@@ -104,15 +101,11 @@ namespace openwith::mac_os_api
 			// On macOS < 11, URLsForApplicationsToOpenURL is unavailable, so we fallback to a single-element array
 			// containing only the default app.
 			NSURL* default_app_url = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:file_url];
-#if __has_feature(objc_array_literals)
-			all_app_urls = default_app_url ? @[default_app_url] : @[];
-#else
 			if (default_app_url) {
 				all_app_urls = [NSArray arrayWithObject:default_app_url];
 			} else {
 				all_app_urls = [NSArray array];
 			}
-#endif
 #endif
 
 			for (NSUInteger i = 0; i < [all_app_urls count]; i++) {
@@ -204,6 +197,6 @@ namespace openwith::mac_os_api
 		return out_mime_str;
 	}
 
-} // namespace openwith::mac_os_api
+} // namespace openwith::launch_services
 
 #endif // __APPLE__
