@@ -49,11 +49,13 @@ namespace openwith
 			std::string version;
 		};
 
+		using CompatibleAppsMetadata = std::vector<const AppBundleMetadata*>;
+
 
 		struct FileUtiRecord
 		{
-			std::string uti; // UTI, or an empty string if the file is inaccessible.
-			bool is_uti_resolved; // true if the file was accessible and its UTI was successfully resolved.
+			std::string uti;              // UTI, or an empty string if the file is inaccessible.
+			bool is_uti_resolved = false; // true if the file was accessible and its UTI was successfully resolved.
 			bool operator==(const FileUtiRecord& other) const
 			{
 				return is_uti_resolved == other.is_uti_resolved && uti == other.uti;
@@ -71,6 +73,8 @@ namespace openwith
 				}
 			};
 		};
+
+
 		struct RankedCandidate
 		{
 			const AppBundleMetadata* metadata = nullptr;
@@ -78,7 +82,6 @@ namespace openwith
 			int default_handler_count = 0;
 			double avg_suitability_rank = 0.0;
 		};
-		using CompatibleAppsMetadata = std::vector<const AppBundleMetadata*>;
 
 
 		struct PlatformSettingDefinition
@@ -94,14 +97,16 @@ namespace openwith
 		void ClearLastQueryCaches();
 		const AppBundleMetadata* GetOrParseMetadata(const std::string& bundle_path);
 		const CompatibleAppsMetadata& GetCachedCompatibleApps(const std::string& filepath, const std::string& uti);
-		static std::string_view GetFirstNonEmpty(std::initializer_list<std::string_view> items);
+		static std::string_view SelectFirstNonEmpty(std::initializer_list<std::string_view> items);
 		static std::wstring QuoteArgForShell(const std::wstring& arg);
 
 		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;
 		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
+
 		std::unordered_set<FileUtiRecord, FileUtiRecord::Hash> _last_resolved_utis;
 		std::unordered_map<std::string, std::optional<AppBundleMetadata>> _app_bundle_metadata_cache;
-		std::unordered_map<std::string, CompatibleAppsMetadata> _uti_compatibility_cache;
+		std::unordered_map<std::string, CompatibleAppsMetadata> _uti_to_apps_cache;
+
 		bool _show_uti_instead_of_mime;
 		bool _respect_system_ranking;
 		bool _sort_alphabetically;

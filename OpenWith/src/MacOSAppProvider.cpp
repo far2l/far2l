@@ -85,7 +85,7 @@ namespace openwith
 	{
 		_last_resolved_utis.clear();
 		_app_bundle_metadata_cache.clear();
-		_uti_compatibility_cache.clear();
+		_uti_to_apps_cache.clear();
 	}
 
 
@@ -131,14 +131,14 @@ namespace openwith
 				}
 			}
 
-			metadata.name = std::string(GetFirstNonEmpty({
+			metadata.name = std::string(SelectFirstNonEmpty({
 				metadata.bundle_display_name,
 				metadata.bundle_name,
 				metadata.bundle_executable,
 				bundle_path
 			}));
 
-			metadata.version = std::string(GetFirstNonEmpty({
+			metadata.version = std::string(SelectFirstNonEmpty({
 				metadata.bundle_short_version_string,
 				metadata.bundle_version
 			}));
@@ -153,7 +153,7 @@ namespace openwith
 
 	const MacOSAppProvider::CompatibleAppsMetadata& MacOSAppProvider::GetCachedCompatibleApps(const std::string& filepath, const std::string& uti)
 	{
-		auto [it, inserted] = _uti_compatibility_cache.try_emplace(uti);
+		auto [it, inserted] = _uti_to_apps_cache.try_emplace(uti);
 		if (!inserted) {
 			return it->second;
 		}
@@ -217,14 +217,13 @@ namespace openwith
 					default_app_metadata = GetOrParseMetadata(*default_bundle_path_opt);
 				}
 
-				// Fetch generic compatible apps (Caching by UTI is safe here as this reflects system-wide capabilities).
 				const auto& compatible_apps = GetCachedCompatibleApps(filepath, uti);
 
 				// ---------- Per-file scoring and accumulation ----------
 				// The bundle_paths_seen_for_file set prevents scoring the same app twice within a single file
 				// (deduplication against the default app potentially appearing in both lists).
 
-				auto register_app = [&](const AppBundleMetadata* metadata, bool is_default, int rank_index, size_t list_size) {
+				auto register_app = [&](const AppBundleMetadata* metadata, bool is_default, int rank_index, size_t total_file_handlers) {
 					if (!metadata || (metadata->bundle_path == filepath)|| (!bundle_paths_seen_for_file.insert(metadata->bundle_path).second)) {
 						return;
 					}
@@ -236,7 +235,7 @@ namespace openwith
 					if (is_default) {
 						ranked_candidate.default_handler_count++;
 					}
-					double current_file_suitability_rank = (list_size > 1) ? static_cast<double>(rank_index) / (list_size - 1) : 0.0;
+					double current_file_suitability_rank = (total_file_handlers > 1) ? static_cast<double>(rank_index) / (total_file_handlers - 1) : 0.0;
 					ranked_candidate.supported_files_count++;
 					ranked_candidate.avg_suitability_rank +=
 						(current_file_suitability_rank - ranked_candidate.avg_suitability_rank) / ranked_candidate.supported_files_count;
@@ -254,8 +253,8 @@ namespace openwith
 				// from URLsForApplicationsToOpenURL (e.g., on older macOS versions or legacy handlers).
 
 				if (default_app_metadata) {
-					size_t effective_size = std::max(size_t(1), compatible_apps.size());
-					register_app(default_app_metadata, true, 0, effective_size);
+					size_t assumed_handlers_count = std::max(size_t(1), compatible_apps.size());
+					register_app(default_app_metadata, true, 0, assumed_handlers_count);
 				}
 			}
 
@@ -420,7 +419,7 @@ namespace openwith
 	}
 
 
-	std::string_view MacOSAppProvider::GetFirstNonEmpty(std::initializer_list<std::string_view> items)
+	std::string_view MacOSAppProvider::SelectFirstNonEmpty(std::initializer_list<std::string_view> items)
 	{
 		for (const auto& item : items) {
 			if (!item.empty()) {
