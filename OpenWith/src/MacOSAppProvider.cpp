@@ -77,6 +77,14 @@ namespace openwith
 	}
 
 
+	void MacOSAppProvider::ClearLastQueryCaches()
+	{
+		_last_uti_profiles.clear();
+		_app_bundle_metadata_cache.clear();
+		_uti_to_apps_cache.clear();
+	}
+
+
 	const MacOSAppProvider::AppBundleMetadata* MacOSAppProvider::GetOrParseMetadata(const std::string& app_id)
 	{
 		if (app_id.empty()) {
@@ -97,11 +105,14 @@ namespace openwith
 			{"CFBundleIdentifier",         &AppBundleMetadata::bundle_identifier}
 		};
 
-		std::vector<std::string> keys;
-		keys.reserve(std::size(plist_map));
-		for (const auto& item : plist_map) {
-			keys.emplace_back(item.first);
-		}
+		static const std::vector<std::string> keys = [] {
+				std::vector<std::string> v;
+				v.reserve(std::size(plist_map));
+				for (const auto& item : plist_map) {
+					v.emplace_back(item.first);
+				}
+				return v;
+			}();
 
 		if (auto plist_opt = openwith::mac_bridge::ParseAppBundleMetadata(app_id, keys)) {
 			const auto& plist_data = *plist_opt;
@@ -115,21 +126,19 @@ namespace openwith
 				}
 			}
 
-			if (!metadata.bundle_display_name.empty()) {
-				metadata.name = metadata.bundle_display_name;
-			} else if (!metadata.bundle_name.empty()) {
-				metadata.name = metadata.bundle_name;
-			} else if (!metadata.bundle_executable.empty()) {
-				metadata.name = metadata.bundle_executable;
-			}
+			metadata.name = std::string(GetFirstNonEmpty({
+				metadata.bundle_display_name,
+				metadata.bundle_name,
+				metadata.bundle_executable,
+				app_id
+			}));
 
-			if (!metadata.bundle_short_version_string.empty()) {
-				metadata.version = metadata.bundle_short_version_string;
-			} else if (!metadata.bundle_version.empty()) {
-				metadata.version = metadata.bundle_version;
-			}
+			metadata.version = std::string(GetFirstNonEmpty({
+				metadata.bundle_short_version_string,
+				metadata.bundle_version
+			}));
 
-			it->second = std::move(metadata);
+			it->second.emplace(std::move(metadata));
 			return &(*it->second);
 		}
 
@@ -164,9 +173,7 @@ namespace openwith
 
 	AppProvider::GetCandidatesResult MacOSAppProvider::GetAppCandidates(const std::vector<std::wstring>& filepaths, ProgressCallback progress, const std::atomic<bool>* cancel_flag)
 	{
-		_last_uti_profiles.clear();
-		_app_bundle_metadata_cache.clear();
-		_uti_to_apps_cache.clear();
+		ClearLastQueryCaches();
 
 		GetCandidatesResult result;
 		if (filepaths.empty()) {
@@ -194,7 +201,8 @@ namespace openwith
 				std::string filepath_str = StrWide2MB(filepath);
 				auto uti_opt = openwith::mac_bridge::ResolveFileUTI(filepath_str);
 				
-				std::string uti_std_str = uti_opt.value_or("");
+				static const std::string empty_string;
+				const std::string& uti_std_str = uti_opt ? *uti_opt : empty_string;
 				bool accessible = uti_opt.has_value();
 
 				_last_uti_profiles.insert({ uti_std_str, accessible });
@@ -210,11 +218,10 @@ namespace openwith
 				// (deduplication against the default app potentially appearing in both lists).
 
 				auto register_app = [&](const AppBundleMetadata* metadata, bool is_default, int rank_index, size_t list_size) {
-					if (!metadata) return;
-
-					if (!app_ids_seen_for_file.insert(metadata->id).second) {
+					if (!metadata || (metadata->id == filepath_str)|| (!app_ids_seen_for_file.insert(metadata->id).second)) {
 						return;
 					}
+
 					auto [it, inserted] = candidates_pool.try_emplace(metadata->id);
 
 					RankedCandidate& ranked_candidate = it->second;
@@ -331,12 +338,10 @@ namespace openwith
 			result.candidates = std::move(out_candidates);
 
 		} catch (const OperationCancelledException&) {
+			ClearLastQueryCaches();
 			result.was_cancelled = true;
-			_last_uti_profiles.clear();
 		}
-
 		return result;
-
 	}
 
 
@@ -432,6 +437,17 @@ namespace openwith
 			result_vec.push_back(StrMB2Wide(mime_str));
 		}
 		return result_vec;
+	}
+
+
+	std::string_view MacOSAppProvider::GetFirstNonEmpty(std::initializer_list<std::string_view> items)
+	{
+		for (const auto& item : items) {
+			if (!item.empty()) {
+				return item;
+			}
+		}
+		return {};
 	}
 
 

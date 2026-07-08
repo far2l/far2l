@@ -78,12 +78,9 @@ namespace openwith
 		struct RankedCandidate
 		{
 			const AppBundleMetadata* metadata = nullptr;
-			// Number of selected files this application is capable of opening
-			int match_count = 0;
-			// Number of files where this application is the OS default handler
-			int default_count = 0;
-			// Running mean of normalized Launch Services ranks: from 0.0 (best) to 1.0 (worst).
-			double mean_suitability_percentile = 0.0;
+			int match_count = 0;                       // Number of selected files this application is capable of opening
+			int default_count = 0;                     // Number of files where this application is the OS default handler
+			double mean_suitability_percentile = 0.0;  // Running mean of normalized Launch Services ranks: from 0.0 (best) to 1.0 (worst).
 		};
 
 
@@ -96,20 +93,19 @@ namespace openwith
 
 		struct PlatformSettingDefinition
 		{
-			std::string internal_key;
-			// persistent INI key and internal identifier
-			MsgID display_name_id;                    // ID to fetch the localized UI label
-			bool MacOSAppProvider::* member_variable;
-			// pointer to the linked boolean class member
-			bool default_value;                       // fallback value if missing in the INI file
-			bool affects_candidates;
-			// true if changing this setting affects the contents or order of the candidate list
+			std::string internal_key;                  // persistent INI key and internal identifier
+			MsgID display_name_id;                     // ID to fetch the localized UI label
+			bool MacOSAppProvider::* member_variable;  // pointer to the linked boolean class member
+			bool default_value;                        // fallback value if missing in the INI file
+			bool affects_candidates;                   // true if changing this setting affects the contents or order of the candidate list
 		};
 
 
-		static std::wstring EscapeForShell(const std::wstring& arg);
+		void ClearLastQueryCaches();
 		const AppBundleMetadata* GetOrParseMetadata(const std::string& app_id);
 		const AppListForUti& FetchCompatibleApps(const std::string& filepath, const std::string& uti_std_str);
+		static std::string_view GetFirstNonEmpty(std::initializer_list<std::string_view> items);
+		static std::wstring EscapeForShell(const std::wstring& arg);
 
 		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;
 		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
