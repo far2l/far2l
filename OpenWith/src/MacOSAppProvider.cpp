@@ -7,7 +7,6 @@
 #include "KeyFileHelper.h"
 #include "WideMB.h"
 #include <algorithm>
-#include <cmath>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -84,9 +83,9 @@ namespace openwith
 
 	void MacOSAppProvider::ClearLastQueryCaches()
 	{
-		_last_uti_profiles.clear();
+		_resolved_file_types.clear();
 		_app_bundle_metadata_cache.clear();
-		_uti_to_apps_cache.clear();
+		_uti_compatibility_cache.clear();
 	}
 
 
@@ -120,15 +119,15 @@ namespace openwith
 				return v;
 			}();
 
-		if (auto plist_opt = openwith::launch_services::ParseAppBundleMetadata(bundle_path, keys)) {
-			const auto& plist_data = *plist_opt;
+		if (auto info_plist_properties_opt = openwith::launch_services::ParseAppBundleMetadata(bundle_path, keys)) {
+			const auto& bundle_properties = *info_plist_properties_opt;
 
 			AppBundleMetadata metadata;
 			metadata.bundle_path = bundle_path;
 
 			for (const auto& [key, member_ptr] : plist_map) {
-				if (auto k = plist_data.find(key); k != plist_data.end()) {
-					metadata.*member_ptr = k->second;
+				if (auto property_it = bundle_properties.find(key); property_it != bundle_properties.end()) {
+					metadata.*member_ptr = property_it->second;
 				}
 			}
 
@@ -152,21 +151,15 @@ namespace openwith
 	}
 
 
-	const MacOSAppProvider::AppListForUti& MacOSAppProvider::FetchCompatibleApps(const std::string& filepath, const std::string& uti)
+	const MacOSAppProvider::UtiCompatibleAppsCacheEntry& MacOSAppProvider::GetCachedCompatibleApps(const std::string& filepath, const std::string& uti)
 	{
-		auto [it, inserted] = _uti_to_apps_cache.try_emplace(uti);
+		auto [it, inserted] = _uti_compatibility_cache.try_emplace(uti);
 		if (!inserted) {
 			return it->second;
 		}
 
-		AppListForUti& new_cache_entry = it->second;
-
-		auto default_bundle_path_opt = openwith::launch_services::GetDefaultBundlePath(filepath);
+		UtiCompatibleAppsCacheEntry& new_cache_entry = it->second;
 		auto compatible_bundle_paths = openwith::launch_services::GetCompatibleBundlePaths(filepath);
-
-		if (default_bundle_path_opt) {
-			new_cache_entry.default_app_metadata = GetOrParseMetadata(*default_bundle_path_opt);
-		}
 
 		for (const auto& bundle_path : compatible_bundle_paths) {
 			if (const auto* meta = GetOrParseMetadata(bundle_path)) {
@@ -209,15 +202,23 @@ namespace openwith
 
 				static const std::string empty_string;
 				const std::string& uti = uti_opt ? *uti_opt : empty_string;
-				bool accessible = uti_opt.has_value();
+				bool is_uti_resolved = uti_opt.has_value();
 
-				_last_uti_profiles.insert({ uti, accessible });
+				_resolved_file_types.insert({ uti, is_uti_resolved });
 
-				if (!accessible || uti.empty()) {
+				if (!is_uti_resolved || uti.empty()) {
 					continue;
 				}
 
-				const AppListForUti& app_list_for_uti = FetchCompatibleApps(filepath, uti);
+				// Fetch default app PER FILE to respect user overrides for specific files. Do not cache by UTI.
+				auto default_bundle_path_opt = openwith::launch_services::GetDefaultBundlePath(filepath);
+				const AppBundleMetadata* default_app_metadata = nullptr;
+				if (default_bundle_path_opt) {
+					default_app_metadata = GetOrParseMetadata(*default_bundle_path_opt);
+				}
+
+				// Fetch generic compatible apps (Caching by UTI is safe here as this reflects system-wide capabilities).
+				const UtiCompatibleAppsCacheEntry& cached_compatible_apps = GetCachedCompatibleApps(filepath, uti);
 
 				// ---------- Per-file scoring and accumulation ----------
 				// The bundle_paths_seen_for_file set prevents scoring the same app twice within a single file
@@ -241,11 +242,9 @@ namespace openwith
 						(current_file_suitability_rank - ranked_candidate.avg_suitability_rank) / ranked_candidate.supported_files_count;
 				};
 
-				std::string_view default_bundle_path = app_list_for_uti.default_app_metadata
-					? std::string_view(app_list_for_uti.default_app_metadata->bundle_path)
-					: std::string_view();
+				std::string_view default_bundle_path = default_app_metadata ? std::string_view(default_app_metadata->bundle_path) : std::string_view();
 
-				const auto& compatible_apps = app_list_for_uti.compatible_apps_metadata;
+				const auto& compatible_apps = cached_compatible_apps.compatible_apps_metadata;
 
 				for (size_t i = 0; i < compatible_apps.size(); ++i) {
 					const auto* metadata = compatible_apps[i];
@@ -256,9 +255,9 @@ namespace openwith
 				// Fallback: Ensure the default app is registered even if Launch Services omitted it
 				// from URLsForApplicationsToOpenURL (e.g., on older macOS versions or legacy handlers).
 
-				if (app_list_for_uti.default_app_metadata) {
-					size_t effective_size = std::max(size_t(1), app_list_for_uti.compatible_apps_metadata.size());
-					register_app(app_list_for_uti.default_app_metadata, true, 0, effective_size);
+				if (default_app_metadata) {
+					size_t effective_size = std::max(size_t(1), cached_compatible_apps.compatible_apps_metadata.size());
+					register_app(default_app_metadata, true, 0, effective_size);
 				}
 			}
 
@@ -343,9 +342,9 @@ namespace openwith
 			return {};
 		}
 		// The 'open -a <app_path>' command tells the system to open files with a specific application.
-		std::wstring cmd = L"open -a " + EscapeForShell(candidate.id);
+		std::wstring cmd = L"open -a " + QuoteForShell(candidate.id);
 		for (const auto& filepath : filepaths) {
-			cmd += L" " + EscapeForShell(filepath);
+			cmd += L" " + QuoteForShell(filepath);
 
 		}
 		return {cmd};
@@ -386,25 +385,25 @@ namespace openwith
 	std::vector<std::wstring> MacOSAppProvider::GetFileTypes()
 	{
 		std::unordered_set<std::string> unique_filetypes;
-		unique_filetypes.reserve(_last_uti_profiles.size());
+		unique_filetypes.reserve(_resolved_file_types.size());
 
-		for (const auto& profile : _last_uti_profiles) {
+		for (const auto& record : _resolved_file_types) {
 
-			if (!profile.accessible) {
+			if (!record.is_uti_resolved) {
 				unique_filetypes.insert("(inaccessible)");
 				continue;
 			}
 
 			if (_show_uti_instead_of_mime) {
-				if (profile.uti.empty()) {
+				if (record.uti.empty()) {
 					unique_filetypes.insert("(none)");
 				} else {
-					unique_filetypes.insert("(" + profile.uti + ")");
+					unique_filetypes.insert("(" + record.uti + ")");
 				}
 				continue;
 			}
 
-			std::string mimetype = openwith::launch_services::ConvertUTIToMime(profile.uti);
+			std::string mimetype = openwith::launch_services::ConvertUTIToMime(record.uti);
 
 			if (mimetype.empty()) {
 				unique_filetypes.insert("(none)");
@@ -434,7 +433,7 @@ namespace openwith
 	}
 
 
-	std::wstring MacOSAppProvider::EscapeForShell(const std::wstring& arg)
+	std::wstring MacOSAppProvider::QuoteForShell(const std::wstring& arg)
 	{
 		std::wstring out;
 		out.push_back(L'\'');

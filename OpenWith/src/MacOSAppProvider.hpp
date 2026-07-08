@@ -50,21 +50,21 @@ namespace openwith
 		};
 
 
-		struct MacFileProfile
+		struct FileUtiRecord
 		{
 			std::string uti; // UTI, or an empty string if the file is inaccessible.
-			bool accessible; // true if the file was accessible and its UTI was successfully resolved.
-			bool operator==(const MacFileProfile& other) const
+			bool is_uti_resolved; // true if the file was accessible and its UTI was successfully resolved.
+			bool operator==(const FileUtiRecord& other) const
 			{
-				return accessible == other.accessible && uti == other.uti;
+				return is_uti_resolved == other.is_uti_resolved && uti == other.uti;
 			}
 
 			struct Hash
 			{
-				std::size_t operator()(const MacFileProfile& p) const noexcept
+				std::size_t operator()(const FileUtiRecord& p) const noexcept
 				{
 					std::size_t h1 = std::hash<std::string>{}(p.uti);
-					std::size_t h2 = std::hash<bool>{}(p.accessible);
+					std::size_t h2 = std::hash<bool>{}(p.is_uti_resolved);
 					std::size_t seed = h1;
 					seed ^= h2 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 					return seed;
@@ -80,9 +80,8 @@ namespace openwith
 			double avg_suitability_rank = 0.0;
 		};
 
-		struct AppListForUti
+		struct UtiCompatibleAppsCacheEntry
 		{
-			const AppBundleMetadata* default_app_metadata = nullptr;
 			std::vector<const AppBundleMetadata*> compatible_apps_metadata;
 		};
 
@@ -99,15 +98,15 @@ namespace openwith
 
 		void ClearLastQueryCaches();
 		const AppBundleMetadata* GetOrParseMetadata(const std::string& bundle_path);
-		const AppListForUti& FetchCompatibleApps(const std::string& filepath, const std::string& uti);
+		const UtiCompatibleAppsCacheEntry& GetCachedCompatibleApps(const std::string& filepath, const std::string& uti);
 		static std::string_view GetFirstNonEmpty(std::initializer_list<std::string_view> items);
-		static std::wstring EscapeForShell(const std::wstring& arg);
+		static std::wstring QuoteForShell(const std::wstring& arg);
 
 		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;
 		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
-		std::unordered_set<MacFileProfile, MacFileProfile::Hash> _last_uti_profiles;
+		std::unordered_set<FileUtiRecord, FileUtiRecord::Hash> _resolved_file_types;
 		std::unordered_map<std::string, std::optional<AppBundleMetadata>> _app_bundle_metadata_cache;
-		std::unordered_map<std::string, AppListForUti> _uti_to_apps_cache;
+		std::unordered_map<std::string, UtiCompatibleAppsCacheEntry> _uti_compatibility_cache;
 
 		bool _show_uti_instead_of_mime;
 		bool _respect_system_ranking;
