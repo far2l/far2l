@@ -88,14 +88,20 @@ namespace openwith
 			return it->second.has_value() ? &(*it->second) : nullptr;
 		}
 
-		std::vector<std::string> keys = {
-			"CFBundleDisplayName",
-			"CFBundleName",
-			"CFBundleShortVersionString",
-			"CFBundleVersion",
-			"CFBundleExecutable",
-			"CFBundleIdentifier"
+		static constexpr std::pair<const char*, std::string AppBundleMetadata::*> plist_map[] = {
+			{"CFBundleDisplayName",        &AppBundleMetadata::bundle_display_name},
+			{"CFBundleName",               &AppBundleMetadata::bundle_name},
+			{"CFBundleShortVersionString", &AppBundleMetadata::bundle_short_version_string},
+			{"CFBundleVersion",            &AppBundleMetadata::bundle_version},
+			{"CFBundleExecutable",         &AppBundleMetadata::bundle_executable},
+			{"CFBundleIdentifier",         &AppBundleMetadata::bundle_identifier}
 		};
+
+		std::vector<std::string> keys;
+		keys.reserve(std::size(plist_map));
+		for (const auto& item : plist_map) {
+			keys.emplace_back(item.first);
+		}
 
 		if (auto plist_opt = openwith::mac_bridge::ParseAppBundleMetadata(app_id, keys)) {
 			const auto& plist_data = *plist_opt;
@@ -103,23 +109,10 @@ namespace openwith
 			AppBundleMetadata metadata;
 			metadata.id = app_id;
 
-			if (auto k = plist_data.find("CFBundleDisplayName"); k != plist_data.end()) {
-				metadata.bundle_display_name = k->second;
-			}
-			if (auto k = plist_data.find("CFBundleName"); k != plist_data.end()) {
-				metadata.bundle_name = k->second;
-			}
-			if (auto k = plist_data.find("CFBundleShortVersionString"); k != plist_data.end()) {
-				metadata.bundle_short_version_string = k->second;
-			}
-			if (auto k = plist_data.find("CFBundleVersion"); k != plist_data.end()) {
-				metadata.bundle_version = k->second;
-			}
-			if (auto k = plist_data.find("CFBundleExecutable"); k != plist_data.end()) {
-				metadata.bundle_executable = k->second;
-			}
-			if (auto k = plist_data.find("CFBundleIdentifier"); k != plist_data.end()) {
-				metadata.bundle_identifier = k->second;
+			for (const auto& [key, member_ptr] : plist_map) {
+				if (auto k = plist_data.find(key); k != plist_data.end()) {
+					metadata.*member_ptr = k->second;
+				}
 			}
 
 			if (!metadata.bundle_display_name.empty()) {
@@ -128,8 +121,6 @@ namespace openwith
 				metadata.name = metadata.bundle_name;
 			} else if (!metadata.bundle_executable.empty()) {
 				metadata.name = metadata.bundle_executable;
-			} else {
-				metadata.name = app_id;
 			}
 
 			if (!metadata.bundle_short_version_string.empty()) {
@@ -381,30 +372,21 @@ namespace openwith
 
 		const auto& metadata = *it->second;
 
-		details.push_back({GetMsg(MsgID::Location), StrMB2Wide(metadata.id)});
+		static constexpr std::pair<MsgID, std::string AppBundleMetadata::*> field_map[] = {
+			{MsgID::Location,                 &AppBundleMetadata::id},
+			{MsgID::BundleDisplayName,        &AppBundleMetadata::bundle_display_name},
+			{MsgID::BundleName,               &AppBundleMetadata::bundle_name},
+			{MsgID::BundleShortVersionString, &AppBundleMetadata::bundle_short_version_string},
+			{MsgID::BundleVersion,            &AppBundleMetadata::bundle_version},
+			{MsgID::BundleExecutable,         &AppBundleMetadata::bundle_executable},
+			{MsgID::BundleIdentifier,         &AppBundleMetadata::bundle_identifier}
+		};
 
-		if (!metadata.bundle_display_name.empty()) {
-			details.push_back({GetMsg(MsgID::BundleDisplayName), StrMB2Wide(metadata.bundle_display_name)});
-		}
-
-		if (!metadata.bundle_name.empty()) {
-			details.push_back({GetMsg(MsgID::BundleName), StrMB2Wide(metadata.bundle_name)});
-		}
-
-		if (!metadata.bundle_short_version_string.empty()) {
-			details.push_back({GetMsg(MsgID::BundleShortVersionString), StrMB2Wide(metadata.bundle_short_version_string)});
-		}
-
-		if (!metadata.bundle_version.empty()) {
-			details.push_back({GetMsg(MsgID::BundleVersion), StrMB2Wide(metadata.bundle_version)});
-		}
-
-		if (!metadata.bundle_executable.empty()) {
-			details.push_back({GetMsg(MsgID::BundleExecutable), StrMB2Wide(metadata.bundle_executable)});
-		}
-
-		if (!metadata.bundle_identifier.empty()) {
-			details.push_back({GetMsg(MsgID::BundleIdentifier), StrMB2Wide(metadata.bundle_identifier)});
+		for (const auto& [msg_id, member_ptr] : field_map) {
+			const std::string& val = metadata.*member_ptr;
+			if (!val.empty()) {
+				details.push_back({GetMsg(msg_id), StrMB2Wide(val)});
+			}
 		}
 
 		return details;
