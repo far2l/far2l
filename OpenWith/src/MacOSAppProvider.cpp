@@ -83,7 +83,7 @@ namespace openwith
 
 	void MacOSAppProvider::ClearLastQueryCaches()
 	{
-		_resolved_file_types.clear();
+		_last_resolved_utis.clear();
 		_app_bundle_metadata_cache.clear();
 		_uti_compatibility_cache.clear();
 	}
@@ -204,13 +204,13 @@ namespace openwith
 				const std::string& uti = uti_opt ? *uti_opt : empty_string;
 				bool is_uti_resolved = uti_opt.has_value();
 
-				_resolved_file_types.insert({ uti, is_uti_resolved });
+				_last_resolved_utis.insert({ uti, is_uti_resolved });
 
 				if (!is_uti_resolved || uti.empty()) {
 					continue;
 				}
 
-				// Fetch default app PER FILE to respect user overrides for specific files. Do not cache by UTI.
+				// Fetch default app PER FILE to respect user overrides for specific files.
 				auto default_bundle_path_opt = openwith::launch_services::GetDefaultBundlePath(filepath);
 				const AppBundleMetadata* default_app_metadata = nullptr;
 				if (default_bundle_path_opt) {
@@ -342,9 +342,9 @@ namespace openwith
 			return {};
 		}
 		// The 'open -a <app_path>' command tells the system to open files with a specific application.
-		std::wstring cmd = L"open -a " + QuoteForShell(candidate.id);
+		std::wstring cmd = L"open -a " + QuoteArgForShell(candidate.id);
 		for (const auto& filepath : filepaths) {
-			cmd += L" " + QuoteForShell(filepath);
+			cmd += L" " + QuoteArgForShell(filepath);
 
 		}
 		return {cmd};
@@ -385,9 +385,9 @@ namespace openwith
 	std::vector<std::wstring> MacOSAppProvider::GetFileTypes()
 	{
 		std::unordered_set<std::string> unique_filetypes;
-		unique_filetypes.reserve(_resolved_file_types.size());
+		unique_filetypes.reserve(_last_resolved_utis.size());
 
-		for (const auto& record : _resolved_file_types) {
+		for (const auto& record : _last_resolved_utis) {
 
 			if (!record.is_uti_resolved) {
 				unique_filetypes.insert("(inaccessible)");
@@ -433,7 +433,7 @@ namespace openwith
 	}
 
 
-	std::wstring MacOSAppProvider::QuoteForShell(const std::wstring& arg)
+	std::wstring MacOSAppProvider::QuoteArgForShell(const std::wstring& arg)
 	{
 		std::wstring out;
 		out.push_back(L'\'');

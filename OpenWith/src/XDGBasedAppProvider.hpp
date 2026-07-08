@@ -377,9 +377,9 @@ namespace openwith
 		// --- File MIME type detection and expansion ---
 		RawMimeProfile GetRawMimeProfile(const std::string& filepath);
 		std::vector<std::string> ExpandAndPrioritizeMimeTypes(const RawMimeProfile& profile);
-		std::string DetectMimeTypeWithXdgMimeTool(const std::string& filepath_escaped);
-		std::string DetectMimeTypeWithFileTool(const std::string& filepath_escaped);
-		std::string DetectMimeTypeWithMagikaTool(const std::string& filepath_escaped);
+		std::string DetectMimeTypeWithXdgMimeTool(const std::string& filepath_quoted);
+		std::string DetectMimeTypeWithFileTool(const std::string& filepath_quoted);
+		std::string DetectMimeTypeWithMagikaTool(const std::string& filepath_quoted);
 		std::string DetectMimeTypeViaGlobRules(const std::string& filepath);
 		static bool GlobMatch(const std::string &text, const std::string &pattern, bool case_sensitive);
 		std::string_view DetectMimeTypeByExtension(const std::string& filepath);
@@ -422,7 +422,7 @@ namespace openwith
 		static bool IsExecutableAvailable(const std::string& command, std::string* out_resolved_path = nullptr);
 		static std::string RunCommandAndCaptureOutput(const std::string& cmd);
 		static std::string GetEnv(const char* var, const char* default_val = "");
-		static std::string EscapeArgForShell(const std::string& arg);
+		static std::string QuoteArgForShell(const std::string& arg);
 		static std::string GetBaseName(const std::string& filepath);
 		static std::string_view TrimToStrV(std::string_view sv) noexcept;
 		static std::string TrimToStr(std::string_view sv);

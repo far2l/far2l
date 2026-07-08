@@ -100,11 +100,11 @@ namespace openwith
 		const AppBundleMetadata* GetOrParseMetadata(const std::string& bundle_path);
 		const UtiCompatibleAppsCacheEntry& GetCachedCompatibleApps(const std::string& filepath, const std::string& uti);
 		static std::string_view GetFirstNonEmpty(std::initializer_list<std::string_view> items);
-		static std::wstring QuoteForShell(const std::wstring& arg);
+		static std::wstring QuoteArgForShell(const std::wstring& arg);
 
 		std::map<std::wstring, bool MacOSAppProvider::*> _key_wide_to_member_map;
 		std::vector<PlatformSettingDefinition> _platform_settings_definitions;
-		std::unordered_set<FileUtiRecord, FileUtiRecord::Hash> _resolved_file_types;
+		std::unordered_set<FileUtiRecord, FileUtiRecord::Hash> _last_resolved_utis;
 		std::unordered_map<std::string, std::optional<AppBundleMetadata>> _app_bundle_metadata_cache;
 		std::unordered_map<std::string, UtiCompatibleAppsCacheEntry> _uti_compatibility_cache;
 

@@ -465,7 +465,7 @@ namespace openwith
 			return it->second;
 		}
 
-		std::string cmd = "xdg-mime query default " + EscapeArgForShell(mime) + " 2>/dev/null";
+		std::string cmd = "xdg-mime query default " + QuoteArgForShell(mime) + " 2>/dev/null";
 
 		CheckCancellation();
 		auto desktop_id = RunCommandAndCaptureOutput(cmd);
@@ -835,19 +835,19 @@ namespace openwith
 			// Run expensive external tools ONLY for accessible regular files.
 			if (should_run_cli_tools && access(filepath.c_str(), R_OK) == 0) {
 
-				auto filepath_escaped = EscapeArgForShell(filepath);
+				auto filepath_quoted = QuoteArgForShell(filepath);
 
 				if (_use_xdg_mime_tool && _op_state->xdg_mime_exists) {
 					CheckCancellation();
-					profile.xdg_mime = DetectMimeTypeWithXdgMimeTool(filepath_escaped);
+					profile.xdg_mime = DetectMimeTypeWithXdgMimeTool(filepath_quoted);
 				}
 				if (_op_state->file_tool_enabled_and_exists) {
 					CheckCancellation();
-					profile.file_mime = DetectMimeTypeWithFileTool(filepath_escaped);
+					profile.file_mime = DetectMimeTypeWithFileTool(filepath_quoted);
 				}
 				if (_op_state->magika_tool_enabled_and_exists) {
 					CheckCancellation();
-					profile.magika_mime = DetectMimeTypeWithMagikaTool(filepath_escaped);
+					profile.magika_mime = DetectMimeTypeWithMagikaTool(filepath_quoted);
 				}
 			}
 
@@ -1001,21 +1001,21 @@ namespace openwith
 	}
 
 
-	std::string XDGBasedAppProvider::DetectMimeTypeWithXdgMimeTool(const std::string& filepath_escaped)
+	std::string XDGBasedAppProvider::DetectMimeTypeWithXdgMimeTool(const std::string& filepath_quoted)
 	{
-		return RunCommandAndCaptureOutput("xdg-mime query filetype " + filepath_escaped + " 2>/dev/null");
+		return RunCommandAndCaptureOutput("xdg-mime query filetype " + filepath_quoted + " 2>/dev/null");
 	}
 
 
-	std::string XDGBasedAppProvider::DetectMimeTypeWithFileTool(const std::string& filepath_escaped)
+	std::string XDGBasedAppProvider::DetectMimeTypeWithFileTool(const std::string& filepath_quoted)
 	{
-		return RunCommandAndCaptureOutput("file --brief --dereference --mime-type " + filepath_escaped + " 2>/dev/null");
+		return RunCommandAndCaptureOutput("file --brief --dereference --mime-type " + filepath_quoted + " 2>/dev/null");
 	}
 
 
-	std::string XDGBasedAppProvider::DetectMimeTypeWithMagikaTool(const std::string& filepath_escaped)
+	std::string XDGBasedAppProvider::DetectMimeTypeWithMagikaTool(const std::string& filepath_quoted)
 	{
-		return RunCommandAndCaptureOutput("magika --no-colors --format '%m' " + filepath_escaped + " 2>/dev/null");
+		return RunCommandAndCaptureOutput("magika --no-colors --format '%m' " + filepath_quoted + " 2>/dev/null");
 	}
 
 
@@ -2061,7 +2061,7 @@ namespace openwith
 		// 2. Legacy behavior: If no execution model was deduced from field codes, explicitly append native file paths.
 		if (desktop_entry.execution_model == ExecutionModel::ImplicitFileAppend) {
 			for (const auto& filepath : filepaths) {
-				append_argument(EscapeArgForShell(filepath));
+				append_argument(QuoteArgForShell(filepath));
 			}
 		}
 
@@ -2074,7 +2074,7 @@ namespace openwith
 	{
 		// Fast-path: skip expansion for quoted arguments or if no field codes are present.
 		if (arg_template.is_quoted_literal || arg_template.value.find('%') == std::string::npos) {
-			return { EscapeArgForShell(arg_template.value) };
+			return { QuoteArgForShell(arg_template.value) };
 		}
 
 		const std::string& tmpl = arg_template.value;
@@ -2086,7 +2086,7 @@ namespace openwith
 			result.reserve(filepaths.size());
 			const bool should_convert_to_uri = (tmpl == "%U" && !_treat_urls_as_paths);
 			for (const auto& filepath : filepaths) {
-				result.push_back(EscapeArgForShell(should_convert_to_uri ? PathToUri(filepath) : filepath));
+				result.push_back(QuoteArgForShell(should_convert_to_uri ? PathToUri(filepath) : filepath));
 			}
 			return result;
 		}
@@ -2151,7 +2151,7 @@ namespace openwith
 			return {};
 		}
 
-		return { EscapeArgForShell(expanded_token) };
+		return { QuoteArgForShell(expanded_token) };
 	}
 
 
@@ -2301,7 +2301,7 @@ namespace openwith
 	}
 
 
-	std::string XDGBasedAppProvider::EscapeArgForShell(const std::string& arg)
+	std::string XDGBasedAppProvider::QuoteArgForShell(const std::string& arg)
 	{
 		if (arg.empty()) {
 			// An empty string is represented as '' in the shell.
