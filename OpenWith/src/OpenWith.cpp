@@ -268,7 +268,7 @@ namespace openwith
 	// so that far2l sends DN_ENTERIDLE to ProgressDlgProc() at least once per second, enabling periodic UI updates.
 	void Plugin::ShowProgressDlg(ProgressState& state)
 	{
-		constexpr int DLG_WIDTH = 60;
+		constexpr int DLG_WIDTH = 70;
 		constexpr int DLG_HEIGHT = 9;
 
 		enum ProgressDlgItem

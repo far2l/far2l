@@ -106,22 +106,33 @@ $^#Details Dialog (F3)#
    Jumps to the file "mimeapps.list" or "mimeinfo.cache" from which the association was retrieved. Hidden when multiple files are selected, when the application was found by a full scan of .desktop files, or via 'xdg-mime query default'.
 
 
- #2.2. macOS Application Details#
-
- #-# Name
-   The application's display name from its bundle information.
+ #2.2.1. macOS Application Details#
 
  #-# Location
    The full path to the application bundle (e.g., "/Applications/TextEdit.app").
 
- #-# Executable
-   The name of the main executable file inside the application bundle.
+ #-# Bundle display name
+   The user-visible name for the bundle, used by Siri.
 
- #-# Version
-   The user-visible version string of the application (e.g., "1.14").
+ #-# Bundle name
+   A user-visible short name for the bundle.
 
- #-# Build Version
-   The internal build or bundle version (e.g., "329").
+ #-# Bundle short version
+   The release or version number of the bundle, formatted as three period-separated integers representing [Major].[Minor].[Patch] (e.g., "10.14.1"). Used throughout the system to identify the bundle version.
+
+ #-# Bundle version
+   A machine-readable string composed of one to three period-separated integers (e.g., "10.14.1" or abbreviated as "10.5") that identifies an iteration of the bundle. Required by the App Store and used throughout the system to identify the version of the build.
+
+ #-# Bundle executable
+   The name of the bundle’s executable file. macOS uses this key to locate the executable in cases where the user renames the app or bundle directory.
+
+ #-# Bundle identifier
+   A case-insensitive string of alphanumeric characters, hyphens, and periods — typically in a reverse-DNS format — that uniquely identifies a single app throughout the system. The operating system and Launch Services use this identifier to apply preferences, locate apps capable of opening specific files, and validate app signatures.
+
+ #2.2.2. macOS Actions#
+
+ #-# "GoTo bundle location" button
+   Jumps to the bundle folder in the active panel.
 
    ~Contents~@Contents@
 
@@ -220,7 +231,7 @@ $^#Configuration Dialog (F9)#
  #2.2. macOS Settings#
 
  #-# Show UTI instead of MIME types
-   Display the native Uniform Type Identifier (UTI) instead of the derived MIME type in the ~Details dialog~@DetailsDialog@.
+   Display the native Uniform Type Identifier (UTI) instead of the derived MIME type in the ~Details dialog~@DetailsDialog@ and error messages.
 
  #-# Respect system ranking
    Apply the Launch Services rating when sorting candidates: after default handlers, applications deemed more suitable by the system are placed higher.

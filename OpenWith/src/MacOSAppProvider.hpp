@@ -97,6 +97,7 @@ namespace openwith
 		void ClearLastQueryCaches();
 		const AppBundleMetadata* GetOrParseMetadata(const std::string& bundle_path);
 		const CompatibleAppsMetadata& GetCachedCompatibleApps(const std::string& filepath, const std::string& uti);
+		static std::string_view ExtractBaseName(std::string_view bundle_path);
 		static std::string_view SelectFirstNonEmpty(std::initializer_list<std::string_view> items);
 		static std::wstring QuoteArgForShell(const std::wstring& arg);
 

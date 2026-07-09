@@ -24,7 +24,7 @@ namespace openwith
 	{
 		_platform_settings_definitions = {
 			{ "ShowUtiInsteadOfMime", MsgID::ShowUtiInsteadOfMime, &MacOSAppProvider::_show_uti_instead_of_mime, false, false},
-			{ "RespectSystemRanking", MsgID::RespectSystemRanking, &MacOSAppProvider::_respect_system_ranking,   true,  true},
+			{ "RespectSystemRanking", MsgID::RespectSystemRanking, &MacOSAppProvider::_respect_system_ranking,   false, true},
 			{ "SortAlphabetically",   MsgID::SortAlphabetically,   &MacOSAppProvider::_sort_alphabetically,      false, true}
 		};
 
@@ -134,8 +134,7 @@ namespace openwith
 			metadata.name = std::string(SelectFirstNonEmpty({
 				metadata.bundle_display_name,
 				metadata.bundle_name,
-				metadata.bundle_executable,
-				bundle_path
+				ExtractBaseName(bundle_path)
 			}));
 
 			metadata.version = std::string(SelectFirstNonEmpty({
@@ -416,6 +415,16 @@ namespace openwith
 			out_filetypes.push_back(StrMB2Wide(filetype));
 		}
 		return out_filetypes;
+	}
+
+
+	std::string_view MacOSAppProvider::ExtractBaseName(std::string_view bundle_path)
+	{
+		while (!bundle_path.empty() && bundle_path.back() == '/') {
+			bundle_path.remove_suffix(1);
+		}
+		const size_t pos = bundle_path.rfind('/');
+		return (pos == std::string_view::npos) ? bundle_path : bundle_path.substr(pos + 1);
 	}
 
 
