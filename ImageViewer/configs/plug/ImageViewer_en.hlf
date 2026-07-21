@@ -3,7 +3,7 @@
 
 @Contents
 $^#ImageViewer Plugin#
-$^#Copyright (C) 2025 Far People#
+$^#Copyright (C) 2025-2026 Far People#
 $^#Using the Plugin#
 
   ~Using the Plugin~@Contents@
@@ -45,6 +45,8 @@ the following shortcuts are available.
    Exit and save selection
      changes to the file panel                #Enter#
    Exit without changing selection            #Esc# or #F10#
+   Exit and move the panel cursor             #T# or #Ctrl+F10#
+     to the currently viewed file
 
   #File Selection Management#
    (selected files are marked with an asterisk #*# in the window title)
@@ -116,7 +118,7 @@ the following shortcuts are available.
 
 @settings
 $^#ImageViewer Plugin#
-$^#Copyright (C) 2025 Far People#
+$^#Copyright (C) 2025-2026 Far People#
 $^#Plugin Configuration#
 
   ~Plugin Configuration~@settings@
@@ -134,7 +136,7 @@ and #Ctrl+Q# (for displaying the image on the adjacent ~Quick View~@:QViewPanel@
 
 @ExtraCommands
 $^#ImageViewer Plugin#
-$^#Copyright (C) 2025 Far People#
+$^#Copyright (C) 2025-2026 Far People#
 $^#Extra Commands#
 
   ~Extra Commands~@ExtraCommands@
