@@ -966,7 +966,12 @@ int TreeList::ProcessKey(FarKey Key)
 	}
 
 	if (Key >= KEY_RCTRL0 && Key <= KEY_RCTRL9) {
-		ExecShortcutFolder(Key - KEY_RCTRL0);
+		int Pos = Key - KEY_RCTRL0;
+		FARString path, plugin, file, data;
+		if (int EntryPos = 0; BookmarksCache::ResolveForSlot(Pos, path, plugin, file, data, EntryPos)
+				== BookmarksCache::GetResult::Ok) {
+			ExecShortcutFolder(Pos, EntryPos);
+		}
 		return TRUE;
 	}
 

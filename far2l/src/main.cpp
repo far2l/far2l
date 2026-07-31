@@ -59,6 +59,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "strmix.hpp"
 #include "dirmix.hpp"
 #include "Bookmarks.hpp"
+#include "AutoHistory.hpp"
+#include "BookmarksLog.hpp"
 #include "cmdline.hpp"
 #include "console.hpp"
 #include "vtshell.h"
@@ -691,6 +693,7 @@ int FarAppMain(int argc, char **argv)
 
 	UpdateDefaultColumnTypeWidths();
 	CheckForImportLegacyShortcuts();
+	BookmarksCache::MigrateOnceIfNeeded();
 
 	// (!!!) temporary STUB because now Editor can not input filename "", see: fileedit.cpp -> FileEditor::Init()
 	// default Editor file name for new empty file
@@ -700,7 +703,11 @@ int FarAppMain(int argc, char **argv)
 	int Result = MainProcess(strEditViewArg, DestNames[0], DestNames[1], StartLine, StartChar, cfgNeedSave);
 
 	EmptyInternalClipboard();
+	BookmarksCache::Shutdown();
+	ShutdownAutoHistory();
+	BookmarksLog::Flush();
 	doneMacroVarTable(1);
+
 	VTShell_Shutdown();		// ensure VTShell deinitialized before statics destructors called
 	_OT(SysLog(L"[[[[[Exit of FAR]]]]]]]]]"));
 	return Result;

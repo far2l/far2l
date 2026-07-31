@@ -582,9 +582,18 @@ int Edit::ProcessInsPath(FarKey Key, int PrevSelStart, int PrevSelEnd)
 	if (Key >= KEY_RCTRL0 && Key <= KEY_RCTRL9)		// шорткаты?
 	{
 		FARString strPluginModule, strPluginFile, strPluginData;
-
-		if (Bookmarks().Get(Key - KEY_RCTRL0, &strPathName, &strPluginModule, &strPluginFile, &strPluginData))
+		if (BookmarksCache::ResolveForCmdline(Key - KEY_RCTRL0, strPathName,
+					strPluginModule, strPluginFile, strPluginData)
+				== BookmarksCache::GetResult::Ok) {
+			// ResolveForCmdline returns the raw Folder (no env-var expansion,
+			// unlike the old Bookmarks::Get which expanded). Expand here so a
+			// bookmark like %HOME%/projects inserts the resolved path into the
+			// cmdline rather than the literal %HOME%.
+			FARString strExpanded;
+			apiExpandEnvironmentStrings(strPathName, strExpanded);
+			strPathName = strExpanded;
 			RetCode = TRUE;
+		}
 	} else		// Пути/имена?
 	{
 		RetCode = _MakePath1(Key, strPathName, L"", 0); // 0 - always not escaping path names

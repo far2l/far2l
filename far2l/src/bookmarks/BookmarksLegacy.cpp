@@ -93,7 +93,7 @@ void CheckForImportLegacyShortcuts()
 		FARString Folder, PluginModule, PluginFile, PluginData;
 		if (LegacyShortcut_Get(i, &Folder, &PluginModule, &PluginFile, &PluginData))
 		{
-			b.Set(i, &Folder, &PluginModule, &PluginFile, &PluginData);
+			(void)b.Set(i, &Folder, &PluginModule, &PluginFile, &PluginData);
 		}
 		else if (i >= 10)
 		{
