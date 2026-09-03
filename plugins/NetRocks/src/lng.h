@@ -32,6 +32,11 @@ enum LanguageID
 	MLoginAuthRetryTitle,
 	MLoginAuthTo,
 	MLoginAuthRetryTo,
+	MKeyPassphraseTitle,
+	MKeyPassphraseRetryTitle,
+	MKeyPassphraseTo,
+	MKeyPassphraseRetryTo,
+	MPassphrase,
 
 	MProtocol,
 	MHost,
@@ -316,6 +321,10 @@ enum LanguageID
 	MSHELLWay,
 	MSHELLWaySettings,
 	MFISHPLUSOptionsTitle,
+	MFISHPLUSHelperFlavor,
+	MFISHPLUSHelperFlavorAuto,
+	MFISHPLUSHelperFlavorPosix,
+	MFISHPLUSHelperFlavorPwsh,
 
 	MProxySettingsTitle,
 	MProxySettingsDisabled,

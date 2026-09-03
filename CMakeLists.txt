@@ -155,8 +155,12 @@ endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -fPIC -Wno-unused-function -D_FILE_OFFSET_BITS=64") #  -fsanitize=address
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99 -fPIC -Wno-unused-function -D_FILE_OFFSET_BITS=64") #  -fsanitize=address
+
 set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 set(CMAKE_C_FLAGS_RELEASE "-O2")
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DPROCPLUGINMACROFUNC=1")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPROCPLUGINMACROFUNC=1")
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     set(APP_DIR ${CMAKE_BINARY_DIR}/install)
@@ -199,12 +203,18 @@ endif()
 if(CMAKE_VERSION VERSION_GREATER "3.3")
     cmake_policy(SET CMP0063 NEW)
     cmake_policy(SET CMP0057 NEW)
+    cmake_policy(SET CMP0079 NEW)
 endif()
 
 include_directories(utils/include)
 
+# E.6.4: enable_testing() makes docs/casts/verify_casts.py and the
+# testing/* CTest tests visible to `ctest` at the top-level build dir.
+enable_testing()
+
 add_subdirectory (WinPort)
 add_subdirectory (utils)
+add_subdirectory (testing)
 add_subdirectory (far2l)
 add_subdirectory (themes)
 
@@ -336,6 +346,11 @@ else()
         " COMPONENT system)
 endif()
 
+	if(TESTING AND (NOT DEFINED COLORER OR COLORER))
+		target_sources(far2l_unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/testing/unit/test_cregexp_hardening.cpp)
+		target_link_libraries(far2l_unit_tests PRIVATE colorer_lib)
+	endif()
+
 if (NOT DEFINED COMPARE OR COMPARE)
     message(STATUS "COMPARE plugin enabled")
     add_subdirectory (plugins/compare)
@@ -343,6 +358,16 @@ else()
     message(STATUS "${ColorRed}COMPARE plugin disabled due to COMPARE=${COMPARE}${ColorNormal}")
     install(CODE "
         execute_process(COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_INSTALL_PREFIX}/lib/far2l/Plugins/compare/plug/compare.far-plug-wide)
+        " COMPONENT system)
+endif()
+
+if (NOT DEFINED CREST OR CREST)
+    message(STATUS "CREST plugin enabled")
+    add_subdirectory (plugins/crest)
+else()
+    message(STATUS "${ColorRed}CREST plugin disabled due to CREST=${CALC}${ColorNormal}")
+    install(CODE "
+        execute_process(COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_INSTALL_PREFIX}/lib/far2l/Plugins/crest/plug/crest.far-plug-wide)
         " COMPONENT system)
 endif()
 
@@ -422,16 +447,6 @@ else()
     message(STATUS "${ColorRed}INSIDE plugin disabled due to INSIDE=${INSIDE}${ColorNormal}")
     install(CODE "
         execute_process(COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_INSTALL_PREFIX}/lib/far2l/Plugins/inside/plug/inside.far-plug-mb)
-        " COMPONENT system)
-endif()
-
-if (NOT DEFINED JUMPWORD OR JUMPWORD)
-    message(STATUS "JUMPWORD plugin enabled")
-    add_subdirectory (plugins/jumpword)
-else()
-    message(STATUS "${ColorRed}JUMPWORD plugin disabled due to JUMPWORD=${JUMPWORD}${ColorNormal}")
-    install(CODE "
-        execute_process(COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_INSTALL_PREFIX}/lib/far2l/Plugins/jumpword/plug/jumpword.far-plug-wide)
         " COMPONENT system)
 endif()
 
@@ -543,6 +558,36 @@ else()
         " COMPONENT system)
 endif()
 
+if (DEFINED NETCFG AND NETCFG)
+    message(STATUS "NETCFG plugin enabled")
+    add_subdirectory(plugins/netcfg)
+endif()
+
+if (DEFINED SQLITEPLUGIN AND SQLITEPLUGIN)
+    message(STATUS "SQLite plugin enabled")
+    add_subdirectory(plugins/sqlite)
+endif()
+
+if (DEFINED PROCPLUGIN AND PROCPLUGIN)
+    message(STATUS "Processes plugin enabled")
+    add_subdirectory(plugins/processes)
+endif()
+
+if (DEFINED EDITOR_JUMPWORD AND EDITOR_JUMPWORD)
+    message(STATUS "EDITOR JUMPWORD plugin enabled")
+    add_subdirectory(plugins/jumpword)
+endif()
+
+if (DEFINED EDITOR_EDITWRAP AND EDITOR_EDITWRAP)
+    message(STATUS "EDITOR EDITWRAP plugin enabled")
+    add_subdirectory(plugins/editwrap)
+endif()
+
+if (DEFINED LUAFAR AND LUAFAR)
+    message(STATUS "Lua plugin enabled")
+    add_subdirectory(plugins/luafar)
+endif()
+
 if (NOT DEFINED SIMPLEINDENT OR SIMPLEINDENT)
     message(STATUS "SIMPLEINDENT plugin enabled")
     add_subdirectory (plugins/SimpleIndent)
@@ -639,6 +684,7 @@ if (NOT DEFINED MTP OR MTP)
     if (NOT DEFINED MTP_SYSTEM_LIBUSB)
         set(MTP_SYSTEM_LIBUSB ON)
     endif()
+    set (MTP_SYSTEM_LIBMTP ON)
     if (NOT DEFINED MTP_SYSTEM_LIBMTP)
         set(MTP_SYSTEM_LIBMTP OFF)
     endif()

@@ -216,6 +216,53 @@ const ConfigOpt g_cfg_opts[] {
 		L"InputSettings", L"Captures the left Win or Super key exclusively when the backend supports it" },
 	{OST_COMMON, NSecInterface, "ExclusiveWinRight", &Opt.ExclusiveWinRight, 0,
 		L"InputSettings", L"Captures the right Win or Super key exclusively when the backend supports it" },
+	{OST_COMMON, NSecInterface, "UseRightAltAsAltGr", &Opt.UseRightAltAsAltGr, 0,
+		L"Treat right Alt as AltGr, GUI only"},
+
+	{OST_COMMON,  NSecInterface, "CopyToPrimarySelection", &Opt.CopyToPrimarySelection, 1,
+		L"InterfaceSettings", L"Supports 2 clipboards for selection"},
+	{OST_COMMON,  NSecInterface, "PasteFromPrimarySelection", &Opt.PasteFromPrimarySelection, 1,
+		L"InterfaceSettings", L"Supports 2 clipboards for paste"},
+
+	{OST_COMMON,  NSecInterface, "UseModernLook", &Opt.Backend.UseModernLook, 1,
+		L"InterfaceSettings", L"Semi-Graphical theme"},
+	{OST_NONE,  NSecInterface, "UseModernLookRoundBorders", &Opt.Backend.UseRoundedBorders, 0,
+		L"InterfaceSettings", L""},
+	{OST_COMMON,  NSecInterface, "UseModernLookSingleBordersOnly", &Opt.Backend.UseSingleBordersOnly, 1,
+		L"InterfaceSettings", L"Eliminate double borders"},
+	{OST_COMMON,  NSecInterface, "UseModernLookNoBorders", &Opt.Backend.UseNoBorders, 0,
+		L"InterfaceSettings", L"Eliminate border edges"},
+	{OST_COMMON,  NSecInterface, "UseModernLookEmbossAsBold", &Opt.Backend.UseEmbossAsBold, 0,
+		L"InterfaceSettings", L"Use emboss effect for bold fonts"},
+	{OST_COMMON,  NSecInterface, "UseSoftenBevels", &Opt.Backend.UseSoftenBevels, 1,
+		L"InterfaceSettings", L"Make borders soften"},
+	{OST_COMMON,  NSecInterface, "Use3D", &Opt.Backend.Use3D, 1,
+		L"InterfaceSettings", L"Use gradients to  make 3D effetcts"},
+	{OST_COMMON,  NSecInterface, "UseFlyGirl", &Opt.Backend.UseFlyGirl, 1,
+		L"InterfaceSettings", L"Allow watermarks on top of WX surface"},
+	{OST_COMMON, NSecInterface, "FlyGirlFiles", Opt.Backend.FlyGirls, sizeof(Opt.Backend.FlyGirls)/sizeof(wchar_t) - 1, L"",
+		L"InterfaceSettings", L"The full file name(s) of fly girl images" },
+	{OST_COMMON, NSecInterface, "FlyGirlAnchor", &Opt.Backend.FlyGirlAnchor, 2,
+		L"InterfaceSettings", L"Watermark anchor, 0=left-top, 1=top, 2=right-top, 3-right, 4=right-bottom, 5=bottom, 6=left-bottom, 7=left, 8=center" },
+	{OST_COMMON, NSecInterface, "FlyGirlPaddingX", &Opt.Backend.FlyGirlPaddingX, 10,
+		L"InterfaceSettings", L"Watermark x-axis padding" },
+	{OST_COMMON, NSecInterface, "FlyGirlPaddingY", &Opt.Backend.FlyGirlPaddingY, 40,
+		L"InterfaceSettings", L"Watermark y-axis padding" },
+	{OST_COMMON, NSecInterface, "FlyGirlMaxTransparency", &Opt.Backend.FlyGirlMaxTransparency, 40,
+		L"InterfaceSettings", L"Watermark max transparency, 255 for no apply" },
+	{OST_COMMON, NSecInterface, "FlyGirlLessTnanToTransparent", &Opt.Backend.FlyGirlLessTnanToTransparent, 0x141414,
+		L"InterfaceSettings", L"Watermark transparency thresold, RGB, <30 per channel by default, all colors darker than are enforced to full trasparency" },
+	{OST_COMMON, NSecInterface, "FlyGirlMoreThanToTransparent", &Opt.Backend.FlyGirlMoreThanToTransparent, 0xe6e6e6,
+		L"InterfaceSettings", L"Watermark transparency thresold, RGB, >230 per channel by default, all colors brighter than are enforced to full trasparency" },
+	{OST_COMMON, NSecInterface, "FlyGirlMaxHeight", &Opt.Backend.FlyGirlMaxHeight, 200,
+		L"InterfaceSettings", L"Watermark max height, 200 by default, bigger omages are downscaled to; -1 means window size, 0 means no scale" },
+	{OST_COMMON, NSecInterface, "FlyGirlMaxWidth", &Opt.Backend.FlyGirlMaxWidth, 200,
+		L"InterfaceSettings", L"Watermark max width, 200 by default, bigger omages are downscaled to; -1 means window size, 0 means no scale" },
+
+	{OST_COMMON,  NSecDialog, "EnableAccidentalConfirmation", &Opt.Dialogs.EnableAccidentalConfirmation, 0,
+		L"InterfaceSettings", L"Enable right click outside pof the dialog as operation confirmation (dangerous)"},
+	{OST_COMMON,  NSecInterface, "EliminateOuterBorders", &Opt.Dialogs.EliminateOuterBorders, 0,
+		L"InterfaceSettings", L"Border-less dialogs"},
 
 	{OST_COMMON, NSecInterface, "DateFormat", &Opt.DateFormat, GetDateFormatDefault(),
 		L"InterfSettings", L"Selects the date display format used by panels and dialogs: 0=MM-DD-YYYY, 1=DD-MM-YYYY, 2=YYYY-MM-DD" },
@@ -230,9 +277,15 @@ const ConfigOpt g_cfg_opts[] {
 		L"InterfSettings", L"Set the local clipboard using OSC52 escape sequences (TTY-backend only)" },
 	{OST_COMMON, NSecInterface, "TTYPaletteOverride", &Opt.TTYPaletteOverride, 1,
 		L"InterfSettings", L"Override the terminal palette (TTY-backend only)" },
+	{OST_COMMON, NSecInterface, "TTYCursorShapeInsert", &Opt.TTYCursorShapeInsert, CONSOLE_TTY_CURSOR_SHAPE_UNDERLINE,
+		L"InterfSettings", L"Cursor shape in TTY insert mode: 0=bar, 1=block, 2=underline" },
+	{OST_COMMON, NSecInterface, "TTYCursorShapeOvertype", &Opt.TTYCursorShapeOvertype, CONSOLE_TTY_CURSOR_SHAPE_BLOCK,
+		L"InterfSettings", L"Cursor shape in TTY overtype mode: 0=bar, 1=block, 2=underline" },
 
 	{OST_COMMON,  NSecInterface, "EnforceColorCorrection", &Opt.Dialogs.EnforceColorCorrection, 1,
 		L"InterfSettings", L"Update RGB colors to make it more contrast in interface and dialogs" },
+	{OST_COMMON,  NSecInterface, "EnforceThemeorrection", &Opt.Dialogs.EnforceThemeCorrection, 0,
+		L"InterfSettings", L"Update theme colors automatically for highlighting and effects" },
 
 	{OST_NONE,   NSecInterface, "ShowTimeoutDelFiles", &Opt.ShowTimeoutDelFiles, 50,
 		nullptr, L"Delay before showing progress for delete operations, in milliseconds" },
@@ -374,6 +427,8 @@ const ConfigOpt g_cfg_opts[] {
 		L"EditorSettings", L"Enables word wrapping in the editor" },
 	{OST_COMMON, NSecEditor, "ShowWhiteSpace", &Opt.EdOpt.ShowWhiteSpace, 0,
 		L"EditorSettings", L"Shows whitespace markers in the editor" },
+	{OST_COMMON, NSecEditor, "ShowEOL", &Opt.EdOpt.ShowEOL, 0,
+		L"EditorSettings", L"Shows physical line-ending markers in the editor" },
 	{OST_COMMON, NSecEditor, "ShowLineNumbers", &Opt.EdOpt.ShowLineNumbers, 0,
 		L"EditorSettings", L"Shows line numbers in the editor" },
 
@@ -711,6 +766,13 @@ const ConfigOpt g_cfg_opts[] {
 	{OST_PANELS, NSecPanelLeft, "ExecutablesFirst", &Opt.LeftPanel.ExecutablesFirst, 0,
 		L"PanelCmdSort", L"Whether executable files are shown before other files in the left panel" },
 
+	{OST_PANELS, NSecPanelLeft, "FolderList", &Opt.strLeftFolderList, L"",
+		L"FilePanel", L"The saved folders for the left panels" },
+	{OST_PANELS, NSecPanelRight, "FolderList", &Opt.strRightFolderList, L"",
+		L"FilePanel", L"The saved folders for the right panels" },
+	{OST_PANELS, NSecInterface, "ActiveTabNo", &Opt.activeTabNo, 0,
+		L"Interface", L"The saved folders for the right panels" },
+
 	{OST_PANELS, NSecPanelRight, "Type", &Opt.RightPanel.Type, 0,
 		L"Panels", L"The saved panel type for the right panel: 0=file panel, 1=tree panel, 2=quick view panel, 3=information panel" },
 	{OST_PANELS, NSecPanelRight, "Visible", &Opt.RightPanel.Visible, 1,
@@ -863,6 +925,11 @@ struct OptConfigReader : ConfigReader
 			case ConfigOpt::T_STR:
 				*opt.value.str = GetString(opt.key, opt.def.str);
 				break;
+			case ConfigOpt::T_WSTRBUF: {
+				auto str = GetString(opt.key, opt.def.str);
+				wcsncpy(opt.value.wstr, str.CPtr(), opt.bin_size);
+				break;
+			}
 			case ConfigOpt::T_BIN:
 				{
 					const size_t Size = GetBytes(opt.value.bin, opt.bin_size, opt.key, opt.def.bin);
@@ -897,6 +964,9 @@ struct OptConfigWriter : ConfigWriter
 				break;
 			case ConfigOpt::T_STR:
 				SetString(opt.key, opt.value.str->CPtr());
+				break;
+			case ConfigOpt::T_WSTRBUF:
+				SetString(opt.key, opt.value.wstr);
 				break;
 			case ConfigOpt::T_BIN:
 				SetBytes(opt.key, opt.value.bin, opt.bin_size);
@@ -1000,6 +1070,9 @@ void ConfigOptFromCmdLine()
 					break;
 				case ConfigOpt::T_STR:
 					*g_cfg_opts[index].value.str = pVal;
+					break;
+				case ConfigOpt::T_WSTRBUF:
+					wcsncpy(g_cfg_opts[index].value.wstr, pVal, g_cfg_opts[index].bin_size);
 					break;
 				//case ConfigOpt::REG_BINARY:
 				default:
@@ -1111,8 +1184,8 @@ void ConfigOptAssertLoaded()
 
 static void SavePanelsToOpt()
 {
-	Panel *LeftPanel = CtrlObject->Cp()->LeftPanel;
-	Panel *RightPanel = CtrlObject->Cp()->RightPanel;
+	Panel *LeftPanel = CtrlObject->Cp()->ActiveTab().LeftPanel;
+	Panel *RightPanel = CtrlObject->Cp()->ActiveTab().RightPanel;
 	Opt.LeftPanel.Focus = LeftPanel->GetFocus();
 	Opt.LeftPanel.Visible = LeftPanel->IsVisible();
 	Opt.RightPanel.Focus = RightPanel->GetFocus();
@@ -1134,6 +1207,8 @@ static void SavePanelsToOpt()
 
 	LeftPanel->GetCurDir(Opt.strLeftFolder);
 	LeftPanel->GetCurBaseName(Opt.strLeftCurFile);
+
+	CtrlObject->Cp()->GetActiveTabPaths(Opt.strLeftFolderList, Opt.strRightFolderList, Opt.activeTabNo);
 
 	if (RightPanel->GetMode() == NORMAL_PANEL)
 	{

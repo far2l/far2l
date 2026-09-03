@@ -436,6 +436,7 @@ enum LISTITEMFLAGS
 	LIF_DISABLE            = 0x00080000UL,
 	LIF_GRAYED             = 0x00100000UL,
 	LIF_HIDDEN             = 0x00200000UL,
+	LIF_HOVERED            = 0x00400000UL,
 	LIF_DELETEUSERDATA     = 0x80000000UL,
 };
 
@@ -564,6 +565,7 @@ struct FarDialogItem
 
 	const wchar_t *PtrData;
 	size_t MaxLen; // terminate 0 not included (if == 0 string size is unlimited)
+	int Width; // width to override
 };
 
 struct FarDialogItemData
@@ -752,6 +754,7 @@ struct FAR_FIND_DATA
 	FILETIME ftCreationTime;
 	FILETIME ftLastAccessTime;
 	FILETIME ftLastWriteTime;
+	FILETIME ftChangeTime;
 	uint64_t nPhysicalSize;
 	uint64_t nFileSize;
 	DWORD    dwFileAttributes;
@@ -1665,6 +1668,7 @@ enum EDITOR_CONTROL_COMMANDS
 	ECTL_ADDTRUECOLOR,
 	ECTL_GETTRUECOLOR,
 	ECTL_SETGUTTERMARKS,
+	ECTL_GETRECT,
 };
 //#ifdef FAR_USE_INTERNALS
 //	ECTL_SERVICEREGION, // WTF
@@ -1811,7 +1815,8 @@ struct EditorInfo
 	UINT CodePage;
 	int WindowX;
 	int WindowY;
-	DWORD Reserved[3];
+	DWORD IsMemoEdit;
+	DWORD Reserved[2];
 };
 
 struct EditorBookMarks

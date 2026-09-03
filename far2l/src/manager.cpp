@@ -426,6 +426,28 @@ public:
 	}
 };
 
+void Manager::enumerateWindowsByType(std::vector<std::wstring>& v, int type) 
+{
+	for (int I = 0; I < FrameCount; I++) {
+		if (type != -1 && FrameList[I]->GetType() != type) continue;
+
+		FARString strType, strName;
+		FrameList[I]->GetTypeAndName(strType, strName);
+		v.push_back(strName.CPtr());
+	}
+}
+
+Frame* Manager::getWindowByTypeAndIndex(int type, int indexInType) 
+{
+	int x = 0;
+	for (int I = 0; I < FrameCount; I++) {
+		if (type != -1 && FrameList[I]->GetType() != type) continue;
+		if (x == indexInType) return FrameList[I];
+        ++x;
+	}
+	return 0;
+}
+
 Frame *Manager::FrameMenu()
 {
 	/*
@@ -437,6 +459,9 @@ Frame *Manager::FrameMenu()
 
 	if (AlreadyShown)
 		return nullptr;
+
+	std::vector<int> frameIndexes;
+	std::vector<int> subframeIndexes;
 
 	int ExitCode, CheckCanLoseFocus = CurrentFrame->GetCanLoseFocus();
 	{
@@ -455,17 +480,38 @@ Frame *Manager::FrameMenu()
 			/* "*" если файл изменен */
 			FARString strNumText = FrameMenuNumTextPrefix(I);
 			FARString strType, strName;
-			FrameList[I]->GetTypeAndName(strType, strName);
-			ModalMenuItem.Clear();
 
-			// TruncPathStr(strName,ScrX-24);
-			ReplaceStrings(strName, L"&", L"&&", -1);
-			ModalMenuItem.strName.Format(L"%ls%-10.10ls %ls", strNumText.CPtr(), strType.CPtr(), strName.CPtr());
-			ModalMenuItem.SetSelect(I == FramePos);
-			if (FrameList[I]->IsFileModified())
-				ModalMenuItem.SetCheck(L'*');
+			int k = FrameList[I]->GetSubpanelCount();
+			if (k > 0) {
+				for(int j = 0; j < k; ++j) {
+					FrameList[I]->GetSubpanelTypeAndName(j, strType, strName);
+					ModalMenuItem.Clear();
 
-			ModalMenu.AddItem(&ModalMenuItem);
+					// TruncPathStr(strName,ScrX-24);
+					ReplaceStrings(strName, L"&", L"&&", -1);
+					ModalMenuItem.strName.Format(L"%ls%-10.10ls %ls", strNumText.CPtr(), strType.CPtr(), strName.CPtr());
+					ModalMenuItem.SetSelect(j == FrameList[I]->GetSelectedSubpanel() && I == FramePos);
+					if (FrameList[I]->IsFileModified())
+						ModalMenuItem.SetCheck(L'*');
+					ModalMenu.AddItem(&ModalMenuItem);
+					frameIndexes.push_back(I);
+					subframeIndexes.push_back(j);
+				}
+			}
+			else {
+				FrameList[I]->GetTypeAndName(strType, strName);
+				ModalMenuItem.Clear();
+
+				// TruncPathStr(strName,ScrX-24);
+				ReplaceStrings(strName, L"&", L"&&", -1);
+				ModalMenuItem.strName.Format(L"%ls%-10.10ls %ls", strNumText.CPtr(), strType.CPtr(), strName.CPtr());
+				ModalMenuItem.SetSelect(I == FramePos);
+				if (FrameList[I]->IsFileModified())
+					ModalMenuItem.SetCheck(L'*');
+				ModalMenu.AddItem(&ModalMenuItem);
+				frameIndexes.push_back(I);
+				subframeIndexes.push_back(-1);
+			}
 		}
 
 		ModalMenu.AddVTSItems(FramePos);
@@ -477,8 +523,15 @@ Frame *Manager::FrameMenu()
 	}
 
 	if (CheckCanLoseFocus) {
-		if (ExitCode >= 0 && ExitCode < FrameCount) {
-			ActivateFrame(ExitCode);
+		if (ExitCode >= 0 && ExitCode < (int)frameIndexes.size()) {
+			int frameI = frameIndexes[ExitCode];
+
+			ActivateFrame(frameI);
+
+			if (FrameList[frameI]->GetSubpanelCount() > 0) {
+				FrameList[frameI]->ActivateSubpanel(subframeIndexes[ExitCode]);
+			}
+
 			return (ActivatedFrame == CurrentFrame || !CurrentFrame->GetCanLoseFocus()
 							? nullptr
 							: CurrentFrame);
@@ -579,7 +632,23 @@ void Manager::DeactivateFrame(Frame *Deactivated, int Direction)
 	_MANAGER(SysLog(L"Deactivated=%p, Direction=%d", Deactivated, Direction));
 
 	if (Direction) {
-		FramePos+= Direction;
+		// earlier it was:
+		// FramePos+= Direction;
+		// Now it is more complicated for case some frams has sub-panels
+		int frameId = FramePos;
+		int subpanels = FrameList[frameId]->GetSubpanelCount();
+		if (subpanels > 0) {
+			int subactive = FrameList[frameId]->GetSelectedSubpanel();
+			subactive += Direction;
+			if(subactive < 0 || subactive >= subpanels) 
+				FramePos += Direction;
+			else {
+				FrameList[frameId]->ActivateSubpanel(subactive);
+			}
+		}
+		else {
+			FramePos += Direction;
+		}
 
 		if (Direction > 0) {
 			if (FramePos >= FrameCount) {
@@ -725,7 +794,7 @@ void Manager::ProcessMainLoop()
 	} else {
 		// Mantis#0000073: Не работает автоскролинг в QView
 		WaitInMainLoop =
-				IsPanelsActive() && ((FilePanels *)CurrentFrame)->ActivePanel->GetType() != QVIEW_PANEL;
+				IsPanelsActive() && ((FilePanels *)CurrentFrame)->ActiveTab().ActivePanel->GetType() != QVIEW_PANEL;
 		// WaitInFastFind++;
 		FarKey Key = GetInputRecord(&LastInputRecord);
 		// WaitInFastFind--;
@@ -787,8 +856,8 @@ void Manager::ExitMainLoop(int Ask)
 			FilePanels *cp;
 
 			if (!(cp = CtrlObject->Cp())
-					|| (!cp->LeftPanel->ProcessPluginEvent(FE_CLOSE, nullptr)
-							&& !cp->RightPanel->ProcessPluginEvent(FE_CLOSE, nullptr))) {
+					|| (!cp->ActiveTab().LeftPanel->ProcessPluginEvent(FE_CLOSE, nullptr)
+							&& !cp->ActiveTab().RightPanel->ProcessPluginEvent(FE_CLOSE, nullptr))) {
 				EndLoop = TRUE;
 			}
 		} else {
@@ -838,7 +907,7 @@ int Manager::ProcessKey(DWORD Key)
 					_ALGO(CleverSysLog clv(L"Manager::ProcessKey()"));
 					_ALGO(SysLog(L"Key=%ls", _FARKEY_ToName(Key)));
 
-					if (CtrlObject->Cp()->ActivePanel->SendKeyToPlugin(Key, TRUE))
+					if (CtrlObject->Cp()->ActiveTab().ActivePanel->SendKeyToPlugin(Key, TRUE))
 						return TRUE;
 
 					break;
@@ -951,13 +1020,13 @@ int Manager::ProcessKey(DWORD Key)
 							int isPanelFocus = CurrentFrame->GetType() == MODALTYPE_PANELS;
 
 							if (isPanelFocus) {
-								int LeftVisible = CtrlObject->Cp()->LeftPanel->IsVisible();
-								int RightVisible = CtrlObject->Cp()->RightPanel->IsVisible();
+								int LeftVisible = CtrlObject->Cp()->ActiveTab().LeftPanel->IsVisible();
+								int RightVisible = CtrlObject->Cp()->ActiveTab().RightPanel->IsVisible();
 								int CmdLineVisible = CtrlObject->CmdLine->IsVisible();
 								int KeyBarVisible = CtrlObject->Cp()->MainKeyBar.IsVisible();
 								CtrlObject->CmdLine->ShowBackground();
-								CtrlObject->Cp()->LeftPanel->Hide0();
-								CtrlObject->Cp()->RightPanel->Hide0();
+								CtrlObject->Cp()->ActiveTab().LeftPanel->Hide0();
+								CtrlObject->Cp()->ActiveTab().RightPanel->Hide0();
 
 								switch (Opt.PanelCtrlAltShiftRule) {
 									case 0:
@@ -973,10 +1042,10 @@ int Manager::ProcessKey(DWORD Key)
 												: KEY_RCTRLALTSHIFTRELEASE);
 
 								if (LeftVisible)
-									CtrlObject->Cp()->LeftPanel->Show();
+									CtrlObject->Cp()->ActiveTab().LeftPanel->Show();
 
 								if (RightVisible)
-									CtrlObject->Cp()->RightPanel->Show();
+									CtrlObject->Cp()->ActiveTab().RightPanel->Show();
 
 								if (CmdLineVisible)
 									CtrlObject->CmdLine->Show();
@@ -1001,6 +1070,7 @@ int Manager::ProcessKey(DWORD Key)
 				case KEY_CTRLSHIFTTAB:
 
 					if (CurrentFrame->GetCanLoseFocus()) {
+						// vk: todo: support subpanels when available
 						DeactivateFrame(CurrentFrame, Key == KEY_CTRLTAB ? 1 : -1);
 					}
 
@@ -1051,7 +1121,7 @@ void Manager::PluginsMenu()
 			полноценный вьюер и запускаем с соответствующим параметром плагины
 		*/
 		if (curType == MODALTYPE_PANELS) {
-			int pType = CtrlObject->Cp()->ActivePanel->GetType();
+			int pType = CtrlObject->Cp()->ActiveTab().ActivePanel->GetType();
 
 			if (pType == QVIEW_PANEL || pType == INFO_PANEL) {
 				FARString strType, strCurFileName;
@@ -1401,7 +1471,11 @@ void Manager::InsertCommit()
 
 	if (InsertedFrame) {
 		if (FrameListSize <= FrameCount) {
-			FrameList = (Frame **)realloc(FrameList, sizeof(*FrameList) * (FrameCount + 1));
+			Frame **NewFrameList = (Frame **)realloc(FrameList, sizeof(*FrameList) * (FrameCount + 1));
+			if (!NewFrameList) {
+				return;
+			}
+			FrameList = NewFrameList;
 			FrameListSize++;
 		}
 
@@ -1456,7 +1530,12 @@ void Manager::ExecuteCommit()
 	}
 
 	if (ModalStackCount == ModalStackSize) {
-		ModalStack = (Frame **)realloc(ModalStack, ++ModalStackSize * sizeof(Frame *));
+		Frame **NewModalStack = (Frame **)realloc(ModalStack, (ModalStackSize + 1) * sizeof(Frame *));
+		if (!NewModalStack) {
+			return;
+		}
+		ModalStack = NewModalStack;
+		ModalStackSize++;
 	}
 
 	ModalStack[ModalStackCount++] = ExecutedFrame;

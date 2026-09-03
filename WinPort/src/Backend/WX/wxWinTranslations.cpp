@@ -291,7 +291,9 @@ void KeyTracker::OnKeyDown(wxKeyEvent& event, DWORD ticks)
 	_pressed_keys.insert(keycode);
 
 #if defined(wxHAS_RAW_KEY_CODES) && defined(__WXMAC__)
-	if (event.GetKeyCode() == WXK_ALT && event.GetRawKeyCode() == RAW_ALTGR) {
+	if (event.GetKeyCode() == WXK_ALT
+	    && event.GetRawKeyCode() == RAW_ALTGR
+	    && WinPortGetUseRightAltAsAltGr()) {
 		_composing = true;
 	}
 
@@ -310,9 +312,11 @@ void KeyTracker::OnKeyDown(wxKeyEvent& event, DWORD ticks)
 	if (event.GetKeyCode() == WXK_CONTROL && event.GetRawKeyCode() == RAW_RCTRL) {
 		_right_control = true;
 	}
+	// Linux AltGr: ISO_Level3_Shift (RAW_CONTEXT) or XF86 alternate (RAW_ALTGR).
 	if ((event.GetKeyCode() == WXK_ALT || event.GetKeyCode() == 0) &&
-		(event.GetRawKeyCode() == RAW_ALTGR || event.GetRawKeyCode() == RAW_CONTEXT)) {
-		_right_alt = true;
+			(event.GetRawKeyCode() == RAW_ALTGR || event.GetRawKeyCode() == RAW_CONTEXT)
+			&& WinPortGetUseRightAltAsAltGr()) {
+		_composing = _right_alt = true;
 	}
 #endif
 }

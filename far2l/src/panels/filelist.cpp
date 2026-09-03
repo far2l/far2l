@@ -182,8 +182,12 @@ FileList::~FileList()
 	_OT(SysLog(L"[%p] FileList::~FileList()", this));
 	CloseChangeNotification();
 
-	for (PrevDataItem **i = PrevDataList.First(); i; i = PrevDataList.Next(i))
-		delete *i;
+	PrevDataItem **q = 0;
+	for (PrevDataItem **i = PrevDataList.First(); i; ) {
+		q = i;
+		i = PrevDataList.Next(i);
+		delete *q;
+	}
 
 	PrevDataList.Clear();
 
@@ -839,6 +843,8 @@ int FileList::ProcessKey(FarKey Key)
 			case KEY_CTRLALTBACKBRACKET:
 			case KEY_ALTSHIFTBRACKET:
 			case KEY_ALTSHIFTBACKBRACKET:
+			case KEY_ALTENTER:
+			case KEY_ALTNUMENTER:
 				break;
 			case KEY_CTRLG:
 			case KEY_SHIFTF4:
@@ -941,11 +947,21 @@ int FileList::ProcessKey(FarKey Key)
 			return TRUE;
 		}
 		case KEY_ADD:
-			SelectFiles(SELECT_ADD);
-			return TRUE;
 		case KEY_SUBTRACT:
-			SelectFiles(SELECT_REMOVE);
+		case KEY_MULTIPLY: {
+			if (CmdIsNotEmpty)
+				return FALSE;
+
+			int Mode = SELECT_ADD;
+
+			if (Key == KEY_SUBTRACT)
+				Mode = SELECT_REMOVE;
+			else if (Key == KEY_MULTIPLY)
+				Mode = SELECT_INVERT;
+
+			SelectFiles(Mode);
 			return TRUE;
+		}
 		case KEY_CTRLADD:
 			SelectFiles(SELECT_ADDEXT);
 			return TRUE;
@@ -957,9 +973,6 @@ int FileList::ProcessKey(FarKey Key)
 			return TRUE;
 		case KEY_ALTSUBTRACT:
 			SelectFiles(SELECT_REMOVENAME);
-			return TRUE;
-		case KEY_MULTIPLY:
-			SelectFiles(SELECT_INVERT);
 			return TRUE;
 		case KEY_CTRLMULTIPLY:
 			SelectFiles(SELECT_INVERTALL);
@@ -1015,12 +1028,35 @@ int FileList::ProcessKey(FarKey Key)
 			if (Key & KEY_ALT)
 				NewKey|= KEY_ALT;
 
-			Panel *SrcPanel = CtrlObject->Cp()->GetAnotherPanel(CtrlObject->Cp()->ActivePanel);
+			Panel *SrcPanel = CtrlObject->Cp()->GetAnotherPanel(CtrlObject->Cp()->ActiveTab().ActivePanel);
 			int OldState = SrcPanel->IsVisible();
 			SrcPanel->SetVisible(1);
 			SrcPanel->ProcessKey(NewKey);
 			SrcPanel->SetVisible(OldState);
 			SetCurPath();
+			return TRUE;
+		}
+		case KEY_ALTENTER:
+		case KEY_ALTNUMENTER: { /* copy path without escaping */
+			bool hasSelected = false;
+			FARString strFileName;
+			if (Opt.CmdLine.CtrlEnterMultipleItems) {
+				for (auto &item : ListData) {
+					if(item->Selected) {
+						hasSelected = true;
+						strFileName = item->strName;
+						strFileName += L" ";
+						CtrlObject->CmdLine->InsertString(strFileName);
+					}
+				}
+			}
+			if (!hasSelected && !ListData.IsEmpty() && SetCurPath()) {
+				ASSERT(CurFile < ListData.Count());
+				CurPtr = ListData[CurFile];
+				strFileName = CurPtr->strName;
+				strFileName+= L" ";
+				CtrlObject->CmdLine->InsertString(strFileName);
+			}
 			return TRUE;
 		}
 		case KEY_CTRLNUMENTER:
@@ -1029,7 +1065,7 @@ int FileList::ProcessKey(FarKey Key)
 		case KEY_CTRLSHIFTENTER:
 		case KEY_CTRLJ:
 		case KEY_CTRLF:
-		case KEY_CTRLALTF:		// 29.01.2001 VVM + По CTRL+ALT+F в командную строку сбрасывается UNC-имя текущего файла.
+		case KEY_CTRLALTF:
 		{	// 29.01.2001 VVM + По CTRL+ALT+F в командную строку сбрасывается UNC-имя текущего файла.
 			// vk: if list have selected files, thety are pasted one-by-one; otherwise the file-under-cursor is being used as before
 			bool hasSelected = false;
@@ -1242,7 +1278,7 @@ int FileList::ProcessKey(FarKey Key)
 					ChangeDir(L"..");
 					NeedChangeDir = FALSE;
 					//"this" мог быть удалён в ChangeDir
-					Panel *ActivePanel = CtrlObject->Cp()->ActivePanel;
+					Panel *ActivePanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 
 					if (CheckFullScreen != ActivePanel->IsFullScreen())
 						CtrlObject->Cp()->GetAnotherPanel(ActivePanel)->Show();
@@ -1258,7 +1294,7 @@ int FileList::ProcessKey(FarKey Key)
 					ChangeDir(WGOOD_SLASH);
 			}
 
-			CtrlObject->Cp()->ActivePanel->Show();
+			CtrlObject->Cp()->ActiveTab().ActivePanel->Show();
 			return TRUE;
 		}
 		case KEY_SHIFTF1: {
@@ -2007,7 +2043,7 @@ int FileList::ProcessKey(FarKey Key)
 			//"this" может быть удалён в ChangeDir
 			int CheckFullScreen = IsFullScreen();
 			ChangeDir(L"..");
-			Panel *NewActivePanel = CtrlObject->Cp()->ActivePanel;
+			Panel *NewActivePanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 			NewActivePanel->SetViewMode(NewActivePanel->GetViewMode());
 
 			if (CheckFullScreen != NewActivePanel->IsFullScreen())
@@ -2036,9 +2072,7 @@ int FileList::ProcessKey(FarKey Key)
 		default:
 
 			if ((Key == L'*') || (Key == L'+') || (Key == L'-')) {
-				FARString TmpStr;
-				CtrlObject->CmdLine->GetString(TmpStr);
-				if (TmpStr.IsEmpty()) {
+				if (!CmdIsNotEmpty) {
 					if (Key == L'*') {
 						SelectFiles(SELECT_INVERT);
 						return TRUE;
@@ -2166,7 +2200,7 @@ bool FileList::ProcessEnter_ChangeDir(const wchar_t *dir, const wchar_t *select_
 		return false;
 	}
 
-	Panel *active_panel = CtrlObject->Cp()->ActivePanel;
+	Panel *active_panel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 
 	bool not_found = false;
 	if (select_file && *select_file) {
@@ -2190,7 +2224,7 @@ bool FileList::ProcessEnter_ChangeDir(const wchar_t *dir, const wchar_t *select_
 			} else if (!ProcessEnter_ChangeDir(orig_dir, PointToName(orig_sel_name))) {
 				fprintf(stderr, "%s: failed to cd to '%ls'\n", __FUNCTION__, orig_sel_name.CPtr());
 			}
-			active_panel = CtrlObject->Cp()->ActivePanel;
+			active_panel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 			dir_changed = false;
 		}
 	}
@@ -2346,6 +2380,7 @@ BOOL FileList::SetCurDir(const wchar_t *NewDir, int ClosePlugin)
 		}
 
 		CtrlObject->Cp()->RedrawKeyBar();
+		CtrlObject->Cp()->UpdateTabBar();
 
 		if (CheckFullScreen != IsFullScreen()) {
 			CtrlObject->Cp()->GetAnotherPanel(this)->Redraw();
@@ -2353,7 +2388,9 @@ BOOL FileList::SetCurDir(const wchar_t *NewDir, int ClosePlugin)
 	}
 
 	if ((NewDir) && (*NewDir)) {
-		return ChangeDir(NewDir);
+		auto retF = ChangeDir(NewDir);
+		//CtrlObject->Cp()->UpdateTabBar();
+		return retF;
 	}
 
 	return FALSE;
@@ -2516,7 +2553,7 @@ BOOL FileList::ChangeDir(const wchar_t *NewDir, BOOL IsUpdated)
 				if (Opt.PgUpChangeDisk
 						&& (FAR_GetDriveType(strDirName) != DRIVE_REMOTE
 								|| !CtrlObject->Plugins.FindPlugin(SYSID_NETWORK))) {
-					CtrlObject->Cp()->ActivePanel->ChangeDisk();
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ChangeDisk();
 					return TRUE;
 				}
 
@@ -2621,25 +2658,100 @@ BOOL FileList::ChangeDir(const wchar_t *NewDir, BOOL IsUpdated)
 	return SetDirectorySuccess;
 }
 
+int FileList::GetColumnTitleByMouse(int MsX) {
+	for (int I = 0, ColumnPos = X1 + 1; I < ViewSettings.ColumnCount; I++) {
+		if (ViewSettings.ColumnWidth[I] < 0) continue;
+
+		if (MsX > ColumnPos && MsX < ColumnPos + ViewSettings.ColumnWidth[I]) {
+			return I;
+		}
+		ColumnPos += ViewSettings.ColumnWidth[I] + 1;
+	}
+	return 0;
+}
+
 int FileList::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 {
-
 	FileListItem *CurPtr;
 	int RetCode;
 
-	if (IsVisible() && Opt.ShowColumnTitles && !MouseEvent->dwEventFlags
-			&& MouseEvent->dwMousePosition.Y == Y1 + 1 && MouseEvent->dwMousePosition.X > X1
-			&& MouseEvent->dwMousePosition.X < X1 + 3) {
-		if (MouseEvent->dwButtonState) {
+    /* change disk for columns titles */
+	int MsX = MouseEvent->dwMousePosition.X;
+	int MsY = MouseEvent->dwMousePosition.Y;
+
+    // hover efrects on titles, columns etc
+	if (IsVisible() && Opt.Backend.UseModernLook
+			&& (MouseEvent->dwEventFlags & MOUSE_MOVED)
+			&& MsY >= Y1 && MsY < Y1 + 3 && MsX >= X1 && MsX <= X2
+			&& !IsDragging()) 
+	{
+		int oldLH = LocationHovered;
+		int oldCH = ColumnHovered;
+		int oldSMH = SortMarkHovered;
+		int oldLIH = LastHoveredIndex;
+
+		ColumnHovered = Opt.ShowColumnTitles && MsY == Y1 + 1 && MsX > X1 && MsX < X2 ? GetColumnTitleByMouse(MsX) : -1;
+		SortMarkHovered = Opt.ShowSortMode && !Opt.ShowColumnTitles && MsY == Y1 && MsX >= X1 + 1 && MsX <= X1 + 2 ? 1 : -1;
+		LocationHovered = Opt.ShowMenuBar && MsY == Y1 && MsX < X2 - 5 && MsX > X1 + 3 ? 1 : -1;
+
+		if(ColumnHovered > 0 || SortMarkHovered > 0 || ColumnHovered > 0 || MsY == Y1) LastHoveredIndex = -1;
+		
+		if (oldLIH != LastHoveredIndex || oldLH != LocationHovered || oldCH != ColumnHovered || oldSMH != SortMarkHovered) {
+			
+			// fprintf(stderr, "hover: col=%d sortmark=%d location=%d last_i=%d\n", ColumnHovered, SortMarkHovered, LocationHovered, LastHoveredIndex);
+
+			Redraw();
+			return TRUE;
+		}
+	}
+
+	// click on location bar, columns, and sort marks
+	if (IsVisible() && !MouseEvent->dwEventFlags && MsY >= Y1 && MsY <= Y1 + 2 && MsX > X1 && MsX < X2) {
+		if (Opt.ShowMenuBar && MsY == Y1 && (MouseEvent->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED) && MsX < X2 - 5 && MsX > X1 + 3) // path title)
+			ChangeDisk();
+		else if (Opt.ShowColumnTitles && MsY == Y1 + 1 && MsX > X1 && MsX < X1 + 3) {
 			if (MouseEvent->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED)
 				ChangeDisk();
 			else
 				SelectSortMode();
 		}
+		else if (Opt.ShowSortMode && !Opt.ShowColumnTitles 
+				&& MsY == Y1 && (MouseEvent->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED)
+				&& MsX >= X1 + 1 && MsX <= X1 + 2)
+			SelectSortMode();
+		else if (Opt.ShowColumnTitles && MsY == Y1 + 1 && MsX > X1 + 3 && (MouseEvent->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED)) {
+			// click on column, enforce sort mode to it
+			static struct ColumnTypeMapT {
+				int colType;
+				PanelSortMode colSortMode;
+			} 
+			ColumnTypeMap[] = {
+				{ NAME_COLUMN, BY_NAME },
+				{ SIZE_COLUMN, BY_SIZE },
+				{ PHYSICAL_COLUMN, BY_PHYSICALSIZE },
+				{ DATE_COLUMN, BY_MTIME },
+				{ TIME_COLUMN, BY_MTIME },
+				{ WDATE_COLUMN, BY_MTIME },
+				{ CDATE_COLUMN, BY_CTIME },
+				{ ADATE_COLUMN, BY_ATIME },
+				{ CHDATE_COLUMN, BY_CHTIME },
+				{ DIZ_COLUMN, BY_DIZ },
+				{ OWNER_COLUMN, BY_OWNER },
+				{ NUMLINK_COLUMN, BY_NUMLINKS },
+			};
 
+			int I = GetColumnTitleByMouse(MsX);
+			for(size_t j = 0; j < ARRAYSIZE(ColumnTypeMap); ++j) {
+				if (ColumnTypeMap[j].colType == (int)ViewSettings.ColumnType[I]) {
+					SetSortMode(ColumnTypeMap[j].colSortMode);
+					break;
+				}
+			}
+		}
 		return TRUE;
 	}
 
+    /* scroll bar */
 	if (IsVisible() && Opt.ShowPanelScrollbar && MouseX == X2
 			&& (MouseEvent->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED)
 			&& !(MouseEvent->dwEventFlags & MOUSE_MOVED) && !IsDragging()) {
@@ -2672,7 +2784,26 @@ int FileList::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 		}
 	}
 
-	if (MouseEvent->dwButtonState & FROM_LEFT_2ND_BUTTON_PRESSED && MouseEvent->dwEventFlags != MOUSE_MOVED) {
+    /* mouse hover over the panel */
+	if (Opt.Backend.UseModernLook && IsVisible() && (MouseEvent->dwEventFlags & MOUSE_MOVED) && !IsDragging() && 
+			!(MouseEvent->dwButtonState & FROM_LEFT_2ND_BUTTON_PRESSED) && !(MouseEvent->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED)) {
+        /* vk: simple mouse move, highhlight the file */
+        if (MouseEvent->dwMousePosition.X > X1 && MouseEvent->dwMousePosition.X < X2) {
+			int file = MouseToPosition(MouseEvent);
+			LastHoveredIndex = file;
+			Redraw();
+		}
+        /* no return, continue processing */
+	}
+
+    /* paste from clipboard if clicked outside of the file list */
+	if ((MouseEvent->dwButtonState & FROM_LEFT_2ND_BUTTON_PRESSED) && MouseEvent->dwEventFlags != MOUSE_MOVED) {
+		if (Opt.PasteFromPrimarySelection && !MouseEvent->dwControlKeyState 
+				&& MouseEvent->dwMousePosition.Y >= Y2 - 2 * Opt.ShowPanelStatus /* command line area */) {
+			// CopyToPrimarySelection -- let EditorControl to do the rest
+			return FALSE;
+		}
+
 		FarKey Key = KEY_ENTER;
 		if (MouseEvent->dwControlKeyState & SHIFT_PRESSED) {
 			Key|= KEY_SHIFT;
@@ -2706,8 +2837,7 @@ int FileList::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 			if (PanelMode == PLUGIN_PANEL) {
 				if (!WinPortTesting())
 					FlushInputBuffer();		// !!!
-				int ProcessCode =
-						CtrlObject->Plugins.ProcessKey(hPlugin, VK_RETURN, ShiftPressed ? PKF_SHIFT : 0);
+				int ProcessCode = CtrlObject->Plugins.ProcessKey(hPlugin, VK_RETURN, ShiftPressed ? PKF_SHIFT : 0);
 				ProcessPluginCommand();
 
 				if (ProcessCode)
@@ -2802,6 +2932,29 @@ int FileList::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 */
 void FileList::MoveToMouse(MOUSE_EVENT_RECORD *MouseEvent)
 {
+	int CurColumn = MouseToColumn(MouseEvent);
+
+	int OldCurFile = CurFile;
+	CurFile = MouseToPosition(MouseEvent);
+
+	CorrectPosition();
+
+	/*
+		$ 11.09.2000 SVS
+		Bug #17: Проверим на ПОЛНОСТЬЮ пустую колонку.
+	*/
+	if (Opt.PanelRightClickRule == 1)
+		IsEmpty = ((CurColumn - 1) * Height > ListData.Count());
+	else if (Opt.PanelRightClickRule == 2 && (MouseEvent->dwButtonState & RIGHTMOST_BUTTON_PRESSED)
+			&& ((CurColumn - 1) * Height > ListData.Count())) {
+		CurFile = OldCurFile;
+		IsEmpty = TRUE;
+	} else
+		IsEmpty = FALSE;
+}
+
+int FileList::MouseToColumn(MOUSE_EVENT_RECORD *MouseEvent)
+{
 	int CurColumn = 1, ColumnsWidth, I;
 	int PanelX = MouseEvent->dwMousePosition.X - X1 - 1;
 	int Level = 0;
@@ -2820,29 +2973,19 @@ void FileList::MoveToMouse(MOUSE_EVENT_RECORD *MouseEvent)
 		ColumnsWidth++;
 		Level++;
 	}
+	return CurColumn;
+}
 
+int FileList::MouseToPosition(MOUSE_EVENT_RECORD *MouseEvent)
+{
+	int CurColumn = MouseToColumn(MouseEvent);
 	//	if (!CurColumn)
 	//		CurColumn=1;
-	int OldCurFile = CurFile;
-	CurFile = CurTopFile + MouseEvent->dwMousePosition.Y - Y1 - 1 - Opt.ShowColumnTitles;
+	int CurFile = CurTopFile + MouseEvent->dwMousePosition.Y - Y1 - 1 - Opt.ShowColumnTitles;
 
 	if (CurColumn > 1)
 		CurFile+= (CurColumn - 1) * Height;
-
-	CorrectPosition();
-
-	/*
-		$ 11.09.2000 SVS
-		Bug #17: Проверим на ПОЛНОСТЬЮ пустую колонку.
-	*/
-	if (Opt.PanelRightClickRule == 1)
-		IsEmpty = ((CurColumn - 1) * Height > ListData.Count());
-	else if (Opt.PanelRightClickRule == 2 && (MouseEvent->dwButtonState & RIGHTMOST_BUTTON_PRESSED)
-			&& ((CurColumn - 1) * Height > ListData.Count())) {
-		CurFile = OldCurFile;
-		IsEmpty = TRUE;
-	} else
-		IsEmpty = FALSE;
+	return CurFile;
 }
 
 void FileList::SetViewMode(int ViewMode)
@@ -2881,7 +3024,7 @@ void FileList::SetViewMode(int ViewMode)
 	} else {
 		if (!ViewSettings.FullScreen && CurFullScreen) {
 			if (Y2 > 0) {
-				if (this == CtrlObject->Cp()->LeftPanel)
+				if (this == CtrlObject->Cp()->ActiveTab().LeftPanel)
 					SetPosition(0, Y1, ScrX / 2 - Opt.WidthDecrement, Y2);
 				else
 					SetPosition(ScrX / 2 + 1 - Opt.WidthDecrement, Y1, ScrX, Y2);
@@ -3213,16 +3356,17 @@ long FileList::SelectFiles(int Mode, const wchar_t *Mask)
 {
 	CFileMask FileMask;		// Класс для работы с масками
 	const wchar_t *HistoryName = L"Masks";
+	short deltaY = Opt.Backend.UseModernLook ? 1 : 0;
 	DialogDataEx SelectDlgData[] = {
 		{DI_DOUBLEBOX, 3, 1, 51, 8, {}, 0, L""},
 		{DI_EDIT,      5, 2, 49, 2, {(DWORD_PTR)HistoryName}, DIF_FOCUS | DIF_HISTORY, L""},
-		{DI_CHECKBOX,  5, 3, 49, 3, {(DWORD_PTR)Opt.SelectFolders}, 0, Msg::SelectFolders},
-		{DI_CHECKBOX,  5, 4, 49, 4, {(DWORD_PTR)Opt.PanelCaseSensitiveCompareSelect}, 0, Msg::SelectCase},
-		{DI_TEXT,      4, 5, 50,  5, {}, DIF_DISABLE | DIF_CENTERTEXT, Msg::SelectNote},
-		{DI_TEXT,      0, 6, 0,  6, {}, DIF_SEPARATOR, L""},
-		{DI_BUTTON,    0, 7, 0,  7, {}, DIF_DEFAULT | DIF_CENTERGROUP, Msg::Ok},
-		{DI_BUTTON,    0, 7, 0,  7, {}, DIF_CENTERGROUP, Msg::SelectFilter},
-		{DI_BUTTON,    0, 7, 0,  7, {}, DIF_CENTERGROUP, Msg::Cancel}
+		{DI_CHECKBOX,  5, (short)(3 + deltaY), 49,  (short)(3 + deltaY), {(DWORD_PTR)Opt.SelectFolders}, 0, Msg::SelectFolders},
+		{DI_CHECKBOX,  5, (short)(4 + deltaY), 49,  (short)(4 + deltaY), {(DWORD_PTR)Opt.PanelCaseSensitiveCompareSelect}, 0, Msg::SelectCase},
+		{DI_TEXT,      4, (short)(5 + deltaY), 50,  (short)(5 + deltaY), {}, DIF_DISABLE | DIF_CENTERTEXT, Msg::SelectNote},
+		{DI_TEXT,      0, (short)(6 + deltaY), 0,   (short)(6 + deltaY), {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), L""},
+		{DI_BUTTON,    0, (short)(7 + deltaY), 0,   (short)(7 + deltaY), {}, DIF_DEFAULT | DIF_CENTERGROUP, Msg::Ok},
+		{DI_BUTTON,    0, (short)(7 + deltaY), 0,   (short)(7 + deltaY), {}, DIF_CENTERGROUP, Msg::SelectFilter},
+		{DI_BUTTON,    0, (short)(7 + deltaY), 0,   (short)(7 + deltaY), {}, DIF_CENTERGROUP, Msg::Cancel}
 	};
 	MakeDialogItemsEx(SelectDlgData, SelectDlg);
 	FileFilter Filter(this, FFT_SELECT);
@@ -3309,7 +3453,7 @@ long FileList::SelectFiles(int Mode, const wchar_t *Mask)
 				{
 					Dialog Dlg(SelectDlg, ARRAYSIZE(SelectDlg));
 					Dlg.SetHelp(L"SelectFiles");
-					Dlg.SetPosition(-1, -1, 55, 10);
+					Dlg.SetPosition(-1, -1, 55, 10 + deltaY);
 
 					for (;;) {
 						Dlg.ClearDone();
@@ -3711,6 +3855,7 @@ FARString &FileList::PluginGetURL(const wchar_t *Name, FARString &strDest, bool 
 	OpenPluginInfo Info = {0};
 	CtrlObject->Plugins.GetOpenPluginInfo(hPlugin, &Info);
 	FARString result;
+
 	// Ctrl-Alt-F pastes the portable URL (CurURL); Ctrl-F pastes the bare path (CurPath).
 	// Fall back to less specific fields for plugins that don't provide them.
 	if (!as_url && Info.CurPath && Info.CurPath[0]) {
@@ -4089,6 +4234,42 @@ void FileList::SetReturnCurrentFile(int Mode)
 	ReturnCurrentFile = Mode;
 }
 
+static bool ApplyCommandUsesCombinedListMeta(const FARString &command)
+{
+	const wchar_t *cur = command.CPtr();
+
+	while ((cur = wcschr(cur, L'!')) != nullptr) {
+		if (!cur[1])
+			break;
+
+		if (!StrCmpN(cur, L"!!", 2)) {
+			cur += 2;
+			continue;
+		}
+
+		// Skip !?title?init! interactive prompts
+		if (!StrCmpN(cur, L"!?", 2)) {
+			const wchar_t *end = wcschr(cur + 2, L'!');
+			cur = end ? end + 1 : cur + 2;
+			continue;
+		}
+
+		if (!StrCmpN(cur, L"!@", 2) || !StrCmpN(cur, L"!$", 2)) {
+			const wchar_t *end = wcschr(cur + 2, L'!');
+			if (end) {
+				for (const wchar_t *mod = cur + 2; mod < end; ++mod) {
+					if (*mod == L'B')
+						return true;
+				}
+			}
+		}
+
+		++cur;
+	}
+
+	return false;
+}
+
 bool FileList::ApplyCommand()
 {
 	static FARString strPrevCommand;
@@ -4110,53 +4291,89 @@ bool FileList::ApplyCommand()
 
 	FARString strSelName;
 	DWORD FileAttr;
+	const bool apply_once = ApplyCommandUsesCombinedListMeta(strCommand);
+	const bool had_selection = SelFileCount != 0;
 
 	SaveSelection();
 
 	++UpdateDisabled;
-	GetSelNameCompat(nullptr, FileAttr);
 	CtrlObject->CmdLine->LockUpdatePanel(true);
-	while (GetSelNameCompat(&strSelName, FileAttr) && !CheckForEsc()) {
-		FARString strListName, strAnotherListName;
-		FARString strConvertedCommand = strCommand;
-		/*int PreserveLFN=*/SubstFileName(strConvertedCommand, strSelName, &strListName, &strAnotherListName);
-		bool ListFileUsed = !strListName.IsEmpty() || !strAnotherListName.IsEmpty();
+	if (apply_once) {
+		GetSelNameCompat(nullptr, FileAttr);
+		if (GetSelNameCompat(&strSelName, FileAttr)) {
+			FARString strListName, strAnotherListName;
+			FARString strConvertedCommand = strCommand;
+			/*int PreserveLFN=*/SubstFileName(strConvertedCommand, strSelName, &strListName, &strAnotherListName);
+			bool ListFileUsed = !strListName.IsEmpty() || !strAnotherListName.IsEmpty();
 
-		{
-			// PreserveLongName PreserveName(PreserveLFN);
 			RemoveExternalSpaces(strConvertedCommand);
 
 			if (!strConvertedCommand.IsEmpty()) {
-				// ProcessOSAliases(strConvertedCommand);
-
-				if (CtrlObject->CmdLine->ProcessFarCommands(strConvertedCommand))	// far commands always not silent
+				if (CtrlObject->CmdLine->ProcessFarCommands(strConvertedCommand))
 					;
-				else if (!isSilent)																		// TODO: Здесь не isSilent!
-				{
-					CtrlObject->CmdLine->ExecString(strConvertedCommand, FALSE, 0, 0, ListFileUsed);	// Param2 == TRUE?
-																										// if (!(Opt.ExcludeCmdHistory&EXCLUDECMDHISTORY_NOTAPPLYCMD))
-					//	CtrlObject->CmdHistory->AddToHistory(strConvertedCommand);
+				else if (!isSilent) {
+					CtrlObject->CmdLine->ExecString(strConvertedCommand, FALSE, 0, 0, ListFileUsed);
 				} else {
-					CtrlObject->Cp()->LeftPanel->CloseFile();
-					CtrlObject->Cp()->RightPanel->CloseFile();
+					CtrlObject->Cp()->ActiveTab().LeftPanel->CloseFile();
+					CtrlObject->Cp()->ActiveTab().RightPanel->CloseFile();
 					Execute(strConvertedCommand, FALSE, 0, ListFileUsed, true);
 				}
 			}
 
 			ClearLastGetSelection();
+
+			if (!strListName.IsEmpty())
+				apiDeleteFile(strListName);
+
+			if (!strAnotherListName.IsEmpty())
+				apiDeleteFile(strAnotherListName);
 		}
+	} else {
+		GetSelNameCompat(nullptr, FileAttr);
+		while (GetSelNameCompat(&strSelName, FileAttr) && !CheckForEsc()) {
+			FARString strListName, strAnotherListName;
+			FARString strConvertedCommand = strCommand;
+			/*int PreserveLFN=*/SubstFileName(strConvertedCommand, strSelName, &strListName, &strAnotherListName);
+			bool ListFileUsed = !strListName.IsEmpty() || !strAnotherListName.IsEmpty();
 
-		if (!strListName.IsEmpty())
-			apiDeleteFile(strListName);
+			{
+				// PreserveLongName PreserveName(PreserveLFN);
+				RemoveExternalSpaces(strConvertedCommand);
 
-		if (!strAnotherListName.IsEmpty())
-			apiDeleteFile(strAnotherListName);
+				if (!strConvertedCommand.IsEmpty()) {
+					// ProcessOSAliases(strConvertedCommand);
+
+					if (CtrlObject->CmdLine->ProcessFarCommands(strConvertedCommand))	// far commands always not silent
+						;
+					else if (!isSilent)																		// TODO: Здесь не isSilent!
+					{
+						CtrlObject->CmdLine->ExecString(strConvertedCommand, FALSE, 0, 0, ListFileUsed);	// Param2 == TRUE?
+																											// if (!(Opt.ExcludeCmdHistory&EXCLUDECMDHISTORY_NOTAPPLYCMD))
+						//	CtrlObject->CmdHistory->AddToHistory(strConvertedCommand);
+					} else {
+						CtrlObject->Cp()->ActiveTab().LeftPanel->CloseFile();
+						CtrlObject->Cp()->ActiveTab().RightPanel->CloseFile();
+						Execute(strConvertedCommand, FALSE, 0, ListFileUsed, true);
+					}
+				}
+
+				ClearLastGetSelection();
+			}
+
+			if (!strListName.IsEmpty())
+				apiDeleteFile(strListName);
+
+			if (!strAnotherListName.IsEmpty())
+				apiDeleteFile(strAnotherListName);
+		}
 	}
 
 	CtrlObject->CmdLine->LockUpdatePanel(false);
 	CtrlObject->CmdLine->Show();
 	CtrlObject->MainKeyBar->Refresh(Opt.ShowKeyBar);
-	if (GetSelPosition >= ListData.Count())
+	if (apply_once && had_selection)
+		ClearSelection();
+	else if (GetSelPosition >= ListData.Count())
 		ClearSelection();
 
 	--UpdateDisabled;

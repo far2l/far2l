@@ -74,7 +74,6 @@ struct Messager : protected std::vector<const wchar_t *>
 	int Show(DWORD Flags, int Buttons, INT_PTR PluginNumber);
 	int Show(DWORD Flags, int Buttons);
 	int Show(int Buttons = 0);
-
 };
 
 struct ExMessager : Messager
@@ -89,14 +88,11 @@ struct ExMessager : Messager
 	Messager &AddFormat(FarLangMsg fmt, ...);
 	Messager &AddFormat(const wchar_t *fmt, ...);
 	Messager &AddDup(const wchar_t *v);
-	inline Messager &AddDup(FarLangMsg v)
-	{ return AddDup(v.CPtr()); };
+	inline Messager &AddDup(FarLangMsg v){ return AddDup(v.CPtr()); };
 	Messager &AddDupWrap(const wchar_t *v);
-	inline Messager &AddDupWrap(FarLangMsg v)
-	{ return AddDupWrap(v.CPtr()); };
+	inline Messager &AddDupWrap(FarLangMsg v){ return AddDupWrap(v.CPtr()); };
 	Messager &AddMultiline(const wchar_t *v, const wchar_t *divs = L"\n");
-	inline Messager &AddMultiline(FarLangMsg v, const wchar_t *divs = L"\n")
-	{ return AddMultiline(v.CPtr(), divs); };
+	inline Messager &AddMultiline(FarLangMsg v, const wchar_t *divs = L"\n"){ return AddMultiline(v.CPtr(), divs); };
 
 private:
 	std::vector<FARString> _owneds;

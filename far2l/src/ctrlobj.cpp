@@ -120,17 +120,17 @@ void ControlObject::Init()
 		// A cancelled elevation applies to both startup panel reads.  Do not
 		// prompt again for the other panel during the same initialization.
 		SudoClientRegion sdc_rgn;
-		Cp()->LeftPanel->Update(0);
-		Cp()->RightPanel->Update(0);
+		Cp()->ActiveTab().LeftPanel->Update(0);
+		Cp()->ActiveTab().RightPanel->Update(0);
 
-		Cp()->LeftPanel->GoToFile(Opt.strLeftCurFile);
-		Cp()->RightPanel->GoToFile(Opt.strRightCurFile);
+		Cp()->ActiveTab().LeftPanel->GoToFile(Opt.strLeftCurFile);
+		Cp()->ActiveTab().RightPanel->GoToFile(Opt.strRightCurFile);
 
 		FARString strStartCurDir;
-		Cp()->ActivePanel->GetCurDir(strStartCurDir);
+		Cp()->ActiveTab().ActivePanel->GetCurDir(strStartCurDir);
 		FarChDir(strStartCurDir);
 	}
-	Cp()->ActivePanel->SetFocus();
+	Cp()->ActiveTab().ActivePanel->SetFocus();
 	{
 		FARString strOldTitle;
 		Console.GetTitle(strOldTitle);
@@ -147,7 +147,7 @@ void ControlObject::Init()
 								FarChDir(StartCurDir);
 							*/
 							//_SVS(SysLog(L"ActivePanel->GetCurDir='%ls'",StartCurDir));
-							//_SVS(char PPP[NM];Cp()->GetAnotherPanel(Cp()->ActivePanel)->GetCurDir(PPP);SysLog(L"AnotherPanel->GetCurDir='%ls'",PPP));
+							//_SVS(char PPP[NM];Cp()->GetAnotherPanel(Cp()->ActiveTab().ActivePanel)->GetCurDir(PPP);SysLog(L"AnotherPanel->GetCurDir='%ls'",PPP));
 }
 
 void ControlObject::CreateFilePanels()
@@ -162,13 +162,13 @@ ControlObject::~ControlObject()
 
 	_OT(SysLog(L"[%p] ControlObject::~ControlObject()", this));
 
-	if (Cp() && Cp()->ActivePanel) {
+	if (Cp() && Cp()->ActiveTab().ActivePanel) {
 		if (Opt.AutoSaveSetup || Opt.AutoSavePanels)
 			ConfigOptSave(false);
 
-		if (Cp()->ActivePanel->GetMode() != PLUGIN_PANEL) {
+		if (Cp()->ActiveTab().ActivePanel->GetMode() != PLUGIN_PANEL) {
 			FARString strCurDir;
-			Cp()->ActivePanel->GetCurDir(strCurDir);
+			Cp()->ActiveTab().ActivePanel->GetCurDir(strCurDir);
 			FolderHistory->AddToHistory(strCurDir);
 		}
 	}

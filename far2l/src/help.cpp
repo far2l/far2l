@@ -742,7 +742,7 @@ void Help::FastShow()
 			if (!Locked()) {
 				GotoXY(X1, Y1 + i + 1);
 				SetFarColor(COL_HELPBOX);
-				ShowSeparator(X2 - X1 + 1, 1);
+				ShowSeparator(X2 - X1 + 1, 12);
 			}
 
 			continue;
@@ -778,13 +778,20 @@ void Help::FastShow()
 	if (!Locked()) {
 		SetFarColor(COL_HELPSCROLLBAR);
 		ScrollBarEx(X2, Y1 + FixSize + 1, Y2 - Y1 - FixSize - 1, StackData.TopStr, StrCount - FixCount);
+		Hint(X2, Y1 + FixSize + 1, X2, Y2 - 1, HintHelpViewer, HintScrollBar);
 	}
 }
 
 void Help::DrawWindowFrame()
 {
 	SetScreen(X1, Y1, X2, Y2, L' ', FarColorToReal(COL_HELPTEXT));
+	Hint(X1, Y1, X2, Y2, HintHelpViewer, HintObjectNone);
 	Box(X1, Y1, X2, Y2, FarColorToReal(COL_HELPBOX), DOUBLE_BOX);
+	Hint(X1, Y1, X2, Y1, HintHelpViewer, HintBox);
+	Hint(X1, Y1, X1, Y2, HintHelpViewer, HintBox);
+	Hint(X2, Y1, X2, Y2, HintHelpViewer, HintBox);
+	Hint(X1, Y2, X2, Y2, HintHelpViewer, HintBox);
+
 	SetFarColor(COL_HELPBOXTITLE);
 	FARString strHelpTitleBuf;
 	strHelpTitleBuf = Msg::HelpTitle;
@@ -796,13 +803,20 @@ void Help::DrawWindowFrame()
 		strHelpTitleBuf+= L"FAR2L";
 
 	TruncStrFromEnd(strHelpTitleBuf, X2 - X1 - 3);
-	GotoXY(X1 + (X2 - X1 + 1 - (int)strHelpTitleBuf.GetLength() - 2) / 2, Y1);
+	if (Opt.Backend.UseModernLook)
+		GotoXY(X1 + 3, Y1);
+	else
+		GotoXY(X1 + (X2 - X1 + 1 - (int)strHelpTitleBuf.GetLength() - 2) / 2, Y1);
 	FS << L" " << strHelpTitleBuf << L" ";
 
 	// Bottom notification about BETA & windows legacy
 	strHelpTitleBuf = L"(FAR2L Beta: some topics are not quite relevant and contain Windows legacy)";
 	TruncStrFromEnd(strHelpTitleBuf, X2 - X1 - 3);
-	GotoXY(X1 + (X2 - X1 + 1 - (int)strHelpTitleBuf.GetLength() - 2) / 2, Y2);
+
+	if (Opt.Backend.UseModernLook)
+		GotoXY(X1 + 3, Y2);
+	else
+		GotoXY(X1 + (X2 - X1 + 1 - (int)strHelpTitleBuf.GetLength() - 2) / 2, Y2);
 	FS << L" " << strHelpTitleBuf << L" ";
 }
 

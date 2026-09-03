@@ -167,8 +167,9 @@ private:
 	int OnFCtlSetLocation(const FarPanelLocation *location);
 	static void sUnmountPath(FARString path, bool forced);
 
-protected:
+public:
 	bool SetLocation_Directory(const wchar_t *path);
+protected:
 	bool SetLocation_Plugin(bool file_plugin, class Plugin *plugin, const wchar_t *path,
 			const wchar_t *host_file, LONG_PTR item);
 

@@ -58,20 +58,16 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "scrbuf.hpp"
 
 FilePanels::FilePanels()
-	:
-	LastLeftFilePanel(nullptr),
-	LastRightFilePanel(nullptr),
-	LeftPanel(CreatePanel(Opt.LeftPanel.Type)),
-	RightPanel(CreatePanel(Opt.RightPanel.Type)),
-	ActivePanel(nullptr),
-	LastLeftType(0),
-	LastRightType(0),
-	LeftStateBeforeHide(0),
-	RightStateBeforeHide(0)
 {
 	_OT(SysLog(L"[%p] FilePanels::FilePanels()", this));
 	MacroMode = MACRO_SHELL;
 	KeyBarVisible = Opt.ShowKeyBar;
+
+	tabs.push_back(DoublePanel());
+
+	ActiveTab().LeftPanel  = CreatePanel(Opt.LeftPanel.Type);
+	ActiveTab().RightPanel = CreatePanel(Opt.RightPanel.Type);
+
 	// SetKeyBar(&MainKeyBar);
 	//_D(SysLog(L"MainKeyBar=0x%p",&MainKeyBar));
 }
@@ -85,64 +81,115 @@ static void PrepareOptFolder(FARString &strSrc)
 	}
 }
 
-void FilePanels::Init()
+void FilePanels::deactivatePanelsInTab(DoublePanel& activeTab)
 {
-	SetPanelPositions(FileList::IsModeFullScreen(Opt.LeftPanel.ViewMode),
-			FileList::IsModeFullScreen(Opt.RightPanel.ViewMode), Opt.PanelsDisposition);
-	LeftPanel->SetViewMode(Opt.LeftPanel.ViewMode);
-	RightPanel->SetViewMode(Opt.RightPanel.ViewMode);
-	LeftPanel->SetSortMode(std::min(std::max(Opt.LeftPanel.SortMode, 0), (int)MAX_PANEL_SORT_MODE));
-	RightPanel->SetSortMode(std::min(std::max(Opt.RightPanel.SortMode, 0), (int)MAX_PANEL_SORT_MODE));
-	LeftPanel->SetNumericSort(Opt.LeftPanel.NumericSort);
-	RightPanel->SetNumericSort(Opt.RightPanel.NumericSort);
-	LeftPanel->SetCaseSensitiveSort(Opt.LeftPanel.CaseSensitiveSort);
-	RightPanel->SetCaseSensitiveSort(Opt.RightPanel.CaseSensitiveSort);
-	LeftPanel->SetSortOrder(Opt.LeftPanel.SortOrder);
-	RightPanel->SetSortOrder(Opt.RightPanel.SortOrder);
-	LeftPanel->SetSortGroups(Opt.LeftPanel.SortGroups);
-	RightPanel->SetSortGroups(Opt.RightPanel.SortGroups);
-	LeftPanel->SetSelectedFirstMode(Opt.LeftSelectedFirst);
-	RightPanel->SetSelectedFirstMode(Opt.RightSelectedFirst);
-	LeftPanel->SetDirectoriesFirst(Opt.LeftPanel.DirectoriesFirst);
-	RightPanel->SetDirectoriesFirst(Opt.RightPanel.DirectoriesFirst);
-	LeftPanel->SetExecutablesFirst(Opt.LeftPanel.ExecutablesFirst);
-	RightPanel->SetExecutablesFirst(Opt.RightPanel.ExecutablesFirst);
-	SetCanLoseFocus(TRUE);
+	activeTab.ActiveVisible = activeTab.ActivePanel->IsVisible();
+	activeTab.PassiveVisible = activeTab.PassivePanel()->IsVisible();
+
+	activeTab.PassivePanel()->Hide();
+	activeTab.ActivePanel->Hide();
+}
+
+void FilePanels::activatePanelsInTab(DoublePanel& activeTab)
+{
+	if (activeTab.ActiveVisible || activeTab.PassiveVisible)
+		SetPanelPositions(activeTab,
+			FileList::IsModeFullScreen(Opt.LeftPanel.ViewMode),
+			FileList::IsModeFullScreen(Opt.RightPanel.ViewMode),
+			Opt.PanelsDisposition);
+
+	// show means right order -> active first
+	if(activeTab.ActiveVisible)  activeTab.ActivePanel->Show();
+	if(activeTab.PassiveVisible) activeTab.PassivePanel()->Show();
+
+	if(activeTab.ActiveVisible) {
+		activeTab.ActivePanel->Update(UPDATE_KEEP_SELECTION | UPDATE_CAN_BE_ANNOYING);
+	}
+
+	if(activeTab.PassiveVisible) {
+		activeTab.PassivePanel()->Update(UPDATE_KEEP_SELECTION | UPDATE_CAN_BE_ANNOYING);
+	}
+
+	FARString dir;
+	activeTab.ActivePanel->GetCurDir(dir);
+	CtrlObject->CmdLine->SetCurDir(dir);
+
+    /*
+	if (!activeTab.ActivePanel->IsVisible() || !activeTab.ActivePanel->GetFocus()) {
+		if (activeTab.ActivePanel == activeTab.RightPanel)
+			activeTab.LeftPanel->SetFocus();
+		else
+			activeTab.RightPanel->SetFocus();
+	}*/
+	UpdateCmdLineVisibility(activeTab);
+
+	// FrameManager->RefreshFrame();
+}
+
+void FilePanels::Init(DoublePanel& activeTab)
+{
+	SetPanelPositions(activeTab,
+		FileList::IsModeFullScreen(Opt.LeftPanel.ViewMode),
+		FileList::IsModeFullScreen(Opt.RightPanel.ViewMode),
+		Opt.PanelsDisposition);
+
+
+	activeTab.LeftPanel->SetViewMode(Opt.LeftPanel.ViewMode);
+	activeTab.RightPanel->SetViewMode(Opt.RightPanel.ViewMode);
+	activeTab.LeftPanel->SetSortMode(std::min(std::max(Opt.LeftPanel.SortMode, 0), (int)MAX_PANEL_SORT_MODE));
+	activeTab.RightPanel->SetSortMode(std::min(std::max(Opt.RightPanel.SortMode, 0), (int)MAX_PANEL_SORT_MODE));
+	activeTab.LeftPanel->SetNumericSort(Opt.LeftPanel.NumericSort);
+	activeTab.RightPanel->SetNumericSort(Opt.RightPanel.NumericSort);
+	activeTab.LeftPanel->SetCaseSensitiveSort(Opt.LeftPanel.CaseSensitiveSort);
+	activeTab.RightPanel->SetCaseSensitiveSort(Opt.RightPanel.CaseSensitiveSort);
+	activeTab.LeftPanel->SetSortOrder(Opt.LeftPanel.SortOrder);
+	activeTab.RightPanel->SetSortOrder(Opt.RightPanel.SortOrder);
+	activeTab.LeftPanel->SetSortGroups(Opt.LeftPanel.SortGroups);
+	activeTab.RightPanel->SetSortGroups(Opt.RightPanel.SortGroups);
+	activeTab.LeftPanel->SetSelectedFirstMode(Opt.LeftSelectedFirst);
+	activeTab.RightPanel->SetSelectedFirstMode(Opt.RightSelectedFirst);
+	activeTab.LeftPanel->SetDirectoriesFirst(Opt.LeftPanel.DirectoriesFirst);
+	activeTab.RightPanel->SetDirectoriesFirst(Opt.RightPanel.DirectoriesFirst);
+	activeTab.LeftPanel->SetExecutablesFirst(Opt.LeftPanel.ExecutablesFirst);
+	activeTab.RightPanel->SetExecutablesFirst(Opt.RightPanel.ExecutablesFirst);
+
+	// if(&activeTab == &ActiveTab()) SetCanLoseFocus(TRUE);
 	Panel *PassivePanel = nullptr;
 	int PassiveIsLeftFlag = TRUE;
 
 	if (Opt.LeftPanel.Focus) {
-		ActivePanel = LeftPanel;
-		PassivePanel = RightPanel;
+		activeTab.ActivePanel = activeTab.LeftPanel;
+		PassivePanel = activeTab.RightPanel;
 		PassiveIsLeftFlag = FALSE;
 	} else {
-		ActivePanel = RightPanel;
-		PassivePanel = LeftPanel;
+		activeTab.ActivePanel = activeTab.RightPanel;
+		PassivePanel = activeTab.LeftPanel;
 		PassiveIsLeftFlag = TRUE;
 	}
 
-	ActivePanel->SetFocus();
+	// activeTab.ActivePanel->SetFocus();
+
 	PrepareOptFolder(Opt.strLeftFolder);
 	PrepareOptFolder(Opt.strRightFolder);
 
 	if (Opt.AutoSaveSetup || !Opt.SetupArgv) {
-		LeftPanel->InitCurDir(Opt.strLeftFolder);
-		RightPanel->InitCurDir(Opt.strRightFolder);
+		activeTab.LeftPanel->InitCurDir(Opt.strLeftFolder);
+		activeTab.RightPanel->InitCurDir(Opt.strRightFolder);
 	}
 
 	if (!Opt.AutoSaveSetup) {
 		if (Opt.SetupArgv >= 1) {
-			if (ActivePanel == RightPanel) {
-				RightPanel->InitCurDir(Opt.strRightFolder);
+			if (activeTab.ActivePanel == activeTab.RightPanel) {
+				activeTab.RightPanel->InitCurDir(Opt.strRightFolder);
 			} else {
-				LeftPanel->InitCurDir(Opt.strLeftFolder);
+				activeTab.LeftPanel->InitCurDir(Opt.strLeftFolder);
 			}
 
 			if (Opt.SetupArgv == 2) {
-				if (ActivePanel == LeftPanel) {
-					RightPanel->InitCurDir(Opt.strRightFolder);
+				if (activeTab.ActivePanel == activeTab.LeftPanel) {
+					activeTab.RightPanel->InitCurDir(Opt.strRightFolder);
 				} else {
-					LeftPanel->InitCurDir(Opt.strLeftFolder);
+					activeTab.LeftPanel->InitCurDir(Opt.strLeftFolder);
 				}
 			}
 		}
@@ -159,19 +206,19 @@ void FilePanels::Init()
 	//! Вначале "показываем" пассивную панель
 	if (PassiveIsLeftFlag) {
 		if (Opt.LeftPanel.Visible) {
-			LeftPanel->Show();
+			activeTab.LeftPanel->Show();
 		}
 
 		if (Opt.RightPanel.Visible) {
-			RightPanel->Show();
+			activeTab.RightPanel->Show();
 		}
 	} else {
 		if (Opt.RightPanel.Visible) {
-			RightPanel->Show();
+			activeTab.RightPanel->Show();
 		}
 
 		if (Opt.LeftPanel.Visible) {
-			LeftPanel->Show();
+			activeTab.LeftPanel->Show();
 		}
 	}
 
@@ -182,39 +229,96 @@ void FilePanels::Init()
 		CtrlObject->CmdLine->SetCurDir(PassiveIsLeftFlag ? Opt.strRightFolder : Opt.strLeftFolder);
 	}
 
+}
+
+void FilePanels::Init()
+{
+	Init(ActiveTab());
+	// todo: if many tabs were saved earler, it is a good place to restore
+
+	if (!Opt.strLeftFolderList.IsEmpty() && !Opt.strRightFolderList.IsEmpty()) {
+		wchar_t* ldup = wcsdup(Opt.strLeftFolderList.CPtr());  // separator is `|`
+		wchar_t* rdup = wcsdup(Opt.strRightFolderList.CPtr());
+		int switchTo = Opt.activeTabNo;
+
+		int foundTabs = 0;
+		wchar_t* left = ldup;
+		wchar_t* right = rdup;
+		for(;;) {
+			wchar_t* ql = wcschr(left, '|');
+			wchar_t* qr = wcschr(right, '|');
+
+			if(ql) *ql = 0;
+			if(qr) *qr = 0;
+
+			if(foundTabs > 0) {
+				AppendNewTab();
+			}
+
+			tabs[TabActive].LeftPanel->InitCurDir(left);
+			tabs[TabActive].RightPanel->InitCurDir(right);
+
+			if (!ql || !qr) break;
+
+			left = ql + 1;
+			right = qr + 1;
+            ++foundTabs;
+		}
+
+		SwitchActiveTabTo(switchTo);
+
+		free(ldup);
+		free(rdup);
+	}
+
+	ActiveTab().ActivePanel->SetFocus();
+
 	SetKeyBar(&MainKeyBar);
 	MainKeyBar.SetOwner(this);
+	SetCanLoseFocus(TRUE);
+}
+
+void FilePanels::destroyPanelsGracefully(DoublePanel& activeTab) {
+	if (activeTab.LastLeftFilePanel != activeTab.LeftPanel && activeTab.LastLeftFilePanel != activeTab.RightPanel)
+		DeletePanel(activeTab, activeTab.LastLeftFilePanel);
+
+	if (activeTab.LastRightFilePanel != activeTab.LeftPanel && activeTab.LastRightFilePanel != activeTab.RightPanel)
+		DeletePanel(activeTab, activeTab.LastRightFilePanel);
+
+	DeletePanel(activeTab, activeTab.LeftPanel);
+	activeTab.LeftPanel = nullptr;
+	DeletePanel(activeTab, activeTab.RightPanel);
+	activeTab.RightPanel = nullptr;
 }
 
 FilePanels::~FilePanels()
 {
 	_OT(SysLog(L"[%p] FilePanels::~FilePanels()", this));
 
-	if (LastLeftFilePanel != LeftPanel && LastLeftFilePanel != RightPanel)
-		DeletePanel(LastLeftFilePanel);
-
-	if (LastRightFilePanel != LeftPanel && LastRightFilePanel != RightPanel)
-		DeletePanel(LastRightFilePanel);
-
-	DeletePanel(LeftPanel);
-	LeftPanel = nullptr;
-	DeletePanel(RightPanel);
-	RightPanel = nullptr;
+	for(size_t i = 0; i < tabs.size(); ++i) {
+		DoublePanel& activeTab = tabs[i];
+		destroyPanelsGracefully(activeTab);
+	}
 }
 
 void FilePanels::UpdateCmdLineVisibility(bool repos)
+{
+	UpdateCmdLineVisibility(ActiveTab(), repos);
+}
+
+void FilePanels::UpdateCmdLineVisibility(DoublePanel& activeTab, bool repos)
 {
 	int left_x1, left_x2, left_y1, left_y2;
 	int right_x1, right_x2, right_y1, right_y2;
 	int cl_x1, cl_x2, cl_y1, cl_y2;
 	bool cl_visible = CtrlObject->CmdLine->IsVisible(), new_cl_visible;
 
-	LeftPanel->GetPosition(left_x1, left_y1, left_x2, left_y2);
-	RightPanel->GetPosition(right_x1, right_y1, right_x2, right_y2);
+	ActiveTab().LeftPanel->GetPosition(left_x1, left_y1, left_x2, left_y2);
+	ActiveTab().RightPanel->GetPosition(right_x1, right_y1, right_x2, right_y2);
 	CtrlObject->CmdLine->GetPosition(cl_x1, cl_y1, cl_x2, cl_y2);
 
-	const bool left_overlap = LeftPanel->IsVisible() && left_y2 + Opt.ShowKeyBar >= ScrY;
-	const bool right_overlap = RightPanel->IsVisible() && right_y2 + Opt.ShowKeyBar >= ScrY;
+	const bool left_overlap = ActiveTab().LeftPanel->IsVisible() && left_y2 + Opt.ShowKeyBar >= ScrY;
+	const bool right_overlap = ActiveTab().RightPanel->IsVisible() && right_y2 + Opt.ShowKeyBar >= ScrY;
 
 	if (!Opt.PanelsDisposition)
 		new_cl_visible = !left_overlap || !right_overlap;
@@ -245,17 +349,22 @@ void FilePanels::UpdateCmdLineVisibility(bool repos)
 			CtrlObject->CmdLine->Redraw();
 		}
 		if (cl_visible != new_cl_visible || cl_repos) {
-			if (LeftPanel->IsVisible()) {
-				LeftPanel->Redraw();
+			if (ActiveTab().LeftPanel->IsVisible()) {
+				ActiveTab().LeftPanel->Redraw();
 			}
-			if (RightPanel->IsVisible()) {
-				RightPanel->Redraw();
+			if (ActiveTab().RightPanel->IsVisible()) {
+				ActiveTab().RightPanel->Redraw();
 			}
 		}
 	}
 }
 
 void FilePanels::SetPanelPositions(int LeftFullScreen, int RightFullScreen, int Disposition)
+{
+	SetPanelPositions(ActiveTab(), LeftFullScreen, RightFullScreen, Disposition);
+}
+
+void FilePanels::SetPanelPositions(DoublePanel& activeTab, int LeftFullScreen, int RightFullScreen, int Disposition)
 {
 	if (Disposition == 0) { /// vertical panels
 
@@ -275,29 +384,29 @@ void FilePanels::SetPanelPositions(int LeftFullScreen, int RightFullScreen, int 
 		const int RightY2 = ScrY - 1 - (Opt.ShowKeyBar) - RightDecrement;
 
 		if (LeftFullScreen) {
-			LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 1 : 0, ScrX, LeftY2);
-			LeftPanel->ViewSettings.FullScreen = 1;
+			activeTab.LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 2 : 1, ScrX, LeftY2);
+			activeTab.LeftPanel->ViewSettings.FullScreen = 1;
 		} else {
-			LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 1 : 0, ScrX / 2 - Opt.WidthDecrement, LeftY2);
+			activeTab.LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 2 : 1, ScrX / 2 - Opt.WidthDecrement, LeftY2);
 		}
 
 		if (RightFullScreen) {
-			RightPanel->SetPosition(0, Opt.ShowMenuBar ? 1 : 0, ScrX, RightY2);
-			RightPanel->ViewSettings.FullScreen = 1;
+			activeTab.RightPanel->SetPosition(0, Opt.ShowMenuBar ? 2 : 1, ScrX, RightY2);
+			activeTab.RightPanel->ViewSettings.FullScreen = 1;
 		} else {
-			RightPanel->SetPosition(ScrX / 2 + 1 - Opt.WidthDecrement, Opt.ShowMenuBar ? 1 : 0, ScrX, RightY2);
+			activeTab.RightPanel->SetPosition(ScrX / 2 + 1 - Opt.WidthDecrement, Opt.ShowMenuBar ? 2 : 1, ScrX, RightY2);
 		}
 	}
 	else if (Disposition == 1) { /// horizontal panels
 
-		LeftPanel->ViewSettings.FullScreen = 0;
-		RightPanel->ViewSettings.FullScreen = 0;
+		activeTab.LeftPanel->ViewSettings.FullScreen = 0;
+		activeTab.RightPanel->ViewSettings.FullScreen = 0;
 
 		Opt.LeftHeightDecrement = Max(-1, Min(Opt.LeftHeightDecrement, ScrY - 13));
 		Opt.RightHeightDecrement = Max(-1, Min(Opt.RightHeightDecrement, ScrY - 13));
 #if 0
-		const bool bRightPanelVisible = RightPanel->IsVisible();
-		const bool bLeftPanelVisible = LeftPanel->IsVisible();
+		const bool bRightPanelVisible = activeTab.RightPanel->IsVisible();
+		const bool bLeftPanelVisible = activeTab.LeftPanel->IsVisible();
 
 		if (bRightPanelVisible)  {
 			if (Opt.WidthDecrement < -((ScrY - Opt.LeftHeightDecrement) / 2 - 6))
@@ -331,44 +440,50 @@ void FilePanels::SetPanelPositions(int LeftFullScreen, int RightFullScreen, int 
 
 #if 0
 		if (LeftFullScreen) {
-			LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 1 : 0, ScrX, LeftY2);
-			LeftPanel->ViewSettings.FullScreen = 1;
+			activeTab.LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 2 : 1, ScrX, LeftY2);
+			activeTab.LeftPanel->ViewSettings.FullScreen = 1;
 		} else {
-			LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 1 : 0, ScrX, LeftY2 - Opt.WidthDecrement );
+			activeTab.LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 2 : 1, ScrX, LeftY2 - Opt.WidthDecrement );
 		}
 
 		if (RightFullScreen) {
-			RightPanel->SetPosition(0, Opt.ShowMenuBar ? 1 : 0, ScrX, RightY2);
-			RightPanel->ViewSettings.FullScreen = 1;
+			activeTab.RightPanel->SetPosition(0, Opt.ShowMenuBar ? 2 : 1, ScrX, RightY2);
+			activeTab.RightPanel->ViewSettings.FullScreen = 1;
 		} else {
 			if (RightY2 - 5 < LeftY2 + 1 - Opt.WidthDecrement)
 				RightY2 = LeftY2 + 1 - Opt.WidthDecrement + 5;
-			RightPanel->SetPosition(0, LeftY2 + 1 - Opt.WidthDecrement, ScrX, RightY2);
+			activeTab.RightPanel->SetPosition(0, LeftY2 + 1 - Opt.WidthDecrement, ScrX, RightY2);
 		}
 #else
-		LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 1 : 0, ScrX, LeftY2 - Opt.WidthDecrement );
+		activeTab.LeftPanel->SetPosition(0, Opt.ShowMenuBar ? 2 : 1, ScrX, LeftY2 - Opt.WidthDecrement );
 
 		if (RightY2 - 5 < LeftY2 + 1 - Opt.WidthDecrement)
 			RightY2 = LeftY2 + 1 - Opt.WidthDecrement + 5;
-		RightPanel->SetPosition(0, LeftY2 + 1 - Opt.WidthDecrement, ScrX, RightY2);
+		activeTab.RightPanel->SetPosition(0, LeftY2 + 1 - Opt.WidthDecrement, ScrX, RightY2);
 #endif
 	}
 
-	UpdateCmdLineVisibility(true);
+	UpdateCmdLineVisibility(activeTab, true);
 }
 
 void FilePanels::SetScreenPosition()
 {
+	SetScreenPosition(ActiveTab());
+}
+
+void FilePanels::SetScreenPosition(DoublePanel& activeTab)
+{
 	_OT(SysLog(L"[%p] FilePanels::SetScreenPosition() {%d, %d - %d, %d}", this, X1, Y1, X2, Y2));
 	TopMenuBar.SetPosition(0, 0, ScrX, 0);
+	TopTabBar.SetPosition(0, Opt.ShowMenuBar ? 1 : 0, ScrX, Opt.ShowMenuBar ? 1 : 0);
 	MainKeyBar.SetPosition(0, ScrY, ScrX, ScrY);
-	SetPanelPositions(LeftPanel->IsFullScreen(), RightPanel->IsFullScreen(), Opt.PanelsDisposition);
+	SetPanelPositions(activeTab, activeTab.LeftPanel->IsFullScreen(), activeTab.RightPanel->IsFullScreen(), Opt.PanelsDisposition);
 	SetPosition(0, 0, ScrX, ScrY);
 }
 
 void FilePanels::RedrawKeyBar()
 {
-	ActivePanel->UpdateKeyBar();
+	ActiveTab().ActivePanel->UpdateKeyBar();
 	MainKeyBar.Redraw();
 }
 
@@ -399,14 +514,19 @@ Panel *FilePanels::CreatePanel(int Type)
 
 void FilePanels::DeletePanel(Panel *Deleted)
 {
+	DeletePanel(ActiveTab(), Deleted);
+}
+
+void FilePanels::DeletePanel(DoublePanel& activeTab, Panel *Deleted)
+{
 	if (!Deleted)
 		return;
 
-	if (Deleted == LastLeftFilePanel)
-		LastLeftFilePanel = nullptr;
+	if (Deleted == activeTab.LastLeftFilePanel)
+		activeTab.LastLeftFilePanel = nullptr;
 
-	if (Deleted == LastRightFilePanel)
-		LastRightFilePanel = nullptr;
+	if (Deleted == activeTab.LastRightFilePanel)
+		activeTab.LastRightFilePanel = nullptr;
 
 	delete Deleted;
 }
@@ -415,16 +535,21 @@ int FilePanels::SetAnotherPanelFocus()
 {
 	int Ret = FALSE;
 
-	if (ActivePanel == LeftPanel) {
-		if (RightPanel->IsVisible()) {
-			RightPanel->SetFocus();
+	if (ActiveTab().ActivePanel == ActiveTab().LeftPanel) {
+		if (ActiveTab().RightPanel->IsVisible()) {
+			ActiveTab().RightPanel->SetFocus();
 			Ret = TRUE;
 		}
 	} else {
-		if (LeftPanel->IsVisible()) {
-			LeftPanel->SetFocus();
+		if (ActiveTab().LeftPanel->IsVisible()) {
+			ActiveTab().LeftPanel->SetFocus();
 			Ret = TRUE;
 		}
+	}
+
+	if (Ret) {
+		SetTabNames();
+		TopTabBar.Show();
 	}
 
 	return Ret;
@@ -434,13 +559,13 @@ int FilePanels::SwapPanels()
 {
 	int Ret = FALSE;	// это значит ни одна из панелей не видна
 
-	if (LeftPanel->IsVisible() || RightPanel->IsVisible()) {
+	if (ActiveTab().LeftPanel->IsVisible() || ActiveTab().RightPanel->IsVisible()) {
 		int XL1, YL1, XL2, YL2;
 		int XR1, YR1, XR2, YR2;
-		LeftPanel->GetPosition(XL1, YL1, XL2, YL2);
-		RightPanel->GetPosition(XR1, YR1, XR2, YR2);
+		ActiveTab().LeftPanel->GetPosition(XL1, YL1, XL2, YL2);
+		ActiveTab().RightPanel->GetPosition(XR1, YR1, XR2, YR2);
 
-		if (!LeftPanel->ViewSettings.FullScreen || !RightPanel->ViewSettings.FullScreen) {
+		if (!ActiveTab().LeftPanel->ViewSettings.FullScreen || !ActiveTab().RightPanel->ViewSettings.FullScreen) {
 			Opt.WidthDecrement = -Opt.WidthDecrement;
 
 			Opt.LeftHeightDecrement^= Opt.RightHeightDecrement;
@@ -450,15 +575,15 @@ int FilePanels::SwapPanels()
 
 		Panel *Swap;
 		int SwapType;
-		Swap = LeftPanel;
-		LeftPanel = RightPanel;
-		RightPanel = Swap;
-		Swap = LastLeftFilePanel;
-		LastLeftFilePanel = LastRightFilePanel;
-		LastRightFilePanel = Swap;
-		SwapType = LastLeftType;
-		LastLeftType = LastRightType;
-		LastRightType = SwapType;
+		Swap = ActiveTab().LeftPanel;
+		ActiveTab().LeftPanel = ActiveTab().RightPanel;
+		ActiveTab().RightPanel = Swap;
+		Swap = ActiveTab().LastLeftFilePanel;
+		ActiveTab().LastLeftFilePanel = ActiveTab().LastRightFilePanel;
+		ActiveTab().LastRightFilePanel = Swap;
+		SwapType = ActiveTab().LastLeftType;
+		ActiveTab().LastLeftType = ActiveTab().LastRightType;
+		ActiveTab().LastRightType = SwapType;
 		FileFilter::SwapFilter();
 		Ret = TRUE;
 	}
@@ -469,13 +594,13 @@ int FilePanels::SwapPanels()
 
 int64_t FilePanels::VMProcess(MacroOpcode OpCode, void *vParam, int64_t iParam)
 {
-	return ActivePanel->VMProcess(OpCode, vParam, iParam);
+	return ActiveTab().ActivePanel->VMProcess(OpCode, vParam, iParam);
 }
 
 void FilePanels::RetryActivePanelRead()
 {
-	if (ActivePanel->GetType() == FILE_PANEL)
-		static_cast<FileList *>(ActivePanel)->RetryFailedRead();
+	if (ActiveTab().ActivePanel->GetType() == FILE_PANEL)
+		static_cast<FileList *>(ActiveTab().ActivePanel)->RetryFailedRead();
 }
 
 int FilePanels::ProcessKey(FarKey Key)
@@ -492,16 +617,16 @@ int FilePanels::ProcessKey(FarKey Key)
 
 	if ((Key == KEY_CTRLLEFT || Key == KEY_CTRLRIGHT || Key == KEY_CTRLNUMPAD4 || Key == KEY_CTRLNUMPAD6
 				/* || Key==KEY_CTRLUP || Key==KEY_CTRLDOWN || Key==KEY_CTRLNUMPAD8 || Key==KEY_CTRLNUMPAD2 */)
-			&& (CtrlObject->CmdLine->IsNotEmpty() || (!LeftPanel->IsVisible() && !RightPanel->IsVisible()))) {
+			&& (CtrlObject->CmdLine->IsNotEmpty() || (!ActiveTab().LeftPanel->IsVisible() && !ActiveTab().RightPanel->IsVisible()))) {
 		CtrlObject->CmdLine->ProcessKey(Key);
 		return TRUE;
 	}
 	SudoClientRegion scr;
 	switch (Key) {
 		case KEY_F1: {
-			if (!LeftPanel->IsVisible() && !RightPanel->IsVisible()) {
+			if (!ActiveTab().LeftPanel->IsVisible() && !ActiveTab().RightPanel->IsVisible()) {
 				Help::Present(L"Terminal");
-			} else if (!ActivePanel->ProcessKey(KEY_F1)) {
+			} else if (!ActiveTab().ActivePanel->ProcessKey(KEY_F1)) {
 				Help::Present(L"Contents");
 			}
 
@@ -514,34 +639,34 @@ int FilePanels::ProcessKey(FarKey Key)
 			break;
 		}
 		case KEY_CTRLF1: {
-			if (LeftPanel->IsVisible()) {
-				LeftPanel->Hide();
+			if (ActiveTab().LeftPanel->IsVisible()) {
+				ActiveTab().LeftPanel->Hide();
 
-				if (RightPanel->IsVisible())
-					RightPanel->SetFocus();
+				if (ActiveTab().RightPanel->IsVisible())
+					ActiveTab().RightPanel->SetFocus();
 			} else {
-				if (!RightPanel->IsVisible())
-					LeftPanel->SetFocus();
+				if (!ActiveTab().RightPanel->IsVisible())
+					ActiveTab().LeftPanel->SetFocus();
 
-				LeftPanel->Show();
+				ActiveTab().LeftPanel->Show();
 			}
-			UpdateCmdLineVisibility();
+			UpdateCmdLineVisibility(ActiveTab());
 			Redraw();
 			break;
 		}
 		case KEY_CTRLF2: {
-			if (RightPanel->IsVisible()) {
-				RightPanel->Hide();
+			if (ActiveTab().RightPanel->IsVisible()) {
+				ActiveTab().RightPanel->Hide();
 
-				if (LeftPanel->IsVisible())
-					LeftPanel->SetFocus();
+				if (ActiveTab().LeftPanel->IsVisible())
+					ActiveTab().LeftPanel->SetFocus();
 			} else {
-				if (!LeftPanel->IsVisible())
-					RightPanel->SetFocus();
+				if (!ActiveTab().LeftPanel->IsVisible())
+					ActiveTab().RightPanel->SetFocus();
 
-				RightPanel->Show();
+				ActiveTab().RightPanel->Show();
 			}
-			UpdateCmdLineVisibility();
+			UpdateCmdLineVisibility(ActiveTab());
 			Redraw();
 			break;
 		}
@@ -559,8 +684,8 @@ int FilePanels::ProcessKey(FarKey Key)
 		case KEY_CTRLL:
 		case KEY_CTRLQ:
 		case KEY_CTRLT: {
-			if (ActivePanel->IsVisible()) {
-				Panel *AnotherPanel = GetAnotherPanel(ActivePanel);
+			if (ActiveTab().ActivePanel->IsVisible()) {
+				Panel *AnotherPanel = GetAnotherPanel(ActiveTab(), ActiveTab().ActivePanel);
 				int NewType;
 
 				if (Key == KEY_CTRLL)
@@ -570,8 +695,8 @@ int FilePanels::ProcessKey(FarKey Key)
 				else
 					NewType = TREE_PANEL;
 
-				if (ActivePanel->GetType() == NewType)
-					AnotherPanel = ActivePanel;
+				if (ActiveTab().ActivePanel->GetType() == NewType)
+					AnotherPanel = ActiveTab().ActivePanel;
 
 				if (!AnotherPanel->ProcessPluginEvent(FE_CLOSE, nullptr)) {
 					if (AnotherPanel->GetType() == NewType)
@@ -587,9 +712,9 @@ int FilePanels::ProcessKey(FarKey Key)
 						$ 07.09.2001 VVM
 						! При возврате из CTRL+Q, CTRL+L восстановим каталог, если активная панель - дерево.
 					*/
-					if (ActivePanel->GetType() == TREE_PANEL) {
+					if (ActiveTab().ActivePanel->GetType() == TREE_PANEL) {
 						FARString strCurDir;
-						ActivePanel->GetCurDir(strCurDir);
+						ActiveTab().ActivePanel->GetCurDir(strCurDir);
 						AnotherPanel->SetCurDir(strCurDir, TRUE);
 						AnotherPanel->Update(0);
 					} else
@@ -598,53 +723,53 @@ int FilePanels::ProcessKey(FarKey Key)
 					AnotherPanel->Show();
 				}
 
-				ActivePanel->SetFocus();
+				ActiveTab().ActivePanel->SetFocus();
 			}
 
 			break;
 		}
 		case KEY_CTRLO: {
 			{
-				int LeftVisible = LeftPanel->IsVisible();
-				int RightVisible = RightPanel->IsVisible();
+				int LeftVisible = ActiveTab().LeftPanel->IsVisible();
+				int RightVisible = ActiveTab().RightPanel->IsVisible();
 				int HideState = !LeftVisible && !RightVisible;
 
 				if (!HideState) {
-					LeftStateBeforeHide = LeftVisible;
-					RightStateBeforeHide = RightVisible;
-					LeftPanel->Hide();
-					RightPanel->Hide();
+					ActiveTab().LeftStateBeforeHide = LeftVisible;
+					ActiveTab().RightStateBeforeHide = RightVisible;
+					ActiveTab().LeftPanel->Hide();
+					ActiveTab().RightPanel->Hide();
 					FrameManager->RefreshFrame();
 				} else {
-					if (!LeftStateBeforeHide && !RightStateBeforeHide)
-						LeftStateBeforeHide = RightStateBeforeHide = TRUE;
+					if (!ActiveTab().LeftStateBeforeHide && !ActiveTab().RightStateBeforeHide)
+						ActiveTab().LeftStateBeforeHide = ActiveTab().RightStateBeforeHide = TRUE;
 
-					if (LeftStateBeforeHide)
-						LeftPanel->Show();
+					if (ActiveTab().LeftStateBeforeHide)
+						ActiveTab().LeftPanel->Show();
 
-					if (RightStateBeforeHide)
-						RightPanel->Show();
+					if (ActiveTab().RightStateBeforeHide)
+						ActiveTab().RightPanel->Show();
 
-					if (!ActivePanel->IsVisible()) {
-						if (ActivePanel == RightPanel)
-							LeftPanel->SetFocus();
+					if (!ActiveTab().ActivePanel->IsVisible()) {
+						if (ActiveTab().ActivePanel == ActiveTab().RightPanel)
+							ActiveTab().LeftPanel->SetFocus();
 						else
-							RightPanel->SetFocus();
+							ActiveTab().RightPanel->SetFocus();
 					}
 				}
-				UpdateCmdLineVisibility();
+				UpdateCmdLineVisibility(ActiveTab());
 			}
 			break;
 		}
 		case KEY_CTRLP: {
-			if (ActivePanel->IsVisible()) {
-				Panel *AnotherPanel = GetAnotherPanel(ActivePanel);
+			if (ActiveTab().ActivePanel->IsVisible()) {
+				Panel *AnotherPanel = GetAnotherPanel(ActiveTab(), ActiveTab().ActivePanel);
 
 				if (AnotherPanel->IsVisible())
 					AnotherPanel->Hide();
 				else
 					AnotherPanel->Show();
-				UpdateCmdLineVisibility();
+				UpdateCmdLineVisibility(ActiveTab());
 				CtrlObject->CmdLine->Redraw();
 			}
 
@@ -652,11 +777,11 @@ int FilePanels::ProcessKey(FarKey Key)
 			break;
 		}
 		case KEY_CTRLI: {
-			ActivePanel->EditFilter();
+			ActiveTab().ActivePanel->EditFilter();
 			return TRUE;
 		}
 		case KEY_CTRLU: {
-			if (!LeftPanel->IsVisible() && !RightPanel->IsVisible()) {
+			if (!ActiveTab().LeftPanel->IsVisible() && !ActiveTab().RightPanel->IsVisible()) {
 				CtrlObject->CmdLine->ProcessKey(Key);
 			} else
 				SwapPanels();
@@ -679,18 +804,18 @@ int FilePanels::ProcessKey(FarKey Key)
 			панели
 		*/
 		case KEY_ALTF1: {
-			LeftPanel->ChangeDisk();
+			ActiveTab().LeftPanel->ChangeDisk();
 
-			if (ActivePanel != LeftPanel)
-				ActivePanel->SetCurPath();
+			if (ActiveTab().ActivePanel != ActiveTab().LeftPanel)
+				ActiveTab().ActivePanel->SetCurPath();
 
 			break;
 		}
 		case KEY_ALTF2: {
-			RightPanel->ChangeDisk();
+			ActiveTab().RightPanel->ChangeDisk();
 
-			if (ActivePanel != RightPanel)
-				ActivePanel->SetCurPath();
+			if (ActiveTab().ActivePanel != ActiveTab().RightPanel)
+				ActiveTab().ActivePanel->SetCurPath();
 
 			break;
 		}
@@ -699,9 +824,23 @@ int FilePanels::ProcessKey(FarKey Key)
 			break;
 		}
 		case KEY_CTRLD: {
-			if (!CtrlObject->CmdLine->IsNotEmpty()) 
+			if (!CtrlObject->CmdLine->IsNotEmpty())
 				PresentFileDiff();
 			else
+				CtrlObject->CmdLine->ProcessKey(Key);
+
+			break;
+		}
+		case KEY_ALTDOT: {
+			// bash-like yank-last-arg, but only when command line is not
+			// empty; with empty command line Alt+. keeps its old behavior -
+			// panel fast-find for names starting with dot
+			if (CtrlObject->CmdLine->IsVisible() && CtrlObject->CmdLine->IsNotEmpty()) {
+				CtrlObject->CmdLine->ProcessKey(Key);
+				return TRUE;
+			}
+
+			if (!ActiveTab().ActivePanel->ProcessKey(Key))
 				CtrlObject->CmdLine->ProcessKey(Key);
 
 			break;
@@ -752,7 +891,7 @@ int FilePanels::ProcessKey(FarKey Key)
 		case KEY_CTRLSHIFTUP:
 		case KEY_CTRLSHIFTNUMPAD8: {
 			int &HeightDecrement =
-					(ActivePanel == LeftPanel) ? Opt.LeftHeightDecrement : Opt.RightHeightDecrement;
+					(ActiveTab().ActivePanel == ActiveTab().LeftPanel) ? Opt.LeftHeightDecrement : Opt.RightHeightDecrement;
 			if (HeightDecrement < ScrY - 7) {
 				HeightDecrement++;
 				SetScreenPosition();
@@ -765,7 +904,7 @@ int FilePanels::ProcessKey(FarKey Key)
 		case KEY_CTRLSHIFTDOWN:
 		case KEY_CTRLSHIFTNUMPAD2: {
 			int &HeightDecrement =
-					(ActivePanel == LeftPanel) ? Opt.LeftHeightDecrement : Opt.RightHeightDecrement;
+					(ActiveTab().ActivePanel == ActiveTab().LeftPanel) ? Opt.LeftHeightDecrement : Opt.RightHeightDecrement;
 			const int min_decrement = CtrlObject->CmdLine->IsNotEmpty() ? 0 : -1;
 			if (HeightDecrement > min_decrement) {
 				HeightDecrement--;
@@ -830,9 +969,9 @@ int FilePanels::ProcessKey(FarKey Key)
 			return TRUE;
 		}
 		default: {
-			if (Key >= KEY_CTRL0 && Key <= KEY_CTRL9 && !(ActivePanel->GetType() == TREE_PANEL))
-				ChangePanelViewMode(ActivePanel, Key - KEY_CTRL0, TRUE);
-			else if (!ActivePanel->ProcessKey(Key))
+			if (Key >= KEY_CTRL0 && Key <= KEY_CTRL9 && !(ActiveTab().ActivePanel->GetType() == TREE_PANEL))
+				ChangePanelViewMode(ActiveTab().ActivePanel, Key - KEY_CTRL0, TRUE);
+			else if (!ActiveTab().ActivePanel->ProcessKey(Key))
 				CtrlObject->CmdLine->ProcessKey(Key);
 
 			break;
@@ -869,19 +1008,24 @@ Panel *FilePanels::ChangePanelToFilled(Panel *Current, int NewType)
 		Current->Update(0);
 		Current->Show();
 
-		if (!GetAnotherPanel(Current)->GetFocus())
+		if (!GetAnotherPanel(ActiveTab(), Current)->GetFocus())
 			Current->SetFocus();
 	}
 
 	return (Current);
 }
 
+Panel *FilePanels::GetAnotherPanel(DoublePanel& activeTab, Panel *Current)
+{
+	if (Current == activeTab.LeftPanel)
+		return activeTab.RightPanel;
+	else
+		return activeTab.LeftPanel;
+}
+
 Panel *FilePanels::GetAnotherPanel(Panel *Current)
 {
-	if (Current == LeftPanel)
-		return (RightPanel);
-	else
-		return (LeftPanel);
+	return GetAnotherPanel(ActiveTab(), Current);
 }
 
 Panel *FilePanels::ChangePanel(Panel *Current, int NewType, int CreateNew, int Force)
@@ -909,8 +1053,8 @@ Panel *FilePanels::ChangePanel(Panel *Current, int NewType, int CreateNew, int F
 	OldSelectedFirst = Current->GetSelectedFirstMode();
 	OldDirectoriesFirst = Current->GetPrevDirectoriesFirst();
 	OldExecutablesFirst = Current->GetPrevExecutablesFirst();
-	LeftPosition = (Current == LeftPanel);
-	Panel *&LastFilePanel = LeftPosition ? LastLeftFilePanel : LastRightFilePanel;
+	LeftPosition = (Current == ActiveTab().LeftPanel);
+	Panel *&LastFilePanel = LeftPosition ? ActiveTab().LastLeftFilePanel : ActiveTab().LastRightFilePanel;
 	Current->GetPosition(X1, Y1, X2, Y2);
 	ChangePosition = ((OldType == FILE_PANEL && NewType != FILE_PANEL && OldFullScreen)
 			|| (NewType == FILE_PANEL
@@ -962,7 +1106,7 @@ Panel *FilePanels::ChangePanel(Panel *Current, int NewType, int CreateNew, int F
 		if (!ChangePosition) {
 			if ((NewPanel->IsFullScreen() && !OldFullScreen)
 					|| (!NewPanel->IsFullScreen() && OldFullScreen)) {
-				Panel *AnotherPanel = GetAnotherPanel(Current);
+				Panel *AnotherPanel = GetAnotherPanel(ActiveTab(), Current);
 
 				if (SaveScr && AnotherPanel->IsVisible() && AnotherPanel->GetType() == FILE_PANEL
 						&& AnotherPanel->IsFullScreen())
@@ -980,25 +1124,25 @@ Panel *FilePanels::ChangePanel(Panel *Current, int NewType, int CreateNew, int F
 	} else
 		NewPanel = CreatePanel(NewType);
 
-	if (Current == ActivePanel)
-		ActivePanel = NewPanel;
+	if (Current == ActiveTab().ActivePanel)
+		ActiveTab().ActivePanel = NewPanel;
 
 	if (LeftPosition) {
-		LeftPanel = NewPanel;
-		LastLeftType = OldType;
+		ActiveTab().LeftPanel = NewPanel;
+		ActiveTab().LastLeftType = OldType;
 	} else {
-		RightPanel = NewPanel;
-		LastRightType = OldType;
+		ActiveTab().RightPanel = NewPanel;
+		ActiveTab().LastRightType = OldType;
 	}
 
 	if (!UseLastPanel) {
 		if (ChangePosition) {
 			if (LeftPosition) {
 				NewPanel->SetPosition(0, Y1, ScrX / 2 - Opt.WidthDecrement, Y2);
-				RightPanel->Redraw();
+				ActiveTab().RightPanel->Redraw();
 			} else {
 				NewPanel->SetPosition(ScrX / 2 + 1 - Opt.WidthDecrement, Y1, ScrX, Y2);
-				LeftPanel->Redraw();
+				ActiveTab().LeftPanel->Redraw();
 			}
 		} else {
 			NewPanel->SaveScr = SaveScr;
@@ -1020,23 +1164,31 @@ Panel *FilePanels::ChangePanel(Panel *Current, int NewType, int CreateNew, int F
 	return (NewPanel);
 }
 
-int FilePanels::GetTypeAndName(FARString &strType, FARString &strName)
+int FilePanels::GetSubpanelCount(){ return (int)tabs.size(); }
+
+int FilePanels::GetSubpanelTypeAndName(int index, FARString &strType, FARString &strName, int maxLen)
 {
 	strType = Msg::ScreensPanels;
 	FARString strFullName;
 
-	switch (ActivePanel->GetType()) {
-		case TREE_PANEL:
-		case QVIEW_PANEL:
-		case FILE_PANEL:
-		case INFO_PANEL:
-			ActivePanel->GetCurName(strFullName);
-			ConvertNameToFull(strFullName, strFullName);
-			break;
+	switch (tabs[index].LeftPanel->GetType()) {
+	case TREE_PANEL:
+	case QVIEW_PANEL:
+	case INFO_PANEL:
+		tabs[index].ActivePanel->GetCurName(strFullName);
+		ConvertNameToFull(strFullName, strFullName);
+		break;
+	case FILE_PANEL:
+		strFullName = TopTabBar.getFormattedTitle(index, maxLen < 0 ? 60 : maxLen);
+		break;
 	}
 
 	strName = strFullName;
 	return (MODALTYPE_PANELS);
+}
+
+int FilePanels::GetTypeAndName(FARString &strType, FARString &strName){
+	return GetSubpanelTypeAndName(TabActive, strType, strName);
 }
 
 void FilePanels::OnChangeFocus(int f)
@@ -1053,15 +1205,16 @@ void FilePanels::OnChangeFocus(int f)
 			$ 22.06.2001 SKV
 			+ update панелей при получении фокуса
 		*/
-		CtrlObject->Cp()->GetAnotherPanel(ActivePanel)->UpdateIfChanged(UIC_UPDATE_FORCE_NOTIFICATION);
-		ActivePanel->UpdateIfChanged(UIC_UPDATE_FORCE_NOTIFICATION);
+		CtrlObject->Cp()->GetAnotherPanel(ActiveTab().ActivePanel)->UpdateIfChanged(UIC_UPDATE_FORCE_NOTIFICATION);
+		ActiveTab().ActivePanel->UpdateIfChanged(UIC_UPDATE_FORCE_NOTIFICATION);
 		/*
 			$ 13.04.2002 KM
 			! ??? Я не понял зачем здесь Redraw, если
 			Redraw вызывается следом во Frame::OnChangeFocus.
 		*/
 		// Redraw();
-		ActivePanel->SetCurPath();
+		ActiveTab().ActivePanel->SetCurPath();
+		UpdateTabBar();
 		Frame::OnChangeFocus(1);
 	}
 }
@@ -1076,6 +1229,8 @@ void FilePanels::DisplayObject()
 	if (Opt.ShowMenuBar)
 		CtrlObject->TopMenuBar->Show();
 
+	SetTabNames();
+	TopTabBar.Show();
 	CtrlObject->CmdLine->Show();
 
 	MainKeyBar.Refresh(Opt.ShowKeyBar);
@@ -1083,61 +1238,76 @@ void FilePanels::DisplayObject()
 	KeyBarVisible = Opt.ShowKeyBar;
 #if 1
 
-	if (LeftPanel->IsVisible())
-		LeftPanel->Show();
+	if (ActiveTab().LeftPanel->IsVisible())
+		ActiveTab().LeftPanel->Show();
 
-	if (RightPanel->IsVisible())
-		RightPanel->Show();
+	if (ActiveTab().RightPanel->IsVisible())
+		ActiveTab().RightPanel->Show();
 
 #else
+	/*
 	Panel *PassivePanel = nullptr;
 	int PassiveIsLeftFlag = TRUE;
 
 	if (Opt.LeftPanel.Focus) {
-		ActivePanel = LeftPanel;
-		PassivePanel = RightPanel;
+		ActiveTab().ActivePanel = ActiveTab().LeftPanel;
+		PassivePanel = ActiveTab().RightPanel;
 		PassiveIsLeftFlag = FALSE;
 	} else {
-		ActivePanel = RightPanel;
-		PassivePanel = LeftPanel;
+		ActiveTab().ActivePanel = ActiveTab().RightPanel;
+		PassivePanel = ActiveTab().LeftPanel;
 		PassiveIsLeftFlag = TRUE;
 	}
 
 	//! Вначале "показываем" пассивную панель
 	if (PassiveIsLeftFlag) {
 		if (Opt.LeftPanel.Visible) {
-			LeftPanel->Show();
+			ActiveTab().LeftPanel->Show();
 		}
 
 		if (Opt.RightPanel.Visible) {
-			RightPanel->Show();
+			ActiveTab().RightPanel->Show();
 		}
 	} else {
 		if (Opt.RightPanel.Visible) {
-			RightPanel->Show();
+			ActiveTab().RightPanel->Show();
 		}
 
 		if (Opt.LeftPanel.Visible) {
-			LeftPanel->Show();
+			ActiveTab().LeftPanel->Show();
 		}
-	}
+	}*/
 #endif
 }
 
 int FilePanels::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 {
-	if (!ActivePanel->ProcessMouse(MouseEvent))
-		if (!GetAnotherPanel(ActivePanel)->ProcessMouse(MouseEvent))
+	int MsX = MouseEvent->dwMousePosition.X;
+	int MsY = MouseEvent->dwMousePosition.Y;
+	if (MsX >= X1 && MsX <= X2 && MsY == Y1 + (Opt.ShowMenuBar ? 1 : 0 ))
+		if (TopTabBar.ProcessMouse(MouseEvent))
+			return TRUE;
+
+	if (MouseEvent->dwEventFlags == MOUSE_MOVED && MsY == Y1)
+		MainKeyBar.ProcessMouse(MouseEvent);
+
+	if (MouseEvent->dwEventFlags == MOUSE_MOVED) {
+		TabHovered = -1;
+		TopTabBar.SetHovered(TabHovered);
+		TopTabBar.Redraw();
+	}
+
+	if (!ActiveTab().ActivePanel->ProcessMouse(MouseEvent))
+		if (!GetAnotherPanel(ActiveTab(), ActiveTab().ActivePanel)->ProcessMouse(MouseEvent))
 			if (!MainKeyBar.ProcessMouse(MouseEvent))
 				CtrlObject->CmdLine->ProcessMouse(MouseEvent);
-
 	return TRUE;
 }
 
 void FilePanels::ShowConsoleTitle()
 {
-	if (ActivePanel)
-		ActivePanel->SetTitle();
+	if (ActiveTab().ActivePanel && ActiveTab().ActivePanel->IsVisible())
+		ActiveTab().ActivePanel->SetTitle();
 }
 
 void FilePanels::ResizeConsole()
@@ -1145,6 +1315,7 @@ void FilePanels::ResizeConsole()
 	Frame::ResizeConsole();
 	MainKeyBar.ResizeConsole();
 	TopMenuBar.ResizeConsole();
+	TopTabBar.ResizeConsole();
 	SetScreenPosition();
 	CtrlObject->CmdLine->ResizeConsole();
 	_OT(SysLog(L"[%p] FilePanels::ResizeConsole() {%d, %d - %d, %d}", this, X1, Y1, X2, Y2));
@@ -1170,7 +1341,7 @@ void FilePanels::GoToFile(const wchar_t *FileName)
 {
 	if (FirstSlash(FileName)) {
 		FARString ADir, PDir;
-		Panel *PassivePanel = GetAnotherPanel(ActivePanel);
+		Panel *PassivePanel = GetAnotherPanel(ActiveTab(), ActiveTab().ActivePanel);
 		int PassiveMode = PassivePanel->GetMode();
 
 		if (PassiveMode == NORMAL_PANEL) {
@@ -1178,10 +1349,10 @@ void FilePanels::GoToFile(const wchar_t *FileName)
 			AddEndSlash(PDir);
 		}
 
-		int ActiveMode = ActivePanel->GetMode();
+		int ActiveMode = ActiveTab().ActivePanel->GetMode();
 
 		if (ActiveMode == NORMAL_PANEL) {
-			ActivePanel->GetCurDir(ADir);
+			ActiveTab().ActivePanel->GetCurDir(ADir);
 			AddEndSlash(ADir);
 		}
 
@@ -1202,18 +1373,18 @@ void FilePanels::GoToFile(const wchar_t *FileName)
 			ProcessKey(KEY_TAB);
 
 		if (!AExist && !PExist)
-			ActivePanel->SetCurDir(strNameDir, TRUE);
+			ActiveTab().ActivePanel->SetCurDir(strNameDir, TRUE);
 
-		ActivePanel->GoToFile(strNameFile);
+		ActiveTab().ActivePanel->GoToFile(strNameFile);
 		// всегда обновим заголовок панели, чтобы дать обратную связь, что
 		// Ctrl-F10 обработан
-		ActivePanel->SetTitle();
+		ActiveTab().ActivePanel->SetTitle();
 	}
 }
 
 int FilePanels::GetMacroMode()
 {
-	switch (ActivePanel->GetType()) {
+	switch (ActiveTab().ActivePanel->GetType()) {
 		case TREE_PANEL:
 			return MACRO_TREEPANEL;
 		case QVIEW_PANEL:
@@ -1222,5 +1393,181 @@ int FilePanels::GetMacroMode()
 			return MACRO_INFOPANEL;
 		default:
 			return MACRO_SHELL;
+	}
+}
+
+FARString StrTrim(const FARString& x) {
+	std::wstring y = x.GetWide();
+	StrTrim(y);
+	return y;
+}
+
+int FilePanels::SetTabNames()
+{
+    TopTabBar.Clear();
+	for(size_t i = 0; i < tabs.size(); ++i){
+		tabs[i].LeftPanel->GetTitle(tabs[i].a_name, 128, 2);
+		tabs[i].RightPanel->GetTitle(tabs[i].p_name, 128, 2);
+		tabs[i].a_name = StrTrim(tabs[i].a_name);
+		tabs[i].p_name = StrTrim(tabs[i].p_name);
+		TopTabBar.AddTab(tabs[i].a_name, tabs[i].p_name);
+	}
+
+	TopTabBar.SetActive(TabActive);
+	TopTabBar.SetHovered(TabHovered);
+	TopTabBar.EnsureActiveVisible();
+	TopTabBar.Redraw();
+	return 0;
+}
+
+void FilePanels::UpdateTabBar() {
+	SetTabNames();
+}
+
+void FilePanels::Update() 
+{
+	//if(ActiveTab().ActivePanel->IsVisible()) 	 ActiveTab().ActivePanel->Update(UPDATE_KEEP_SELECTION);
+	//if(ActiveTab().PassivePanel()->IsVisible())  ActiveTab().PassivePanel()->Update(UPDATE_KEEP_SELECTION);
+	FrameManager->RefreshFrame();
+	//Redraw();
+}
+
+void FilePanels::SwitchActiveTabTo(int tabNo)
+{
+	int tabA = TabActive;
+
+	if(tabA == tabNo) return;
+
+	deactivatePanelsInTab(tabs[tabA]);
+	TabActive = tabNo;
+	activatePanelsInTab(tabs[tabNo]);
+
+	ActiveTab().ActivePanel->SetFocus();
+}
+
+int FilePanels::AppendNewTab() {
+	int tabNo = (int)tabs.size();
+	tabs.push_back(DoublePanel());
+
+	for(size_t i = 0; i < tabs.size(); ++i) {
+		fprintf(stderr, "\tappendNewTab prior to add: [%d] active=%p left=%p right=%p\n", 
+			(int)i, tabs[i].ActivePanel, tabs[i].LeftPanel, tabs[i].RightPanel);
+	}
+
+	tabs[tabNo].LeftPanel  = CreatePanel(Opt.LeftPanel.Type);
+	tabs[tabNo].RightPanel = CreatePanel(Opt.RightPanel.Type);
+
+	Init(tabs[tabNo]);
+
+	SwitchActiveTabTo(tabNo);
+
+	for(size_t i = 0; i < tabs.size(); ++i) {
+		fprintf(stderr, "\tappendNewTab after switch: [%d] active=%p left=%p right=%p\n", 
+			(int)i, tabs[i].ActivePanel, tabs[i].LeftPanel, tabs[i].RightPanel);
+	}
+	return tabNo;
+}
+
+void FilePanels::DeleteTab(int tabNo) {
+	if (tabs.size() == 1 || tabNo < 0 || tabNo >= (int)tabs.size()) return; // last panels cannot be removed
+
+	int oldActive = TabActive;
+
+	if (TabActive == tabNo) { // deleting active tab -> need to switch active to other first
+		int switchTo = TabActive == 0 ? 1 : TabActive - 1;
+		// SwitchActiveTabTo(switchTo);
+		TabActive = switchTo;
+	}
+	// if we're deleting tab on the left, the active pointer needs to be shifted
+	else if (TabActive > tabNo) {
+		--TabActive; 
+		// no changes 
+	}
+
+	deactivatePanelsInTab(tabs[tabNo]);
+
+	DoublePanel panel = tabs[tabNo];
+	tabs.erase(tabs.begin() + tabNo);
+	if (TabActive != oldActive)
+		activatePanelsInTab(tabs[TabActive]);
+	destroyPanelsGracefully(panel);
+
+	Redraw();
+
+	for(size_t i = 0; i < tabs.size(); ++i) {
+		fprintf(stderr, "\tdeleteTab: [%d] active=%p left=%p right=%p\n", 
+			(int)i, tabs[i].ActivePanel, tabs[i].LeftPanel, tabs[i].RightPanel);
+	}
+}
+
+void FilePanels::EnlistAllPaths(std::vector<std::wstring>& holder, bool left, bool exceptActive)
+{
+	for(size_t i = 0; i < tabs.size(); ++i){
+		if (exceptActive && (int)i == TabActive){
+			holder.push_back(L"-");
+			continue;
+		}
+
+		FARString x;
+		if (left) tabs[i].LeftPanel->GetTitle(x, 128, 2);
+		else tabs[i].RightPanel->GetTitle(x, 128, 2);
+		x = StrTrim(x);
+		holder.push_back(x.GetWide());
+	}
+}
+
+void FilePanels::SwapTo(int srcTab, int dstTab, bool isLeft) {
+	DoublePanel& src = tabs[srcTab];
+	DoublePanel& dst = tabs[dstTab];
+
+	Panel *Swap;
+	int SwapType;
+	if (srcTab == TabActive) deactivatePanelsInTab(src);
+	if (dstTab == TabActive) deactivatePanelsInTab(dst);
+
+	if (isLeft) {
+
+		Swap = dst.LeftPanel;
+		dst.LeftPanel = src.LeftPanel;
+		src.LeftPanel = Swap;
+
+		Swap = dst.LastLeftFilePanel;
+		dst.LastLeftFilePanel = src.LastLeftFilePanel;
+		src.LastLeftFilePanel = Swap;
+
+		SwapType = dst.LastLeftType;
+		dst.LastLeftType = src.LastLeftType;
+		src.LastLeftType = SwapType;
+	}
+	else {
+		Swap = dst.RightPanel;
+		dst.RightPanel = src.RightPanel;
+		src.RightPanel = Swap;
+
+		Swap = dst.LastRightFilePanel;
+		dst.LastRightFilePanel = src.LastRightFilePanel;
+		src.LastRightFilePanel = Swap;
+
+		SwapType = dst.LastRightType;
+		dst.LastRightType = src.LastRightType;
+		src.LastRightType = SwapType;
+	}
+
+	if (srcTab == TabActive) activatePanelsInTab(src);
+	if (dstTab == TabActive) activatePanelsInTab(dst);
+
+	FrameManager->RefreshFrame();
+}
+
+void FilePanels::GetActiveTabPaths(FARString& leftFolderList, FARString& rightFolderList, int& activeTab) 
+{
+	leftFolderList = L"";
+	rightFolderList = L"";
+	activeTab = TabActive;
+	for(size_t i = 0; i < tabs.size(); ++i) {
+		if(i > 0) leftFolderList += L"|";
+		if(i > 0) rightFolderList += L"|";
+		leftFolderList += tabs[i].a_name;
+		rightFolderList += tabs[i].p_name;
 	}
 }

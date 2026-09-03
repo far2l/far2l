@@ -35,9 +35,12 @@ fixes to "Gold on Blue" and "DOS Navigator"
 * _colorer plugin_: Update colorer schemes to v1.2.0.110 (see: [CHANGELOG.md](https://github.com/elfmz/far2l/blob/master/plugins/colorer/configs/base/CHANGELOG.md))
 * _colorer plugin_: Update colorer library to v1.5.0-19.08.2026: Parser and regexp performance, dramatically increased initial coloring for large files (see: [#3567](https://github.com/elfmz/far2l/issues/3567))
 * _edsort plugin_: Support unique row sorting and preserve dialog values
-* _GitGutter plugin_: New plugin in editor (**F11**->GitGutter) to show Git changes directly in the far2l editor gutter; click gutter marks or press **Ctrl+G** or **Ctrl+Shift+G** to open the nearest hunk at the current editor line
-* _jumpword plugin_: New plugin in editor to quick searches the word under the cursor below or above the current location (for use manually add macros, see: [plugins/jumpword/README.md](https://github.com/elfmz/far2l/blob/master/plugins/jumpword/README.md))
-* _MTP plugin_: New panel plugin to browse and manage files on USB-connected MTP/PTP devices (Android, cameras, iOS Camera Roll, media players); see [plugins/mtp/README.md](https://github.com/elfmz/far2l/blob/master/plugins/mtp/README.md))
+* _GitGutter plugin_: New plugin in editor (**F11**->GitGutter) to show Git changes directly in the far2l editor gutter; click gutter marks or press **Ctrl+G** to open the nearest hunk at or below the current editor line
+* _Transformer plugin_: New generic Unix-filter dispatcher for transforming editor selections, complete editor buffers, and selected panel files with configurable external commands
+* _ImageViewer plugin_: New actions: **I** - show full EXIF metadata using `exiftool`; **G** — choose a map service and open GPS coordinates from the current file in browser.
+* _FarColorer plugin_: Dramatically increased initial coloring for large files
+* _jumpword plugin_: New plugin in editor to quick searches the word under the cursor below or above the current location (for use manually add macros, see: [jumpword/README.md](https://github.com/elfmz/far2l/blob/master/jumpword/README.md))
+* _MTP plugin_: New panel plugin to browse and manage files on USB-connected MTP/PTP devices (Android, cameras, iOS Camera Roll, media players); see [mtp/README.md](https://github.com/elfmz/far2l/blob/master/mtp/README.md))
 * _multiarc plugin_: Update bundled unrar sources to 7.23
 * _NetRocks plugin_: AWS support with biuld-in custom S3 implementation based on neon (not need aws-sdk-cpp anymore)
 * _NetRocks plugin_: FISH+ protocol: Server-side copy, Recursive delete in one round trip, Remote search / server-side grep, etc. (see: [FISHPLUS/INTEGRATION.md](https://github.com/elfmz/far2l/blob/master/plugins/NetRocks/src/Protocol/FISHPLUS/INTEGRATION.md) and [#3542](https://github.com/elfmz/far2l/issues/3542))

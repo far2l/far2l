@@ -40,6 +40,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "EditorConfigOrg.hpp"
 #include "WideCharToMultiByteBuffer.hpp"
 #include "menubar.hpp"
+#include "tabbar.hpp"
 
 class NamesList;
 
@@ -133,10 +134,13 @@ public:
 	int MenuBarPosition();
 	int IsOptionActive(int hMenu, int vMenu);
 
+	InternalEditorBookMark* GetBookmark(){ return m_editor->GetBookmark(); }
+	FARString GetLine(int row, int col, int maxlen){ return m_editor->GetLine(row, col, maxlen); }
+
 private:
 	Editor *m_editor;
 	KeyBar EditKeyBar;
-	EditorMenuBar* EditMenuBar;
+	EditorMenuBar* EditMenuBar{nullptr};
 
 	NamesList *EditNamesList;
 	FARString strFileName;
@@ -160,6 +164,15 @@ private:
 	FileHolderPtr FHP;
 	std::unique_ptr<EditorConfigOrg> EdCfg;
 	int MenuBarVisible;
+	int TabHovered {0};
+
+	struct TabNameAndPos {
+		FARString name;
+		int x;
+		int w;
+	};
+
+	std::vector<TabNameAndPos> tabPos;
 
 	virtual void DisplayObject();
 	int ProcessQuitKey(int FirstSave, BOOL NeedQuestion = TRUE);
@@ -188,7 +201,7 @@ private:
 	bool ReloadFile(const wchar_t *Name);
 	// TextFormat, Codepage и AddSignature используются ТОЛЬКО, если bSaveAs = true!
 	void SaveContent(const wchar_t *Name, BaseContentWriter *Writer, bool bSaveAs, int TextFormat,
-			UINT codepage, bool AddSignature, int Phase);
+			UINT codepage, bool AddSignature, int Phase, bool &ProgressShown);
 	int SaveFile(const wchar_t *Name, int Ask, bool bSaveAs, int TextFormat = 0, UINT Codepage = CP_UTF8,
 			bool AddSignature = false);
 	void SetTitle(const wchar_t *Title);
@@ -204,6 +217,8 @@ private:
 	bool LoadFromCache(EditorCacheParams *pp);
 	FARString ComposeCacheName();
 	void SaveToCache();
+
+	int joinLeafsWithOffsets(const std::vector<std::wstring>& leafs, size_t maxWidth);
 };
 
 bool dlgOpenEditor(FARString &strFileName, UINT &codepage);

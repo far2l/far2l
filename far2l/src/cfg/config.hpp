@@ -34,6 +34,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "FARString.hpp"
+#include<BackendOptions.h>
 
 enum
 {
@@ -227,6 +228,7 @@ struct EditorOptions
 	int SearchRegexp;
 	int SearchPickUpWord;
 	int ShowWhiteSpace;
+	int ShowEOL;
 	int ShowLineNumbers;
 	int ShowGutterMarks;
 
@@ -278,6 +280,9 @@ struct DialogsOptions
 	int CBoxMaxHeight;		// максимальный размер открываемого списка (по умолчанию=8)
 	bool ShowArrowsInEdit;	// show arrows on text overflow in edit controls
 	bool EnforceColorCorrection; // for default themes, update colors to make it more contrast
+	bool EnableAccidentalConfirmation; // when clicked by right mouse button outside of the dialog, treat it as confirmation
+	bool EliminateOuterBorders; // Make doalogs like this: https://t.me/c/2241384293/23892
+	bool EnforceThemeCorrection;
 };
 
 struct VMenuOptions
@@ -433,6 +438,9 @@ struct Options
 
 	FARString strLeftFolder;
 	FARString strRightFolder;
+	FARString strLeftFolderList;          // for tabs, separator is `|`
+	FARString strRightFolderList;
+	int activeTabNo;
 
 	FARString strLeftCurFile;
 	FARString strRightCurFile;
@@ -525,8 +533,11 @@ struct Options
 	int NoBoxes;
 	int ConsolePaintSharp, ExclusiveCtrlLeft, ExclusiveCtrlRight, ExclusiveAltLeft, ExclusiveAltRight,
 			ExclusiveWinLeft, ExclusiveWinRight;
+	BOOL UseRightAltAsAltGr;
 	int OSC52ClipSet;
 	int TTYPaletteOverride;
+	int TTYCursorShapeInsert;
+	int TTYCursorShapeOvertype;
 
 	Confirmation Confirm;
 	PluginConfirmation PluginConfirm;
@@ -638,6 +649,7 @@ struct Options
 	LoadPluginsOptions LoadPlug;
 
 	DialogsOptions Dialogs;
+	BackendOptions Backend;
 	VMenuOptions VMenu;
 	CommandLineOptions CmdLine;
 	PoliciesOptions Policies;
@@ -670,6 +682,9 @@ struct Options
 	bool IsSystemTheme;
 
 	std::vector<std::wstring> CmdLineStrings;
+
+	int PasteFromPrimarySelection;
+	int CopyToPrimarySelection;
 };
 
 extern Options Opt;
@@ -694,3 +709,5 @@ void InfoPanelSettings();
 void AutoCompleteSettings();
 void LanguageSettings();
 void DirectoryNameSettings();
+
+void AllSystemSettings();

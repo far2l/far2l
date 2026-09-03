@@ -70,9 +70,9 @@ FileFilter::~FileFilter() {}
 Panel *FileFilter::GetHostPanel()
 {
 	if (m_HostPanel == (Panel *)PANEL_ACTIVE) {
-		return CtrlObject->Cp()->ActivePanel;
+		return CtrlObject->Cp()->ActiveTab().ActivePanel;
 	} else if (m_HostPanel == (Panel *)PANEL_PASSIVE) {
-		return CtrlObject->Cp()->GetAnotherPanel(CtrlObject->Cp()->ActivePanel);
+		return CtrlObject->Cp()->GetAnotherPanel(CtrlObject->Cp()->ActiveTab().ActivePanel);
 	}
 
 	return m_HostPanel;
@@ -184,8 +184,8 @@ bool FileFilter::FilterEdit()
 	MenuItemEx ListItem;
 	int ExitCode;
 	bool bNeedUpdate = false;
-	Panel *LeftPanel = CtrlObject->Cp()->LeftPanel;
-	Panel *RightPanel = CtrlObject->Cp()->RightPanel;
+	Panel *LeftPanel = CtrlObject->Cp()->ActiveTab().LeftPanel;
+	Panel *RightPanel = CtrlObject->Cp()->ActiveTab().RightPanel;
 
 	VMenu FilterList(Msg::FilterTitle, nullptr, 0, ScrY - 6);
 	FilterList.SetHelp(L"FiltersMenu");
@@ -438,7 +438,7 @@ bool FileFilter::FilterEdit()
 enumFileFilterFlagsType FileFilter::GetFFFT()
 {
 	if (m_FilterType == FFT_PANEL) {
-		if (GetHostPanel() == CtrlObject->Cp()->RightPanel) {
+		if (GetHostPanel() == CtrlObject->Cp()->ActiveTab().RightPanel) {
 			return FFFT_RIGHTPANEL;
 		} else {
 			return FFFT_LEFTPANEL;

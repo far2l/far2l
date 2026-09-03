@@ -68,7 +68,11 @@ enum enumMenus
 	MENU_LEFT,
 	MENU_FILES,
 	MENU_COMMANDS,
+	MENU_OBJECT,
 	MENU_OPTIONS,
+	MENU_NAVIGATE,
+	MENU_VIEW,
+	MENU_WINDOW,
 	MENU_RIGHT
 };
 
@@ -151,7 +155,9 @@ enum enumCommandsMenu
 	MENU_COMMANDS_FARCONFIG,
 	MENU_COMMANDS_MACROBROWSER,
 	MENU_COMMANDS_ABOUTFAR,
-	MENU_COMMANDS_HOTPLUGLIST
+	MENU_COMMANDS_HOTPLUGLIST,
+	MENU_PANELHELP,
+	MENU_PANELEXIT
 };
 
 enum enumOptionsMenu
@@ -183,12 +189,193 @@ enum enumOptionsMenu
 	MENU_OPTIONS_FILESHIGHLIGHTING,
 	MENU_OPTIONS_NOTIFICATIONSSETTINGS,
 	MENU_OPTIONS_SEPARATOR4,
-	MENU_OPTIONS_SAVESETUP
+	MENU_OPTIONS_SAVESETUP,
+	MENU_OPTIONS_SEPARATOR5,
+	MENU_OPTIONS_ALLOPTS
 };
+
+enum enumNavigateMenu {
+	MENU_PANELGOTOHOME,
+	MENU_PANELGOTOTOP,
+	MENU_PANELUPTO,
+	MENU_PANELGOTOMOUNTPOINT,
+	MENU_PANELGODEEPER,
+	MENU_PANELREVERTSYMLINKTRAVERSE,
+	MENU_PANELNAVSEPARATOR1,
+	MENU_PANELPINSHORTCUT0,
+	MENU_PANELPINSHORTCUT1,
+	MENU_PANELPINSHORTCUT2,
+	MENU_PANELPINSHORTCUT3,
+	MENU_PANELPINSHORTCUT4,
+	MENU_PANELPINSHORTCUT5,
+	MENU_PANELPINSHORTCUT6,
+	MENU_PANELPINSHORTCUT7,
+	MENU_PANELPINSHORTCUT8,
+	MENU_PANELPINSHORTCUT9,
+	MENU_PANELNAVSEPARATOR2,
+	MENU_PANELGOTOSHORTCUT0,
+	MENU_PANELGOTOSHORTCUT1,
+	MENU_PANELGOTOSHORTCUT2,
+	MENU_PANELGOTOSHORTCUT3,
+	MENU_PANELGOTOSHORTCUT4,
+	MENU_PANELGOTOSHORTCUT5,
+	MENU_PANELGOTOSHORTCUT6,
+	MENU_PANELGOTOSHORTCUT7,
+	MENU_PANELGOTOSHORTCUT8,
+	MENU_PANELGOTOSHORTCUT9
+};
+
+enum enumObjectsMenu {
+	MENU_PANELSELECTFILE,
+	MENU_PANELUNSELECT,
+	MENU_PANELSELECT,
+	MENU_PANELUNSELECTBYEXT,
+	MENU_PANELSELECTBYEXT,
+	MENU_PANELUNSELECTBYNAME,
+	MENU_PANELSELECTBYNAME,
+	//MENU_FOLDERTREENEXT,
+	//MENU_FOLDERTREEPREV,
+	MENU_PANELOBJSEPARATOR1,
+	MENU_PANELEXECUTE,
+	MENU_PANELUSERMENU,
+	MENU_PANELCOPYTO,
+	MENU_PANELRENAMETO,
+	MENU_PANELREMOVECURRENT,
+	MENU_PANELREMOVEPERMANENTLY,
+	MENU_PANELPRINT,
+	MENU_PANELOBJSEPARATOR2,
+	MENU_PANELREPEATLAST,
+	MENU_PANELCOPYTOCMDLINE,
+	//MENU_PANELCOPYCLIPBOARD,
+	MENU_PANELCOPYNAMES,
+	MENU_PANELORGCOPYNAMES,
+	MENU_PANELCOPYFULLNAMES,
+	MENU_PANELCOPYNAMESACTIVE,
+	MENU_PANELCOPYNAMESPASSIVE,
+	MENU_PANELCOPYUNCNAMES,
+	MENU_PANELCOPYFNACTIVEREAL,
+	MENU_PANELCOPYFNPASSIVEREAL,
+	MENU_PANELCOPYFNLEFT,
+	MENU_PANELCOPYFNRIGHT
+};
+
+enum enumViewMenu {
+	MENU_PANELSHOWHIDDEN,
+	MENU_PANELSHOWFILEMARKS,
+	MENU_PANELSHOWAUTOCOLUMNWIDTH,
+	MENU_PANELSHOWFILEMARKSSTSTUS,
+	MENU_PANELSHIFTLONGTEXTLEFT,
+	MENU_PANELSHIFTLONGTEXTRIGHT,
+	MENU_PANELVIEWSEPARATOR1,
+	MENU_PANELSORTBYNAME,
+	MENU_PANELSORTBYEXT,
+	MENU_PANELSORTBYMTIME,
+	MENU_PANELSORTBYSIZE,
+	MENU_PANELUNSORT,
+	MENU_PANELSORTBYCTIME,
+	MENU_PANELSORTBYATIME,
+	MENU_PANELSORTBYDIZ,
+	MENU_PANELSORTBYOWNER,
+	MENU_PANELSORTBYGROUPS,
+	MENU_PANELSORTBYSELECTED,
+	MENU_PANELVIEWSEPARATOR2,
+	MENU_PANELTOGGLEFULLSCREEN,
+	MENU_PANELDIRECTORYNAMESETTINGS
+};
+
+#include "Bookmarks.hpp"
+
+static std::vector<std::wstring> GetBookmarksList()
+{
+	Bookmarks b;
+	int I;
+	std::vector<std::wstring> r;
+
+	for (I = 0;; I++) {
+		FARString strFolderName, strPlugin;
+		FARString strValueName;
+		FARString strName;
+		b.Get(I, &strFolderName, &strPlugin);
+
+		if (strFolderName.IsEmpty()) {
+			strFolderName = strPlugin.IsEmpty() ? Msg::ShortcutNone : Msg::ShortcutPlugin;
+		}
+
+		if (I < 10) {
+			strName.Format(L"%-35.35ls %ls+&%d", strFolderName.CPtr(), Msg::RightCtrl.CPtr(), I);
+		} else {
+			strName.Format(L"%-35.35ls", strFolderName.CPtr());
+		}
+
+		if (I >= 10 && strFolderName == Msg::ShortcutNone) {
+			break;
+		}
+
+		r.push_back(strName.GetWide());
+	}
+	return r;
+}
+
+#include "Mounts.hpp"
+
+struct MenuPoint {
+	enum Kind {
+		UNSPECIFIED = 0,
+		MOUNTPOINT,
+		DIRECTORY
+	} kind = UNSPECIFIED;
+
+	std::wstring path;
+	std::wstring name;
+	int id;
+};
+
+static std::vector<MenuPoint> GetMountPoints() {
+	std::vector<MenuPoint> r;
+
+	FARString strDiskType, strRootDir, strDiskLetter;
+	FARString curdir, another_curdir, strName;
+
+	auto a_panel = CtrlObject->Cp()->ActiveTab().ActivePanel;
+	a_panel->GetCurDirPluginAware(curdir);
+
+	auto another_panel = CtrlObject->Cp()->GetAnotherPanel(a_panel);
+	another_panel->GetCurDirPluginAware(another_curdir);
+	if (another_panel->GetPluginHandle() != INVALID_HANDLE_VALUE) {
+		another_curdir.Insert(0, L"{");
+		another_curdir.Append(L"}");
+	}
+
+	Mounts::Enum mounts(another_curdir);
+	for (const auto &m : mounts) {
+		MenuPoint item;
+		if (m.path == L"-") {
+			strName = m.col3;
+		} 
+		else {
+			strName = FixedSizeStr(m.path, std::min(mounts.max_path, (size_t)37), false, true);
+			strName += L' ';
+			strName += FixedSizeStr(m.col3, std::min(mounts.max_col3, (size_t)15), false, true);
+
+			item.path = m.path.CPtr();
+			item.id = m.id;
+
+			if (item.path[0] == L'{' && another_curdir == item.path
+					&& another_panel->GetPluginHandle() != INVALID_HANDLE_VALUE) {
+				continue; // we do not need plugins now
+			} 
+			item.kind = m.unmountable ? MenuPoint::MOUNTPOINT : MenuPoint::DIRECTORY;
+		}
+		item.name = strName;
+		if (item.kind != MenuPoint::UNSPECIFIED)
+			r.push_back(item);
+	}
+	return r;
+}
 
 void SetLeftRightMenuChecks(MenuDataEx *pMenu, bool bLeft)
 {
-	Panel *pPanel = bLeft ? CtrlObject->Cp()->LeftPanel : CtrlObject->Cp()->RightPanel;
+	Panel *pPanel = bLeft ? CtrlObject->Cp()->ActiveTab().LeftPanel : CtrlObject->Cp()->ActiveTab().RightPanel;
 
 	switch (pPanel->GetType()) {
 		case FILE_PANEL: {
@@ -210,6 +397,100 @@ void SetLeftRightMenuChecks(MenuDataEx *pMenu, bool bLeft)
 		case QVIEW_PANEL:
 			pMenu[MENU_LEFT_QUICKVIEW].SetCheck(1);
 			break;
+	}
+}
+
+void initializeWindowMenuContext(WindowMenuContext& ctx) 
+{
+	for (int i = 0; ; ++i) {
+		Frame* frame = FrameManager->getWindowByTypeAndIndex(-1, i);
+		if (!frame) break;
+
+		FARString strNumText;
+		if (i < 10)	strNumText.Format(L"&%d ", i);
+		else if (i - 10 < 'Z' - 'A') strNumText.Format(L"&%c ", char(i - 10 + 'A'));
+		else strNumText.Format(L"&  ");
+
+		FARString strType, strName;
+
+		int k = frame->GetSubpanelCount();
+		if (k > 0) {
+			for(int j = 0; j < k; ++j) {
+				frame->GetSubpanelTypeAndName(j, strType, strName);
+
+				ReplaceStrings(strName, L"&", L"&&", -1);
+				strName.Format(L"%ls%-10.10ls %ls", strNumText.CPtr(), strType.CPtr(), strName.CPtr());
+				ctx.windowNames.push_back(strName.CPtr());
+
+				ctx.WindowMenu[ctx.WindowMenuCount].Name = ctx.windowNames[ctx.windowNames.size() - 1].c_str();
+				ctx.WindowMenu[ctx.WindowMenuCount].AccelKey = 0;
+				ctx.WindowMenu[ctx.WindowMenuCount].Flags = 0;
+
+				if (frame->IsFileModified()) ctx.WindowMenu[ctx.WindowMenuCount].SetCheck(L'*');
+				ctx.frameIndexes.push_back(i);
+				ctx.subframeIndexes.push_back(j);
+		        ++ctx.WindowMenuCount;
+			}
+		}
+		else {
+			frame->GetTypeAndName(strType, strName);
+			ReplaceStrings(strName, L"&", L"&&", -1);
+			strName.Format(L"%ls%-10.10ls %ls", strNumText.CPtr(), strType.CPtr(), strName.CPtr());
+			ctx.windowNames.push_back(strName.CPtr());
+
+			ctx.WindowMenu[ctx.WindowMenuCount].Name = ctx.windowNames[ctx.windowNames.size() - 1].c_str();
+			ctx.WindowMenu[ctx.WindowMenuCount].AccelKey = 0;
+			ctx.WindowMenu[ctx.WindowMenuCount].Flags = 0;
+
+			if (frame->IsFileModified()) ctx.WindowMenu[ctx.WindowMenuCount].SetCheck(L'*');
+
+			ctx.frameIndexes.push_back(i);
+			ctx.subframeIndexes.push_back(-1);
+	        ++ctx.WindowMenuCount;
+		}
+	}
+}
+
+void applyMenu(WindowMenuContext& ctx, int VItem) 
+{
+	switch(VItem) {
+	case MENU_PANELWINDOWNEWPANEL:
+		FrameManager->SwitchToPanels();
+		CtrlObject->Cp()->AppendNewTab();
+		break;
+	case MENU_PANELWINDOWNEWEDITOR:
+		FrameManager->SwitchToPanels();
+		FrameManager->ProcessKey(KEY_SHIFTF4);
+		break;
+	case MENU_PANELWINDOWDROPPANEL:
+		FrameManager->SwitchToPanels();
+		CtrlObject->Cp()->DeleteTab(CtrlObject->Cp()->GetSelectedSubpanel());
+		break;
+	case MENU_PANELWINDOWARRANGEFULL:
+		break;
+	case MENU_PANELWINDOWARRANGETILE:
+		break;
+	case MENU_PANELWINDOWARRANGECASCADE:
+		break;
+	default:
+		if (VItem > MENU_PANELWINDOW_SEPARATOR2) {
+			int frame = VItem - MENU_PANELWINDOW_SEPARATOR2 - 1;
+
+			if (frame >= 0 && frame < (int)ctx.frameIndexes.size()) {
+				int frameI = ctx.frameIndexes[frame];
+
+				FrameManager->ActivateFrame(frameI);
+				Frame* activeFrame = (*FrameManager)[frameI];
+
+				if (activeFrame->GetSubpanelCount() > 0) {
+					int k = activeFrame->GetSubpanelCount();
+					int sub = ctx.subframeIndexes[frame];
+					if (sub >= 0 && sub < k)
+						activeFrame->ActivateSubpanel(sub);
+				}
+			}
+		}
+		break;
 	}
 }
 
@@ -286,7 +567,9 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 		{L"",                       LIF_SEPARATOR, 0         },
 		{Msg::MenuFarConfig,        0,             0         },
 		{Msg::MenuMacroBrowser,     0,             0         },
-		{Msg::MenuAboutFar,         0,             0         }
+		{Msg::MenuAboutFar,         0,             0         },
+		{Msg::PanelHelp,	0,	KEY_F1  },
+		{Msg::PanelExit,	0,	KEY_F10  }
 	};
 	MenuDataEx OptionsMenu[] = {
 		{Msg::MenuSystemSettings,         LIF_SELECTED,  0          },
@@ -315,8 +598,116 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 		{Msg::MenuFilesHighlighting,      0,             0          },
 		{Msg::MenuNotifications,          0,             0          },
 		{L"",                             LIF_SEPARATOR, 0          },
-		{Msg::MenuSaveSetup,              0,             KEY_SHIFTF9}
+		{Msg::MenuSaveSetup,              0,             KEY_SHIFTF9},
+		{L"",                             LIF_SEPARATOR, 0          },
+		{Msg::AllOptsMenuItem, (Opt.Backend.UseModernLook ? 0 : LIF_DISABLE), 0 }
 	};
+	MenuDataEx ObjectsMenu[] = {
+		{Msg::PanelSelectFile,	0,	KEY_INS  },
+		{Msg::PanelUnselect,	0,	KEY_SHIFTSUBTRACT  },
+		{Msg::PanelSelect,	0,	KEY_SHIFTADD  },
+		{Msg::PanelUnselectByExt,	0,	KEY_CTRLSUBTRACT  },
+		{Msg::PanelSelectByExt,	0,	KEY_CTRLADD  },
+		{Msg::PanelUnselectByName,	0,	KEY_ALTSUBTRACT  },
+		{Msg::PanelSelectByName,	0,	KEY_ALTADD  },
+		//{Msg::FolderTreeNext,	0,	KEY_CTRLENTER  },
+		//{Msg::FolderTreePrev,	0,	KEY_CTRLSHIFTENTER  },
+		{L"",	LIF_SEPARATOR,	0  },
+		{Msg::PanelExecute,	0,	KEY_SHIFTENTER  },
+		{Msg::PanelLaunchUserMenu, 0, KEY_F2 },
+		{Msg::PanelCopyTo,	0,	KEY_SHIFTF5  },
+		{Msg::PanelRenameTo,	0,	KEY_SHIFTF6  },
+		{Msg::PanelRemoveCurrent,	0,	KEY_SHIFTF8  },
+		{Msg::PanelRemovePermanently,	0,	KEY_SHIFTDEL  },
+		{Msg::PanelPrint,	0,	KEY_ALTF5  },
+		{L"",	LIF_SEPARATOR,	0  },
+		{Msg::PanelRepeatLastCommandArgument,	0,	KEY_ALTDOT  },
+		{Msg::PanelCopyToCmdLine,	0,	KEY_CTRLENTER  },
+		{Msg::PanelCopyToCmdLineOrg,	0,	KEY_ALTNUMENTER  },
+		//{Msg::PanelCopyClipboard,	0,	KEY_CTRLALTINS  },
+		{Msg::PanelCopyNames,	0,	KEY_CTRLINS  },
+		{Msg::PanelCopyFullNames,	0,	KEY_CTRLALTINS  },
+		{Msg::PanelCopyNamesActive,	0,	KEY_CTRLF  },
+		{Msg::PanelCopyNamesPassive,	0,	KEY_CTRL | KEY_SEMICOLON  },
+		{Msg::PanelCopyUncNames,	0,	KEY_CTRLALTF  },
+		{Msg::PanelCopyFnActiveReal,	0,	KEY_ALTSHIFTBRACKET  },
+		{Msg::PanelCopyFnPassiveReal,	0,	KEY_ALTSHIFTBACKBRACKET  },
+		{Msg::PanelCopyFnLeft,	0,	KEY_CTRLBRACKET  },
+		{Msg::PanelCopyFnRight,	0,	KEY_CTRLBACKBRACKET  }
+	};
+	MenuDataEx NavigateMenu[128] = {
+		{Msg::PanelGoToHome,	0,	KEY_CTRL | '`'  },
+		{Msg::PanelGoToTop,	0,	KEY_CTRLBACKSLASH  },
+		{Msg::PanelUpTo,	0,	KEY_CTRLPGUP  },
+		{Msg::PanelGoToMountPoint,	0,	KEY_ALT | KEY_CTRLBACKSLASH  },
+		{Msg::PanelGoDeeper,	0,	KEY_CTRLPGDN  },
+		{Msg::PanelRevertSymlinkTraverse,	0,	KEY_CTRLSHIFTPGUP  },
+		{L"",	LIF_SEPARATOR,	0  },
+		{Msg::PanelPinShortcut0,	0,	KEY_CTRLSHIFT0  },
+		{Msg::PanelPinShortcut1,	0,	KEY_CTRLSHIFT1  },
+		{Msg::PanelPinShortcut2,	0,	KEY_CTRLSHIFT2  },
+		{Msg::PanelPinShortcut3,	0,	KEY_CTRLSHIFT3  },
+		{Msg::PanelPinShortcut4,	0,	KEY_CTRLSHIFT4  },
+		{Msg::PanelPinShortcut5,	0,	KEY_CTRLSHIFT5  },
+		{Msg::PanelPinShortcut6,	0,	KEY_CTRLSHIFT6  },
+		{Msg::PanelPinShortcut7,	0,	KEY_CTRLSHIFT7  },
+		{Msg::PanelPinShortcut8,	0,	KEY_CTRLSHIFT8  },
+		{Msg::PanelPinShortcut9,	0,	KEY_CTRLSHIFT9  },
+		{L"",	LIF_SEPARATOR,	0  },
+		{Msg::PanelGotoShortcut0,	0,	KEY_RCTRL0  },
+		{Msg::PanelGotoShortcut1,	0,	KEY_RCTRL1  },
+		{Msg::PanelGotoShortcut2,	0,	KEY_RCTRL2  },
+		{Msg::PanelGotoShortcut3,	0,	KEY_RCTRL3  },
+		{Msg::PanelGotoShortcut4,	0,	KEY_RCTRL4  },
+		{Msg::PanelGotoShortcut5,	0,	KEY_RCTRL5  },
+		{Msg::PanelGotoShortcut6,	0,	KEY_RCTRL6  },
+		{Msg::PanelGotoShortcut7,	0,	KEY_RCTRL7  },
+		{Msg::PanelGotoShortcut8,	0,	KEY_RCTRL8  },
+		{Msg::PanelGotoShortcut9,	0,	KEY_RCTRL9  },
+		{L"", LIF_SEPARATOR, 0 }
+	};
+
+	int NavMenuCount = MENU_PANELGOTOSHORTCUT9 + 2;
+
+	std::vector<std::wstring> bookmarks = GetBookmarksList();
+	for(size_t j = 0; j < bookmarks.size() && j < 10; ++j)
+		NavigateMenu[j + MENU_PANELGOTOSHORTCUT0].Name = bookmarks[j].c_str();
+
+	std::vector<MenuPoint> mounts = GetMountPoints();
+	for(size_t j = 0; j < mounts.size() && NavMenuCount < 128; ++j) {
+		NavigateMenu[j + MENU_PANELGOTOSHORTCUT9 + 2].Name = mounts[j].name.c_str();
+		NavigateMenu[j + MENU_PANELGOTOSHORTCUT9 + 2].Flags = 0;
+		NavigateMenu[j + MENU_PANELGOTOSHORTCUT9 + 2].AccelKey = 0;
+        ++NavMenuCount;
+	}
+
+	MenuDataEx ViewMenu[] = {
+		{Msg::PanelShowHidden,	0,	KEY_CTRLH  },
+		{Msg::PanelShowFileMarks,	0,	KEY_CTRLALTM  },
+		{Msg::PanelShowAutoColumnWidth,	0,	KEY_CTRLALTL  },
+		{Msg::PanelShowFileMarksStstus,	0,	KEY_CTRLALTN  },
+		{Msg::PanelShiftLongTextLeft,	0,	KEY_ALTLEFT  },
+		{Msg::PanelShiftLongTextRight,	0,	KEY_ALTRIGHT  },
+		{L"",	LIF_SEPARATOR,	0  },
+		{Msg::PanelSortByName,	0,	KEY_CTRLF3  },
+		{Msg::PanelSortByExt,	0,	KEY_CTRLF4  },
+		{Msg::PanelSortByMTime,	0,	KEY_CTRLF5  },
+		{Msg::PanelSortBySize,	0,	KEY_CTRLF6  },
+		{Msg::PanelUnsort,	0,	KEY_CTRLF7  },
+		{Msg::PanelSortByCTime,	0,	KEY_CTRLF8  },
+		{Msg::PanelSortByATime,	0,	KEY_CTRLF9  },
+		{Msg::PanelSortByDiz,	0,	KEY_CTRLF10  },
+		{Msg::PanelSortByOwner,	0,	KEY_CTRLF11  },
+		{Msg::PanelSortByGroups,	0,	KEY_SHIFTF11  },
+		{Msg::PanelSortBySelected,	0,	KEY_SHIFTF12  },
+		{L"",	LIF_SEPARATOR,	0  },
+		{Msg::PanelToggleFullScreen,	0,	KEY_ALTF9  },
+		{Msg::PanelDirectoryNameSettings,	0,	KEY_CTRLALTD  }
+	};
+
+	WindowMenuContext wc;
+	initializeWindowMenuContext(wc);
+
 	MenuDataEx RightMenu[] = {
 		{Msg::MenuBriefView,        LIF_SELECTED,  KEY_CTRL1  },
 		{Msg::MenuMediumView,       0,             KEY_CTRL2  },
@@ -338,13 +729,19 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 		{Msg::MenuReread,           0,             KEY_CTRLR  },
 		{Msg::MenuChangeDriveRight, 0,             KEY_ALTF2  }
 	};
+	
 	HMenuData MainMenu[] = {
 		{Msg::MenuLeftTitle,     1, LeftMenu,    ARRAYSIZE(LeftMenu),    L"LeftRightMenu"},
 		{Msg::MenuFilesTitle,    0, FilesMenu,   ARRAYSIZE(FilesMenu),   L"FilesMenu"    },
 		{Msg::MenuCommandsTitle, 0, CmdMenu,     ARRAYSIZE(CmdMenu),     L"CmdMenu"      },
+		{Msg::MenuObjectTitle, 0, ObjectsMenu,     ARRAYSIZE(ObjectsMenu),     L"ObjectsMenu"      },
 		{Msg::MenuOptionsTitle,  0, OptionsMenu, ARRAYSIZE(OptionsMenu), L"OptMenu"      },
+		{Msg::MenuNavigateTitle, 0, NavigateMenu,  NavMenuCount,     L"NavigateMenu"      },
+		{Msg::MenuViewTitle, 0, ViewMenu,     ARRAYSIZE(ViewMenu),     L"ViewMenu"      },
+		{Msg::MenuWindowTitle, 0, wc.WindowMenu,     wc.WindowMenuCount,     L"WindowMenu"      },
 		{Msg::MenuRightTitle,    0, RightMenu,   ARRAYSIZE(RightMenu),   L"LeftRightMenu"}
 	};
+
 	static int LastHItem = -1, LastVItem = 0;
 	int HItem, VItem;
 
@@ -361,18 +758,25 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 	SetLeftRightMenuChecks(RightMenu, false);
 	// Навигация по меню
 	{
+		int lastHMenuPos = ARRAYSIZE(MainMenu) - 1;
 		HMenu HOptMenu(MainMenu, ARRAYSIZE(MainMenu));
 		HOptMenu.SetHelp(L"Menus");
 		HOptMenu.SetPosition(0, 0, ScrX, 0);
 
 		if (LastCommand) {
-			MenuDataEx *VMenuTable[] = {LeftMenu, FilesMenu, CmdMenu, OptionsMenu, RightMenu};
+			MenuDataEx *VMenuTable[] = {
+				LeftMenu, 
+				FilesMenu, CmdMenu, ObjectsMenu, OptionsMenu, 
+				NavigateMenu, 
+				ViewMenu, 
+				wc.WindowMenu, 
+				RightMenu};
 			int HItemToShow = LastHItem;
 
 			if (HItemToShow == -1) {
-				if (CtrlObject->Cp()->ActivePanel == CtrlObject->Cp()->RightPanel
-						&& CtrlObject->Cp()->ActivePanel->IsVisible())
-					HItemToShow = 4;
+				if (CtrlObject->Cp()->ActiveTab().ActivePanel == CtrlObject->Cp()->ActiveTab().RightPanel
+						&& CtrlObject->Cp()->ActiveTab().ActivePanel->IsVisible())
+					HItemToShow = lastHMenuPos;
 				else
 					HItemToShow = 0;
 			}
@@ -387,10 +791,10 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 				HOptMenu.ProcessKey(KEY_DOWN);
 			}
 		} else {
-			if (CtrlObject->Cp()->ActivePanel == CtrlObject->Cp()->RightPanel
-					&& CtrlObject->Cp()->ActivePanel->IsVisible()) {
+			if (CtrlObject->Cp()->ActiveTab().ActivePanel == CtrlObject->Cp()->ActiveTab().RightPanel
+					&& CtrlObject->Cp()->ActiveTab().ActivePanel->IsVisible()) {
 				MainMenu[0].Selected = 0;
-				MainMenu[4].Selected = 1;
+				MainMenu[lastHMenuPos].Selected = 1;
 			}
 		}
 
@@ -398,6 +802,10 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 			ChangeMacroMode MacroMode(MACRO_MAINMENU);
 			HOptMenu.Show();
 			HOptMenu.ProcessMouse(MouseEvent);
+		}
+		else if (!LastCommand) {
+			HOptMenu.Show();
+			// HOptMenu.ProcessKey(KEY_DOWN);
 		}
 
 		{
@@ -408,15 +816,21 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 		HOptMenu.GetExitCode(HItem, VItem);
 	}
 
+	FarKey key = 0;
+
+	if (HItem >= 0 && VItem >= 0) {
+		key = MainMenu[HItem].SubMenu[VItem].AccelKey;
+	}
+
 	// "Исполнятор команд меню"
 	switch (HItem) {
 		case MENU_LEFT:
 		case MENU_RIGHT: {
-			Panel *pPanel = (HItem == MENU_LEFT) ? CtrlObject->Cp()->LeftPanel : CtrlObject->Cp()->RightPanel;
+			Panel *pPanel = (HItem == MENU_LEFT) ? CtrlObject->Cp()->ActiveTab().LeftPanel : CtrlObject->Cp()->ActiveTab().RightPanel;
 
 			if (VItem >= MENU_LEFT_BRIEFVIEW && VItem <= MENU_LEFT_ALTERNATIVEVIEW) {
 				CtrlObject->Cp()->ChangePanelToFilled(pPanel, FILE_PANEL);
-				pPanel = (HItem == MENU_LEFT) ? CtrlObject->Cp()->LeftPanel : CtrlObject->Cp()->RightPanel;
+				pPanel = (HItem == MENU_LEFT) ? CtrlObject->Cp()->ActiveTab().LeftPanel : CtrlObject->Cp()->ActiveTab().RightPanel;
 				pPanel->SetViewMode((VItem == MENU_LEFT_ALTERNATIVEVIEW) ? VIEW_0 : VIEW_1 + VItem);
 			} else {
 				switch (VItem) {
@@ -473,37 +887,37 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 					FrameManager->ProcessKey(KEY_ALTDEL);
 					break;
 				case MENU_FILES_ADD:	// Add to archive
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_SHIFTF1);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_SHIFTF1);
 					break;
 				case MENU_FILES_EXTRACT:	// Extract files
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_SHIFTF2);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_SHIFTF2);
 					break;
 				case MENU_FILES_ARCHIVECOMMANDS:	// Archive commands
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_SHIFTF3);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_SHIFTF3);
 					break;
 				case MENU_FILES_ATTRIBUTES:		// File attributes
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_CTRLA);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_CTRLA);
 					break;
 				case MENU_FILES_CHATTR:		// chattr
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_CTRLALTA);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_CTRLALTA);
 					break;
 				case MENU_FILES_APPLYCOMMAND:	// Apply command
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_CTRLG);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_CTRLG);
 					break;
 				case MENU_FILES_DESCRIBE:	// Describe files
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_CTRLZ);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_CTRLZ);
 					break;
 				case MENU_FILES_SELECTGROUP:	// Select group
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_ADD);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_ADD);
 					break;
 				case MENU_FILES_UNSELECTGROUP:	// Unselect group
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_SUBTRACT);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_SUBTRACT);
 					break;
 				case MENU_FILES_INVERTSELECTION:	// Invert selection
-					CtrlObject->Cp()->ActivePanel->ProcessKey(KEY_MULTIPLY);
+					CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessKey(KEY_MULTIPLY);
 					break;
 				case MENU_FILES_RESTORESELECTION:	// Restore selection
-					CtrlObject->Cp()->ActivePanel->RestoreSelection();
+					CtrlObject->Cp()->ActiveTab().ActivePanel->RestoreSelection();
 					break;
 			}
 
@@ -539,7 +953,7 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 					FrameManager->ProcessKey(KEY_CTRLO);
 					break;
 				case MENU_COMMANDS_COMPAREFOLDERS:	// Compare folders
-					CtrlObject->Cp()->ActivePanel->CompareDir();
+					CtrlObject->Cp()->ActiveTab().ActivePanel->CompareDir();
 					break;
 				case MENU_COMMANDS_COMPAREFILES:	// Compare files
 					PresentFileDiff();
@@ -558,7 +972,7 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 					ShowBookmarksMenu();
 					break;
 				case MENU_COMMANDS_FILTER:	// File panel filter
-					CtrlObject->Cp()->ActivePanel->EditFilter();
+					CtrlObject->Cp()->ActiveTab().ActivePanel->EditFilter();
 					break;
 				case MENU_COMMANDS_PLUGINCOMMANDS:	// Plugin commands
 					FrameManager->ProcessKey(KEY_F11);
@@ -581,6 +995,9 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 					break;
 				case MENU_COMMANDS_HOTPLUGLIST:		// HotPlug list
 													//					ShowHotplugDevice();
+					break;
+				default:
+					if (key) FrameManager->ProcessKey(key);
 					break;
 			}
 
@@ -660,10 +1077,31 @@ void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent)
 				case MENU_OPTIONS_SAVESETUP:	// Save setup
 					ConfigOptSave(true);
 					break;
+				case MENU_OPTIONS_ALLOPTS:
+					AllSystemSettings();
+					break;
 			}
 
 			break;
 		}
+		case MENU_NAVIGATE:
+			if (VItem >= MENU_PANELGOTOSHORTCUT9 + 2) {	/* mount points  */
+				int j = VItem - (MENU_PANELGOTOSHORTCUT9 + 2);
+				if (j >= (int)mounts.size()) break;
+				MenuPoint& mp = mounts[j];
+
+				if (mp.kind == MenuPoint::MOUNTPOINT || mp.kind == MenuPoint::DIRECTORY) {
+					auto a_panel = CtrlObject->Cp()->ActiveTab().ActivePanel;
+					a_panel -> SetLocation_Directory(mp.path.c_str());
+				}
+				break;
+			}
+		case MENU_WINDOW:
+			applyMenu(wc, VItem);
+			break;
+		default:
+			if (key) FrameManager->ProcessKey(key);
+			break;
 	}
 
 	int _CurrentFrame = FrameManager->GetCurrentFrame()->GetType();

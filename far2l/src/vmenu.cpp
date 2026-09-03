@@ -59,6 +59,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "processname.hpp"
 #include "pathmix.hpp"
 #include "cmdline.hpp"
+#include "strmix.hpp"
 #include "UsedChars.hpp"
 #include "help.hpp"
 
@@ -82,6 +83,8 @@ VMenu::VMenu(const wchar_t *Title,		// заголовок меню
 		Dialog *ParentDialog)
 	:									// родитель для ListBox
 	strTitle(Title),
+	BottomTextLines(0),
+	BottomTextLinesMin(0),
 	SelectPos(-1),
 	TopPos(0),
 	MaxLength(0),
@@ -302,14 +305,15 @@ int VMenu::SetSelectPos(FarListPos *ListPos)
 		TopPos = ListPos->TopPos;
 
 		if (TopPos == -1) {
-			if (GetShowItemCount() < MaxHeight) {
+			const int MaxListHeight = GetMaxListHeight();
+			if (!MaxListHeight || GetShowItemCount() < MaxListHeight) {
 				TopPos = VisualPosToReal(0);
 			} else {
 				TopPos = GetVisualPos(TopPos);
-				TopPos = (GetVisualPos(SelectPos) - TopPos + 1) > MaxHeight ? TopPos + 1 : TopPos;
+				TopPos = (GetVisualPos(SelectPos) - TopPos + 1) > MaxListHeight ? TopPos + 1 : TopPos;
 
-				if (TopPos + MaxHeight > GetShowItemCount())
-					TopPos = GetShowItemCount() - MaxHeight;
+				if (TopPos + MaxListHeight > GetShowItemCount())
+					TopPos = GetShowItemCount() - MaxListHeight;
 
 				TopPos = VisualPosToReal(TopPos);
 			}
@@ -456,6 +460,7 @@ int VMenu::AddItem(const MenuItemEx *NewItem, int PosAdd)
 	Item[PosAdd]->Clear();
 	Item[PosAdd]->Flags = 0;
 	Item[PosAdd]->strName = NewItem->strName;
+	Item[PosAdd]->strDescription = NewItem->strDescription;
 	Item[PosAdd]->AccelKey = NewItem->AccelKey;
 	_SetUserData(Item[PosAdd], NewItem->UserData, NewItem->UserDataSize);
 	// Item[PosAdd]->AmpPos = NewItem->AmpPos;
@@ -621,10 +626,11 @@ void VMenu::SetCheck(uint32_t Check, int Position)
 
 void VMenu::RestoreFilteredItems()
 {
-	for (int i = 0; i < ItemCount; i++) if (Item[i]->FilteredOut) {
-		Item[i]->Flags&= ~LIF_HIDDEN;
-		Item[i]->FilteredOut = false;
-	}
+	for (int i = 0; i < ItemCount; i++) 
+		if (Item[i]->FilteredOut) {
+			Item[i]->Flags&= ~LIF_HIDDEN;
+			Item[i]->FilteredOut = false;
+		}
 
 	ItemHiddenCount = 0;
 
@@ -634,7 +640,6 @@ void VMenu::RestoreFilteredItems()
 
 void VMenu::FilterStringUpdated(bool bLonger)
 {
-
 	if (bLonger) {
 		// строка фильтра увеличилась
 		for (int i = 0; i < ItemCount; i++) {
@@ -683,6 +688,11 @@ void VMenu::FilterStringUpdated(bool bLonger)
 			}
 			i = j - 1; // loop will ++
 		}
+	}
+
+	if (strFilter.GetLength() == 0) {
+		RestoreFilteredItems();
+		DisplayObject();
 	}
 
 	if (SelectPos < 0)
@@ -892,7 +902,7 @@ bool VMenu::AddToFilter(const wchar_t *str)
 				if (Key == KEY_BS && !strFilter.IsEmpty())
 					strFilter.Truncate(strFilter.GetLength() - 1);
 				else
-					strFilter+= Key;
+					strFilter += Key;
 			}
 			++str;
 		}
@@ -1000,7 +1010,7 @@ int VMenu::ProcessKey(FarKey Key)
 		}
 		case KEY_PGUP:
 		case KEY_NUMPAD9: {
-			int dy = ((BoxType != NO_BOX) ? Y2 - Y1 - 1 : Y2 - Y1);
+			int dy = std::max(1, GetListHeight());
 
 			int p = VisualPosToReal(GetVisualPos(SelectPos) - dy);
 
@@ -1013,7 +1023,7 @@ int VMenu::ProcessKey(FarKey Key)
 		}
 		case KEY_PGDN:
 		case KEY_NUMPAD3: {
-			int dy = ((BoxType != NO_BOX) ? Y2 - Y1 - 1 : Y2 - Y1);
+			int dy = std::max(1, GetListHeight());
 
 			int p = VisualPosToReal(GetVisualPos(SelectPos) + dy);
 			;
@@ -1155,6 +1165,7 @@ int VMenu::ProcessKey(FarKey Key)
 							return TRUE;
 						}
 					} else {
+						DisplayObject();
 						return TRUE;
 					}
 				} else {
@@ -1239,13 +1250,14 @@ int VMenu::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 		return TRUE;
 	}
 
-	int SbY1 = ((BoxType != NO_BOX) ? Y1 + 1 : Y1), SbY2 = ((BoxType != NO_BOX) ? Y2 - 1 : Y2);
+	const int ListBottom = GetListBottom();
+	int SbY1 = ((BoxType != NO_BOX) ? Y1 + 1 : Y1), SbY2 = ((BoxType != NO_BOX) ? ListBottom - 1 : Y2);
 	bool bShowScrollBar = false;
 
 	if (CheckFlags(VMENU_LISTBOX | VMENU_ALWAYSSCROLLBAR) || Opt.ShowMenuScrollbar)
 		bShowScrollBar = true;
 
-	if (bShowScrollBar && MsX == X2 && ((BoxType != NO_BOX) ? Y2 - Y1 - 1 : Y2 - Y1 + 1) < ItemCount
+	if (bShowScrollBar && MsX == X2 && GetListHeight() < ItemCount
 			&& (MouseEvent->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED)) {
 		if (MsY == SbY1) {
 			while (IsMouseButtonPressed()) {
@@ -1276,7 +1288,7 @@ int VMenu::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 			int Delta = 0;
 
 			while (IsMouseButtonPressed()) {
-				SbHeight = Y2 - Y1 - 2;
+				SbHeight = std::max(1, GetListHeight() - 1);
 				int MsPos = (GetShowItemCount() - 1) * (MouseY - Y1) / (SbHeight);
 
 				if (MsPos >= GetShowItemCount()) {
@@ -1307,15 +1319,15 @@ int VMenu::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 			return TRUE;
 		}
 
-		if (MsY == Y2) {
-			while (MsY == Y2 && GetVisualPos(SelectPos) < GetShowItemCount() - 1 && IsMouseButtonPressed())
+		if (MsY >= ListBottom) {
+			while (MsY >= ListBottom && GetVisualPos(SelectPos) < GetShowItemCount() - 1 && IsMouseButtonPressed())
 				ProcessKey(KEY_DOWN);
 
 			return TRUE;
 		}
 	}
 
-	if ((BoxType != NO_BOX) ? (MsX > X1 && MsX < X2 && MsY > Y1 && MsY < Y2)
+	if ((BoxType != NO_BOX) ? (MsX > X1 && MsX < X2 && MsY > Y1 && MsY < ListBottom)
 							: (MsX >= X1 && MsX <= X2 && MsY >= Y1 && MsY <= Y2)) {
 		int MsPos = GetVisualPos(TopPos) + ((BoxType != NO_BOX) ? MsY - Y1 - 1 : MsY - Y1);
 
@@ -1365,6 +1377,8 @@ int VMenu::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 					ProcessKey(KEY_ENTER);
 		}
 
+		return TRUE;
+	} else if (BoxType != NO_BOX && MsX > X1 && MsX < X2 && MsY >= ListBottom && MsY < Y2) {
 		return TRUE;
 	} else if (BoxType != NO_BOX && (MouseEvent->dwButtonState & 3) && !MouseEvent->dwEventFlags) {
 		int ClickOpt = (MouseEvent->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED)
@@ -1524,9 +1538,12 @@ void VMenu::Show()
 				X2 = ScrX - 2;
 
 			if (Y1 == -1) {
-				if (MaxHeight && MaxHeight < GetShowItemCount())
+				BottomTextLines = GetRequiredBottomTextLines();
+				const int BottomAreaHeight = BottomTextLines > 0 ? BottomTextLines + 1 : 0;
+				const int MenuRows = GetShowItemCount() + BottomAreaHeight;
+				if (MaxHeight && MaxHeight < MenuRows)
 					Y1 = (ScrY - MaxHeight - 2) / 2;
-				else if ((Y1 = (ScrY - GetShowItemCount() - 2) / 2) < 0)
+				else if ((Y1 = (ScrY - MenuRows - 2) / 2) < 0)
 					Y1 = 0;
 
 				AutoHeight = true;
@@ -1534,10 +1551,13 @@ void VMenu::Show()
 		}
 
 		if (Y2 <= 0) {
-			if (MaxHeight && MaxHeight < GetShowItemCount())
+			BottomTextLines = GetRequiredBottomTextLines();
+			const int BottomAreaHeight = BottomTextLines > 0 ? BottomTextLines + 1 : 0;
+			const int MenuRows = GetShowItemCount() + BottomAreaHeight;
+			if (MaxHeight && MaxHeight < MenuRows)
 				Y2 = Y1 + MaxHeight + 1;
 			else
-				Y2 = Y1 + GetShowItemCount() + 1;
+				Y2 = Y1 + MenuRows + 1;
 		}
 
 		if (Y2 > ScrY)
@@ -1607,12 +1627,131 @@ void VMenu::DisplayObject()
 	ShowMenu(true, true);
 }
 
+int VMenu::GetBottomAreaHeight() const
+{
+	return BottomTextLines > 0 && !CheckFlags(VMENU_LISTBOX | VMENU_COMBOBOX) && BoxType != NO_BOX
+		? BottomTextLines + 1
+		: 0;
+}
+
+int VMenu::GetBottomTextWidth() const
+{
+	return std::max(0, X2 - X1 - 3);
+}
+
+int VMenu::GetMaxBottomTextLines() const
+{
+	if (MaxHeight > 0)
+		return std::max(0, MaxHeight - 4);
+
+	return std::max(0, ScrY - 8);
+}
+
+int VMenu::GetRequiredBottomTextLines() const
+{
+	if (BottomTextLinesMin <= 0 || CheckFlags(VMENU_LISTBOX | VMENU_COMBOBOX) || BoxType == NO_BOX)
+		return 0;
+
+	int Lines = BottomTextLinesMin;
+	const int TextWidth = GetBottomTextWidth();
+	if (TextWidth > 0 && SelectPos >= 0 && SelectPos < ItemCount && !Item[SelectPos]->strDescription.IsEmpty()) {
+		FARString WrappedDescription;
+		FarFormatText(Item[SelectPos]->strDescription.CPtr(), TextWidth, WrappedDescription, L"\n", FFTM_BREAKLONGWORD);
+
+		Lines = 1;
+		for (size_t I = 0; I < WrappedDescription.GetLength(); ++I) {
+			if (WrappedDescription.At(I) == L'\n')
+				++Lines;
+		}
+		Lines = std::max(BottomTextLinesMin, Lines);
+	}
+
+	return std::min(Lines, GetMaxBottomTextLines());
+}
+
+int VMenu::GetListBottom() const
+{
+	return Y2 - GetBottomAreaHeight();
+}
+
+int VMenu::GetListHeight() const
+{
+	if (BoxType != NO_BOX)
+		return std::max(0, GetListBottom() - Y1 - 1);
+
+	return std::max(0, Y2 - Y1 + 1);
+}
+
+int VMenu::GetMaxListHeight() const
+{
+	return MaxHeight ? std::max(1, MaxHeight - GetBottomAreaHeight()) : 0;
+}
+
+void VMenu::DrawBottomText()
+{
+	const int BottomAreaHeight = GetBottomAreaHeight();
+	if (!BottomAreaHeight)
+		return;
+
+	const int SeparatorY = GetListBottom();
+	if (SeparatorY <= Y1 || SeparatorY >= Y2)
+		return;
+
+	FARString strTmpStr;
+	const int SepWidth = X2 - X1 + 1;
+	wchar_t *TmpStr = strTmpStr.GetBuffer(SepWidth + 1);
+	MakeSeparator(SepWidth, TmpStr,	BoxType == SINGLE_BOX || BoxType == SHORT_SINGLE_BOX ? 13 : 12 /* 2 : 1 */);
+	strTmpStr.ReleaseBuffer();
+
+	SetColor(Colors[VMenuColorBox]);
+	GotoXY(X1, SeparatorY);
+	BoxText(strTmpStr, FALSE);
+
+	const int TextWidth = GetBottomTextWidth();
+	const wchar_t *Description = nullptr;
+	if (SelectPos >= 0 && SelectPos < ItemCount && !Item[SelectPos]->strDescription.IsEmpty())
+		Description = Item[SelectPos]->strDescription.CPtr();
+
+	FARString WrappedDescription;
+	if (Description && TextWidth > 0)
+		FarFormatText(Description, TextWidth, WrappedDescription, L"\n", FFTM_BREAKLONGWORD);
+
+	size_t Start = 0;
+	for (int Y = SeparatorY + 1; Y < Y2; ++Y) {
+		GotoXY(X1 + 1, Y);
+		SetColor(Colors[VMenuColorBody]);
+		FS << fmt::Expand(X2 - X1 - 1) << L"";
+
+		if (WrappedDescription.IsEmpty() || Start >= WrappedDescription.GetLength())
+			continue;
+
+		size_t End = Start;
+		while (End < WrappedDescription.GetLength() && WrappedDescription.At(End) != L'\n')
+			++End;
+
+		FARString Line = WrappedDescription.SubStr(Start, End - Start);
+		Line.TruncateByCells(TextWidth);
+		GotoXY(X1 + 2, Y);
+		SetColor(Colors[VMenuColorText]);
+		Text(Line);
+
+		Start = End + 1;
+	}
+}
+
 void VMenu::DrawEdges()
 {
 	if (!CheckFlags(VMENU_DISABLEDRAWBACKGROUND) && !CheckFlags(VMENU_LISTBOX)) {
 		if (BoxType == SHORT_DOUBLE_BOX || BoxType == SHORT_SINGLE_BOX) {
 			SetScreen(X1, Y1, X2, Y2, L' ', Colors[VMenuColorBody]);
+			Hint(X1, Y1, X2, Y2, HintMenu, HintObjectNone);
+			
 			Box(X1, Y1, X2, Y2, Colors[VMenuColorBox], BoxType);
+
+			Hint(X1, Y1, X2, Y1, HintMenu, HintBox);
+			Hint(X1, Y2, X2, Y2, HintMenu, HintBox);
+			Hint(X1, Y1, X1, Y2, HintMenu, HintBox);
+			Hint(X2, Y1, X2, Y2, HintMenu, HintBox);
 
 			if (!CheckFlags(VMENU_LISTBOX | VMENU_ALWAYSSCROLLBAR)) {
 				MakeShadow(X1 + 2, Y2 + 1, X2, Y2 + 1, SaveScr);
@@ -1629,8 +1768,14 @@ void VMenu::DrawEdges()
 				MakeShadow(X2 + 3, Y1, X2 + 4, Y2 + 2, SaveScr);
 			}
 
-			if (BoxType != NO_BOX)
+			if (BoxType != NO_BOX) {
 				Box(X1, Y1, X2, Y2, Colors[VMenuColorBox], BoxType);
+
+				Hint(X1, Y1, X2, Y1, HintMenu, HintBox);
+				Hint(X1, Y2, X2, Y2, HintMenu, HintBox);
+				Hint(X1, Y1, X1, Y2, HintMenu, HintBox);
+				Hint(X2, Y1, X2, Y2, HintMenu, HintBox);
+			}
 		}
 
 		// SetFlags(VMENU_DISABLEDRAWBACKGROUND);
@@ -1684,7 +1829,10 @@ void VMenu::DrawTitles()
 		if (WidthTitle >= MaxTitleLength)
 			WidthTitle = MaxTitleLength - 1;
 
-		GotoXY(X1 + (X2 - X1 - 1 - WidthTitle) / 2, Y1);
+		if (Opt.Backend.UseModernLook)
+			GotoXY(X1 + 2, Y1);
+		else
+			GotoXY(X1 + (X2 - X1 - 1 - WidthTitle) / 2, Y1);
 		SetColor(Colors[VMenuColorTitle]);
 
 		FS << L" " << fmt::Cells() << fmt::Size(WidthTitle) << strDisplayTitle << L" ";
@@ -1696,7 +1844,10 @@ void VMenu::DrawTitles()
 		if (WidthTitle >= MaxTitleLength)
 			WidthTitle = MaxTitleLength - 1;
 
-		GotoXY(X1 + (X2 - X1 - 1 - WidthTitle) / 2, Y2);
+		if (Opt.Backend.UseModernLook)
+			GotoXY(X1 + 2, Y2);
+		else
+			GotoXY(X1 + (X2 - X1 - 1 - WidthTitle) / 2, Y2);
 		SetColor(Colors[VMenuColorTitle]);
 
 		FS << L" " << fmt::Cells() << fmt::Size(WidthTitle) << strBottomTitle << L" ";
@@ -1711,6 +1862,11 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 	int MaxItemLength = 0;
 	bool HasRightScroll = false;
 	bool HasSubMenus = ItemSubMenusCount > 0;
+	const int RequiredBottomTextLines = GetRequiredBottomTextLines();
+	if (BottomTextLines != RequiredBottomTextLines) {
+		BottomTextLines = RequiredBottomTextLines;
+		ForceFrameRedraw = true;
+	}
 
 	// BUGBUG, this must be optimized
 	for (int i = 0; i < ItemCount; i++) {
@@ -1737,7 +1893,7 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 		MaxLineWidth-= 1;	// sub menu arrow
 
 	if ((CheckFlags(VMENU_LISTBOX | VMENU_ALWAYSSCROLLBAR) || Opt.ShowMenuScrollbar) && BoxType == NO_BOX
-			&& ScrollBarRequired(Y2 - Y1 + 1, GetShowItemCount()))
+			&& ScrollBarRequired(GetListHeight(), GetShowItemCount()))
 		MaxLineWidth-= 1;	// scrollbar
 
 	if (MaxItemLength > MaxLineWidth) {
@@ -1773,6 +1929,13 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 		DrawTitles();
 	}
 
+	Hint(X1, Y1, X2, Y2, HintMenu, HintObjectNone);
+
+	Hint(X1, Y1, X2, Y1, HintMenu, HintBox);
+	Hint(X1, Y2, X2, Y2, HintMenu, HintBox);
+	Hint(X1, Y1, X1, Y2, HintMenu, HintBox);
+	Hint(X2, Y1, X2, Y2, HintMenu, HintBox);
+
 	wchar_t BoxChar[2] = {0};
 
 	switch (BoxType) {
@@ -1798,15 +1961,17 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 	int VisualTopPos = GetVisualPos(TopPos);
 
 	// коррекция Top`а
-	if (VisualTopPos + GetShowItemCount() >= Y2 - Y1 && VisualSelectPos == GetShowItemCount() - 1) {
+	const int ListHeight = std::max(1, GetListHeight());
+
+	if (VisualTopPos + GetShowItemCount() >= ListHeight + 1 && VisualSelectPos == GetShowItemCount() - 1) {
 		VisualTopPos--;
 
 		if (VisualTopPos < 0)
 			VisualTopPos = 0;
 	}
 
-	if (VisualSelectPos > VisualTopPos + ((BoxType != NO_BOX) ? Y2 - Y1 - 2 : Y2 - Y1)) {
-		VisualTopPos = VisualSelectPos - ((BoxType != NO_BOX) ? Y2 - Y1 - 2 : Y2 - Y1);
+	if (VisualSelectPos > VisualTopPos + ListHeight - 1) {
+		VisualTopPos = VisualSelectPos - ListHeight + 1;
 	}
 
 	if (VisualSelectPos < VisualTopPos) {
@@ -1829,6 +1994,7 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 	for (int I = 0; I < TopPos && I < ItemCount; ++I) {
 		if ((Item[I]->Flags & LIF_SEPARATOR) != 0 && ItemIsVisible(Item[I]->Flags))
 			WrappedSeparatorIndex = I;
+
 	}
 
 	if (ForceFrameRedraw || PrevWrappedSeparatorIndex != WrappedSeparatorIndex) {
@@ -1836,7 +2002,7 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 	}
 
 	if (GetShowItemCount() > 0) for (int Y = Y1 + ((BoxType != NO_BOX) ? 1 : 0), I = TopPos;
-			Y < ((BoxType != NO_BOX) ? Y2 : Y2 + 1); Y++, I++) {
+			Y < ((BoxType != NO_BOX) ? GetListBottom() : Y2 + 1); Y++, I++) {
 		GotoXY(X1, Y);
 
 		if (I < ItemCount) {
@@ -1852,7 +2018,7 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 
 				MakeSeparator(SepWidth, TmpStr,
 						BoxType == NO_BOX ? 0
-										: (BoxType == SINGLE_BOX || BoxType == SHORT_SINGLE_BOX ? 2 : 1));
+										: (BoxType == SINGLE_BOX || BoxType == SHORT_SINGLE_BOX ? 13 : 12 /* 2 : 1 */));
 
 				if (I > 0 && I < ItemCount - 1 && SepWidth > 3) {
 					for (unsigned int J = 0; Ptr[J + 3]; J++) {
@@ -1896,9 +2062,17 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 					if (ItemWidth > X2 - X1 - 3)
 						ItemWidth = X2 - X1 - 3;
 
-					GotoXY(X1 + (X2 - X1 - 1 - ItemWidth) / 2, Y);
-					FS << L" " << fmt::Cells() << fmt::LeftAlign() << fmt::Size(ItemWidth) << Item[I]->strName << L" ";
+					if (Opt.Backend.UseModernLook) {
+						GotoXY(X1 + 2, Y);
+						FS << L" " << fmt::Cells() << fmt::LeftAlign() << fmt::Size(ItemWidth) << Item[I]->strName << L" ";
+					}
+					else {
+						GotoXY(X1 + (X2 - X1 - 1 - ItemWidth) / 2, Y);
+						FS << L" " << fmt::Cells() << fmt::LeftAlign() << fmt::Size(ItemWidth) << Item[I]->strName << L" ";
+					}
 				}
+
+				Hint(X1, Y, X2, Y, HintMenu, HintLine);
 
 			} else {
 				if (BoxType != NO_BOX) {
@@ -1948,8 +2122,13 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 				if (Item[I]->Flags & LIF_CHECKED) {
 					CheckMark[0] = wchar_t((Item[I]->Flags & 0xFFFF)
 						? Item[I]->Flags & 0xFFFF
-						: (Opt.NoGraphics ? 0x002A /*L'*'*/ : 0x221A /*L'√'*/));
+						: (Opt.NoGraphics ? 0x002A /*L'*'*/ : 
+							( Opt.Backend.UseModernLook 
+								? L'√'  //  ✔  
+								: 0x221A /*L'√'*/) ));
 				}
+
+				// VK: todo: play with colors here
 
 				uint64_t Col;
 				if ((Item[I]->Flags & LIF_SELECTED))
@@ -1961,6 +2140,7 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 
 				SetColor(Col);
 				Text(CheckMark);
+				
 				// табуляции меняем только при показе!!!
 				// для сохранения оригинальной строки!!!
 				ReplaceTabsBySpaces(strMenuLine, 1);
@@ -2044,6 +2224,7 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 					GotoXY(X1 + (BoxType != NO_BOX ? 1 : 0) + 1 + MaxLineWidth, Y);
 					BoxText(L'\xbb');	// '>>'
 				}
+				Hint(X1 + 1, Y, X2 - 1, Y, HintMenu, HintText, (Item[I]->Flags & LIF_SELECTED) /*focus*/, false /*hover*/, (Item[I]->Flags & LIF_DISABLE) /*disabled*/, (Item[I]->Flags & LIF_CHECKED));
 			}
 		} else {
 			if (BoxType != NO_BOX) {
@@ -2068,10 +2249,13 @@ void VMenu::ShowMenu(bool IsParent, bool ForceFrameRedraw)
 		SetColor(Colors[VMenuColorScrollBar]);
 
 		if (BoxType != NO_BOX)
-			ScrollBarEx(X2, Y1 + 1, Y2 - Y1 - 1, VisualTopPos, GetShowItemCount());
+			ScrollBarEx(X2, Y1 + 1, GetListHeight(), VisualTopPos, GetShowItemCount());
 		else
-			ScrollBarEx(X2, Y1, Y2 - Y1 + 1, VisualTopPos, GetShowItemCount());
+			ScrollBarEx(X2, Y1, GetListHeight(), VisualTopPos, GetShowItemCount());
+		Hint(X2, Y1, X2, Y2, HintMenu, HintScrollBar);
 	}
+
+	DrawBottomText();
 
 	if ( (ForceFrameRedraw || PrevWrappedSeparatorIndex != WrappedSeparatorIndex) && !CheckFlags(VMENU_LISTBOX)) {
 		DrawTitles();
@@ -2320,6 +2504,22 @@ void VMenu::SetBottomTitle(const wchar_t *BottomTitle)
 	UpdateMaxLength((int)strBottomTitle.CellsCount() + 2);
 }
 
+void VMenu::SetBottomTextLines(int Lines)
+{
+	Lines = std::max(0, Lines);
+	{
+		CriticalSectionLock Lock(CS);
+
+		if (BottomTextLinesMin == Lines)
+			return;
+
+		BottomTextLinesMin = Lines;
+		BottomTextLines = Lines;
+		SetFlags(VMENU_UPDATEREQUIRED);
+	}
+	ResizeConsole();
+}
+
 void VMenu::SetTitle(const wchar_t *Title)
 {
 	CriticalSectionLock Lock(CS);
@@ -2371,7 +2571,7 @@ void VMenu::ResizeConsole()
 			X1 = (ScrX + 1) / 2 + 5;
 		}
 
-		Y1 = (ScrY + 1 - (GetShowItemCount() + 5)) / 2;
+		Y1 = (ScrY + 1 - (GetShowItemCount() + GetBottomAreaHeight() + 5)) / 2;
 
 		if (Y1 < 1)
 			Y1 = 1;

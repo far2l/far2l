@@ -395,7 +395,10 @@ bool ResolvePanelFile(Panel *Source, DiffFileSource &File, const wchar_t *forceN
 	if(!Source->GetCurDir(Path) || Path.IsEmpty())
 		return false;
 	AddEndSlash(Path);
-	Path+= Name;
+	if (!forceName || !*forceName)
+		Path+= Name;	// use from panel current name
+	else
+		Path+= forceName;	// use forceName in panel direcrory
 
 	const DWORD Attr = apiGetFileAttributes(Path.CPtr());
 	if (Attr == INVALID_FILE_ATTRIBUTES || (Attr & FILE_ATTRIBUTE_DIRECTORY))
@@ -2958,7 +2961,7 @@ void PresentFileDiff(bool bSameName)
 	if (!CtrlObject || !CtrlObject->Cp())
 		return;
 
-	Panel *Active = CtrlObject->Cp()->ActivePanel;
+	Panel *Active = CtrlObject->Cp()->ActiveTab().ActivePanel;
 	Panel *Passive = CtrlObject->Cp()->GetAnotherPanel(Active);
 
 	DiffFileSource LeftSource;

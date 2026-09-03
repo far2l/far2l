@@ -89,6 +89,11 @@ int ReplaceTabsBySpaces(FARString &strStr, size_t TabSize = 1);
 
 const wchar_t *GetCommaWord(const wchar_t *Src, FARString &strWord, wchar_t Separator = L',');
 
+enum FFTMODE
+{
+	FFTM_BREAKLONGWORD = 0x00000001,
+};
+
 FARString &WINAPI
 FarFormatText(const wchar_t *SrcText, int Width, FARString &strDestText, const wchar_t *Break, DWORD Flags);
 
@@ -141,7 +146,7 @@ ReplaceBrackets(const wchar_t *SearchStr, const FARString &ReplaceStr, RegExpMat
 
 bool SearchString(const wchar_t *Source, int StrSize, const FARString &Str, FARString &ReplaceStr,
 		int &CurPos, int Position, int Case, int WholeWords, int Reverse, int Regexp, int *SearchLength,
-		const wchar_t *WordDiv = nullptr);
+		const wchar_t *WordDiv = nullptr, int RegexpOptions = 0);
 
 // Clear cached regex pattern (call when search pattern changes significantly)
 void ClearSearchStringCache();

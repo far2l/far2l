@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 /*
 dirinfo.hpp
 
@@ -34,6 +36,17 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 class FileFilter;
+
+struct DirInfoData
+{
+	uint32_t DirCount{};
+	uint32_t FileCount{};
+	uint32_t ClusterSize{};
+	uint64_t FileSize{};
+	uint64_t PhysicalSize{};
+};
+
+using DirInfoProgress = std::function<bool(const DirInfoData &)>;
 
 enum GETDIRINFOFLAGS
 {

@@ -116,6 +116,22 @@ static inline bool IsItemFocusable(const struct DialogItemEx* item)
 	}
 }
 
+static inline bool IsItemScrollable(const struct DialogItemEx* item) 
+{
+	switch(item->Type) {
+	case DI_EDIT:
+	case DI_FIXEDIT:
+	case DI_PSWEDIT:
+	case DI_COMBOBOX:
+	case DI_MEMOEDIT:
+	case DI_LISTBOX:
+	case DI_USERCONTROL:
+		return IsItemFocusable(item);
+	default:
+		return false;
+	}
+}
+
 /**
  * check if dialog item is horizontal separator.
 */
@@ -204,6 +220,7 @@ void DialogItemExToDialogItemEx(DialogItemEx *pSrc, DialogItemEx *pDest)
 	pDest->UCData = pSrc->UCData;
 	pDest->SelStart = pSrc->SelStart;
 	pDest->SelEnd = pSrc->SelEnd;
+	pDest->Width = pSrc->Width;
 
 	std::copy(pSrc->customItemColor,
 		pSrc->customItemColor + DLG_ITEM_MAX_CUST_COLORS,
@@ -222,6 +239,7 @@ void ConvertItemSmall(FarDialogItem *Item, DialogItemEx *Data)
 	Item->DefaultButton = Data->DefaultButton;
 	Item->MaxLen = Data->nMaxLength;
 	Item->PtrData = nullptr;
+	Item->Width = Data->Width;
 
 	Item->Param.History = nullptr;
 	if (Data->Type == DI_LISTBOX || Data->Type == DI_COMBOBOX) {
@@ -249,6 +267,8 @@ size_t ItemStringAndSize(DialogItemEx *Data, FARString &ItemString)
 	if (sz > Data->nMaxLength && Data->nMaxLength > 0)
 		sz = Data->nMaxLength;
 
+	// if (sz < 40) sz = 40;
+
 	return sz;
 }
 
@@ -270,13 +290,13 @@ bool ConvertItemEx(CVTITEMFLAGS FromPlugin, FarDialogItem *Item, DialogItemEx *D
 					FARString str;
 					size_t sz = ItemStringAndSize(Data, str);
 					{
-						wchar_t *p = (wchar_t *)malloc((sz + 1) * sizeof(wchar_t));
+						wchar_t *p = (wchar_t *)malloc((sz + 5) * sizeof(wchar_t));
 						Item->PtrData = p;
 
 						if (!p)		// TODO: may be needed message?
 							return false;
 
-						wmemcpy(p, str.CPtr(), sz);
+						wcsncpy(p, str.CPtr(), sz);
 						p[sz] = L'\0';
 					}
 				}
@@ -293,6 +313,7 @@ bool ConvertItemEx(CVTITEMFLAGS FromPlugin, FarDialogItem *Item, DialogItemEx *D
 				Data->Y2 = Item->Y2;
 				Data->Focus = Item->Focus;
 				Data->Reserved = 0;
+				Data->Width = Item->Width;
 				if ((Item->Type == DI_EDIT || Item->Type == DI_FIXEDIT) && Item->Flags & DIF_HISTORY) {
 					Data->strHistory = Item->Param.History;
 				} else if (Item->Type == DI_FIXEDIT && Item->Flags & DIF_MASKEDIT) {
@@ -405,6 +426,11 @@ Dialog::Dialog(DialogItemEx *SrcItem,		// Набор элементов диал
 	CMM(MACRO_DIALOG), AltState(0), CtrlState(0), ShiftState(0)
 {
 	Dialog::Item = (DialogItemEx **)malloc(sizeof(DialogItemEx *) * SrcItemCount);
+	if (!Dialog::Item) {
+		Dialog::ItemCount = 0;
+		Dialog::pSaveItemEx = nullptr;
+		return;
+	}
 
 	for (unsigned i = 0; i < SrcItemCount; i++) {
 		Dialog::Item[i] = new DialogItemEx;
@@ -425,6 +451,11 @@ Dialog::Dialog(FarDialogItem *SrcItem,		// Набор элементов диа�
 	CMM(MACRO_DIALOG)
 {
 	Dialog::Item = (DialogItemEx **)malloc(sizeof(DialogItemEx *) * SrcItemCount);
+	if (!Dialog::Item) {
+		Dialog::ItemCount = 0;
+		Dialog::pSaveItemEx = nullptr;
+		return;
+	}
 
 	for (unsigned i = 0; i < SrcItemCount; i++) {
 		Dialog::Item[i] = new DialogItemEx;
@@ -531,6 +562,17 @@ void Dialog::CheckDialogCoord()
 		} else {
 			Y2+= Y1 - 1;
 		}
+	}
+
+	MaxY2 = Y2;
+	MaxHeight = Y2 - Y1 + 1;
+
+	if (Y2 >= ScrY && Opt.Backend.UseModernLook) {
+		// scroll is here
+		// cut dialog
+		ScrollY = 0;
+		MaxY2 = Y2;
+		Y2 = ScrY - 1;
 	}
 }
 
@@ -753,12 +795,13 @@ unsigned Dialog::InitDialogObjects(unsigned ID)
 				CurItem->strData = Brackets[Start] + CurItem->strData + Brackets[Start + 1];
 			}
 		}
+
 		// предварительный поик фокуса
 		if (FocusPos == (unsigned)-1 && IsItemFocusable(CurItem) && CurItem->Focus)
 			FocusPos = I;		// запомним первый фокусный элемент
 
 		CurItem->Focus = 0;		// сбросим для всех, чтобы не оказалось,
-		// что фокусов - как у дурочка фантиков
+		// что фокусов - как у дурака фантиков
 
 		// сбросим флаг DIF_CENTERGROUP для редакторов
 		switch (Type) {
@@ -793,7 +836,7 @@ unsigned Dialog::InitDialogObjects(unsigned ID)
 
 	if (FocusPos == (unsigned)-1)		// ну ни хрена себе - нет ни одного
 	{									// элемента с возможностью фокуса
-		FocusPos = 0;					// убится, блин
+		FocusPos = 0;					// убиться, блин
 	}
 
 	// ну вот и добрались до!
@@ -1425,6 +1468,8 @@ DWORD Dialog::CtlColorDlgItem(int ItemPos, const DialogItemEx *CurItem, uint64_t
 	const int Focus = CurItem->Focus;
 	const int Default = CurItem->DefaultButton;
 	const DWORD Flags = CurItem->Flags;
+	const int Hover = CurItem->Hover;
+	const int Pressed = CurItem->Pressed;
 
 	const bool IsWarning = DialogMode.Check(DMODE_WARNINGSTYLE);
 	const bool DisabledItem = (Flags & DIF_DISABLE) != 0;
@@ -1433,12 +1478,15 @@ DWORD Dialog::CtlColorDlgItem(int ItemPos, const DialogItemEx *CurItem, uint64_t
 		case DI_SINGLEBOX:
 		case DI_DOUBLEBOX: {
 
+#define COLOR_IF(is_warn, warnColor, regularColor, is_disabled, warnDisabled, regularDisabled) \
+	((is_warn) ? ((is_disabled) ? (warnDisabled) : (warnColor)) \
+				: ((is_disabled) ? (regularDisabled) : (regularColor)) )
+
 			// Title
-			Color[0] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:COL_WARNDIALOGBOXTITLE) : (DisabledItem?COL_DIALOGDISABLED:COL_DIALOGBOXTITLE));
-			// HiText
-			Color[1] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:COL_WARNDIALOGHIGHLIGHTBOXTITLE) : (DisabledItem?COL_DIALOGDISABLED:COL_DIALOGHIGHLIGHTBOXTITLE));
-			// Box
-			Color[2] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:COL_WARNDIALOGBOX) : (DisabledItem?COL_DIALOGDISABLED:COL_DIALOGBOX));
+			Color[0] = FarColorToReal( COLOR_IF(IsWarning, COL_WARNDIALOGBOXTITLE, COL_DIALOGBOXTITLE, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED) );
+			Color[1] = FarColorToReal( COLOR_IF(IsWarning, COL_WARNDIALOGHIGHLIGHTBOXTITLE, COL_DIALOGHIGHLIGHTBOXTITLE, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED) );
+			Color[2] = FarColorToReal( COLOR_IF(IsWarning, COL_WARNDIALOGBOX, COL_DIALOGBOX, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED) );
+
 			break;
 
 /**
@@ -1470,13 +1518,20 @@ DWORD Dialog::CtlColorDlgItem(int ItemPos, const DialogItemEx *CurItem, uint64_t
 #endif
 		case DI_TEXT: {
 
-			Color[0] = FarColorToReal((Flags & DIF_BOXCOLOR)? (IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:COL_WARNDIALOGBOX) : (DisabledItem?COL_DIALOGDISABLED:COL_DIALOGBOX)) : (IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:COL_WARNDIALOGTEXT) : (DisabledItem?COL_DIALOGDISABLED:COL_DIALOGTEXT)));
+			Color[0] = FarColorToReal(
+				(Flags & DIF_BOXCOLOR)
+				? COLOR_IF(IsWarning, COL_WARNDIALOGBOX, COL_DIALOGBOX, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED)
+				: COLOR_IF(IsWarning, COL_WARNDIALOGTEXT, COL_DIALOGTEXT, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED) );
 			// HiText
-			Color[1] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:COL_WARNDIALOGHIGHLIGHTTEXT) : (DisabledItem?COL_DIALOGDISABLED:COL_DIALOGHIGHLIGHTTEXT));
+			Color[1] = FarColorToReal( COLOR_IF(IsWarning, COL_WARNDIALOGHIGHLIGHTTEXT, COL_DIALOGHIGHLIGHTTEXT, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED) );
+			
 			if (Flags & (DIF_SEPARATORUSER|DIF_SEPARATOR|DIF_SEPARATOR2))
 			{
 				// Box
-				Color[2] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:COL_WARNDIALOGBOX) : (DisabledItem?COL_DIALOGDISABLED:COL_DIALOGBOX));
+				if (Opt.Backend.UseModernLook) 
+					Color[0] = FarColorToReal( COLOR_IF(IsWarning, COL_WARNDIALOGBOXTITLE, COL_DIALOGBOXTITLE, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED) );
+				
+				Color[2] = FarColorToReal( COLOR_IF(IsWarning, COL_WARNDIALOGBOX, COL_DIALOGBOX, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED) );
 			}
 			break;
 
@@ -1533,9 +1588,14 @@ DWORD Dialog::CtlColorDlgItem(int ItemPos, const DialogItemEx *CurItem, uint64_t
 		case DI_CHECKBOX:
 		case DI_RADIOBUTTON: {
 
-			Color[0] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:COL_WARNDIALOGTEXT) : (DisabledItem?COL_DIALOGDISABLED:COL_DIALOGTEXT));
-			// HiText
-			Color[1] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:COL_WARNDIALOGHIGHLIGHTTEXT) : (DisabledItem?COL_DIALOGDISABLED:COL_DIALOGHIGHLIGHTTEXT));
+			Color[0] = FarColorToReal( COLOR_IF(IsWarning, COL_WARNDIALOGTEXT, COL_DIALOGTEXT, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED) );
+			Color[1] = FarColorToReal( COLOR_IF(IsWarning, COL_WARNDIALOGHIGHLIGHTTEXT, COL_DIALOGHIGHLIGHTTEXT, DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED) );
+
+			if (Opt.Backend.UseModernLook && !DisabledItem && (Focus || Hover || Pressed)) {
+				Color[0] = SoftenItemColor(Color[0], Focus, Hover, Pressed, 0);
+				Color[1] = SoftenItemColor(Color[1], Focus, Hover, Pressed, 0);
+			}
+
 			break;
 /**
 			if (Flags & DIF_SETCOLOR)
@@ -1554,23 +1614,39 @@ DWORD Dialog::CtlColorDlgItem(int ItemPos, const DialogItemEx *CurItem, uint64_t
 		}
 		case DI_BUTTON: {
 
+#define COLOR_DFL_IF(is_warn, warnColor_1, regularColor_1, is_default, warnColor_2, regularColor_2, is_disabled, warnDisabled, regularDisabled) \
+	((is_warn) ? ((is_disabled) ? (warnDisabled) : ((is_default) ? (warnColor_2) : (warnColor_1)) ) \
+			   : ((is_disabled) ? (regularDisabled) : ((is_default) ? (regularColor_2) : (regularColor_1) )) )
+
 			if (Focus)
 			{
 				SetCursorType(0, 10);
-				// TEXT
-				Color[0] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:(Default?COL_WARNDIALOGSELECTEDDEFAULTBUTTON:COL_WARNDIALOGSELECTEDBUTTON)) : (DisabledItem?COL_DIALOGDISABLED:(Default?COL_DIALOGSELECTEDDEFAULTBUTTON:COL_DIALOGSELECTEDBUTTON)));
-				// HiText
-				Color[1] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:(Default?COL_WARNDIALOGHIGHLIGHTSELECTEDDEFAULTBUTTON:COL_WARNDIALOGHIGHLIGHTSELECTEDBUTTON)) : (DisabledItem?COL_DIALOGDISABLED:(Default?COL_DIALOGHIGHLIGHTSELECTEDDEFAULTBUTTON:COL_DIALOGHIGHLIGHTSELECTEDBUTTON)));
+				Color[0] = FarColorToReal( COLOR_DFL_IF(
+					IsWarning, COL_WARNDIALOGSELECTEDBUTTON, COL_DIALOGSELECTEDBUTTON,
+					Default, COL_WARNDIALOGSELECTEDDEFAULTBUTTON, COL_DIALOGSELECTEDDEFAULTBUTTON,
+					DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED ));
+				Color[1] = FarColorToReal( COLOR_DFL_IF(
+					IsWarning, COL_WARNDIALOGHIGHLIGHTSELECTEDBUTTON, COL_DIALOGHIGHLIGHTSELECTEDBUTTON,
+					Default, COL_WARNDIALOGHIGHLIGHTSELECTEDDEFAULTBUTTON, COL_DIALOGHIGHLIGHTSELECTEDDEFAULTBUTTON,
+					DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED ));
 			}
 			else
 			{
-				// TEXT
-				Color[0] = FarColorToReal(IsWarning?
-						(DisabledItem?COL_WARNDIALOGDISABLED:(Default?COL_WARNDIALOGDEFAULTBUTTON:COL_WARNDIALOGBUTTON)):
-						(DisabledItem?COL_DIALOGDISABLED:(Default?COL_DIALOGDEFAULTBUTTON:COL_DIALOGBUTTON)));
-				// HiText
-				Color[1] = FarColorToReal(IsWarning? (DisabledItem?COL_WARNDIALOGDISABLED:(Default?COL_WARNDIALOGHIGHLIGHTDEFAULTBUTTON:COL_WARNDIALOGHIGHLIGHTBUTTON)) : (DisabledItem?COL_DIALOGDISABLED:(Default?COL_DIALOGHIGHLIGHTDEFAULTBUTTON:COL_DIALOGHIGHLIGHTBUTTON)));
+				Color[0] = FarColorToReal( COLOR_DFL_IF(
+					IsWarning, COL_WARNDIALOGBUTTON, COL_DIALOGBUTTON,
+					Default, COL_WARNDIALOGDEFAULTBUTTON, COL_DIALOGDEFAULTBUTTON,
+					DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED ));
+				Color[1] = FarColorToReal( COLOR_DFL_IF(
+					IsWarning, COL_WARNDIALOGHIGHLIGHTBUTTON, COL_DIALOGHIGHLIGHTBUTTON,
+					Default, COL_WARNDIALOGHIGHLIGHTDEFAULTBUTTON, COL_DIALOGHIGHLIGHTDEFAULTBUTTON,
+					DisabledItem, COL_WARNDIALOGDISABLED, COL_DIALOGDISABLED ));
 			}
+
+			if (!DisabledItem && (Focus || Hover || Pressed)) {
+				Color[0] = SoftenItemColor(Color[0], Focus, Hover, Pressed, 0);
+				Color[1] = SoftenItemColor(Color[1], Focus, Hover, Pressed, 0);
+			}
+
 			break;
 
 /**
@@ -1620,64 +1696,59 @@ DWORD Dialog::CtlColorDlgItem(int ItemPos, const DialogItemEx *CurItem, uint64_t
 		case DI_COMBOBOX:
 		case DI_MEMOEDIT: {
 
+#define COLOR_FOCUS_IF(is_focus, focusColor, regularColor, is_disabled, disabledColor) \
+	( (is_disabled) ? (disabledColor) : ((is_focus)	? (focusColor) : (regularColor)) ) 
+
+#define COLOR_D_IF(is_disabled, regularColor, disabledColor) \
+	( (is_disabled) ? (disabledColor) : (regularColor) ) 
+
 			if (Type == DI_COMBOBOX && (Flags & DIF_DROPDOWNLIST))
 			{
 				if (IsWarning)
 				{
 					// Text
-					Color[0] = FarColorToReal(DisabledItem? COL_WARNDIALOGEDITDISABLED: Focus? COL_WARNDIALOGEDITSELECTED : COL_WARNDIALOGEDIT);
-					// Select
-					Color[1] = FarColorToReal(DisabledItem? COL_WARNDIALOGEDITDISABLED : Focus? COL_WARNDIALOGEDITSELECTED : COL_WARNDIALOGEDIT);
-					// Unchanged
-					Color[2] = FarColorToReal(DisabledItem? COL_WARNDIALOGEDITDISABLED : Focus? COL_WARNDIALOGEDITSELECTED : COL_WARNDIALOGEDITUNCHANGED);
-					// History
-					Color[3] = FarColorToReal(DisabledItem? COL_WARNDIALOGDISABLED : COL_WARNDIALOGTEXT);
-					// Overflow arrow
-					Color[4] = FarColorToReal(DisabledItem? COL_WARNDIALOGDISABLED : COL_WARNDIALOGOVERFLOWARROW);
+					Color[0] = FarColorToReal( COLOR_FOCUS_IF (Focus, COL_WARNDIALOGEDITSELECTED, COL_WARNDIALOGEDIT, DisabledItem, COL_WARNDIALOGEDITDISABLED) );
+					Color[1] = FarColorToReal( COLOR_FOCUS_IF (Focus, COL_WARNDIALOGEDITSELECTED, COL_WARNDIALOGEDIT, DisabledItem, COL_WARNDIALOGEDITDISABLED) );
+					Color[2] = FarColorToReal( COLOR_FOCUS_IF (Focus, COL_WARNDIALOGEDITSELECTED, COL_WARNDIALOGEDITUNCHANGED, DisabledItem, COL_WARNDIALOGEDITDISABLED) );
+					Color[3] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_WARNDIALOGTEXT, COL_WARNDIALOGDISABLED) );
+					Color[4] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_WARNDIALOGOVERFLOWARROW, COL_WARNDIALOGDISABLED) );
 				}
 				else
 				{
-					// Text
-					Color[0] = FarColorToReal(DisabledItem? COL_DIALOGEDITDISABLED : Focus? COL_DIALOGEDITSELECTED : COL_DIALOGEDIT);
-					// Select
-					Color[1] = FarColorToReal(DisabledItem? COL_DIALOGEDITDISABLED: Focus? COL_DIALOGEDITSELECTED : COL_DIALOGEDIT);
-					// Unchanged
-					Color[2] = FarColorToReal(DisabledItem? COL_DIALOGEDITDISABLED :  Focus? COL_DIALOGEDITSELECTED : COL_DIALOGEDITUNCHANGED);
-					// History
-					Color[3] = FarColorToReal(DisabledItem? COL_DIALOGDISABLED : COL_DIALOGTEXT);
-					// Overflow arrow
-					Color[4] = FarColorToReal(DisabledItem? COL_DIALOGDISABLED : COL_DIALOGOVERFLOWARROW);
+
+					Color[0] = FarColorToReal( COLOR_FOCUS_IF (Focus, COL_DIALOGEDITSELECTED, COL_DIALOGEDIT, DisabledItem, COL_DIALOGEDITDISABLED) );
+					Color[1] = FarColorToReal( COLOR_FOCUS_IF (Focus, COL_DIALOGEDITSELECTED, COL_DIALOGEDIT, DisabledItem, COL_DIALOGEDITDISABLED) );
+					Color[2] = FarColorToReal( COLOR_FOCUS_IF (Focus, COL_DIALOGEDITSELECTED, COL_DIALOGEDITUNCHANGED, DisabledItem, COL_DIALOGEDITDISABLED) );
+					Color[3] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_DIALOGTEXT, COL_DIALOGDISABLED) );
+					Color[4] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_DIALOGOVERFLOWARROW, COL_DIALOGDISABLED) );
 				}
 			}
 			else
 			{
 				if (IsWarning)
 				{
-					// Text
-					Color[0] = FarColorToReal(DisabledItem? COL_WARNDIALOGEDITDISABLED : Flags & DIF_NOFOCUS? COL_WARNDIALOGEDITUNCHANGED : COL_WARNDIALOGEDIT);
-					// Select
-					Color[1] = FarColorToReal(DisabledItem? COL_WARNDIALOGEDITDISABLED : COL_WARNDIALOGEDITSELECTED);
-					// Unchanged
-					Color[2] = FarColorToReal(DisabledItem? COL_WARNDIALOGEDITDISABLED : COL_WARNDIALOGEDITUNCHANGED);
-					// History
-					Color[3] = FarColorToReal(DisabledItem? COL_WARNDIALOGDISABLED : COL_WARNDIALOGTEXT);
-					// Overflow arrow
-					Color[4] = FarColorToReal(DisabledItem? COL_WARNDIALOGDISABLED : COL_WARNDIALOGOVERFLOWARROW);
+					Color[0] = FarColorToReal( COLOR_FOCUS_IF (Flags & DIF_NOFOCUS, COL_WARNDIALOGEDITUNCHANGED, COL_WARNDIALOGEDIT, DisabledItem, COL_WARNDIALOGEDITDISABLED) );
+					Color[1] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_WARNDIALOGEDITSELECTED, COL_WARNDIALOGEDITDISABLED) );
+					Color[2] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_WARNDIALOGEDITUNCHANGED, COL_WARNDIALOGEDITDISABLED) );
+					Color[3] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_WARNDIALOGTEXT, COL_WARNDIALOGDISABLED) );
+					Color[4] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_WARNDIALOGOVERFLOWARROW, COL_WARNDIALOGDISABLED) );
 				}
 				else
 				{
-					// Text
-					Color[0] = FarColorToReal(DisabledItem? COL_DIALOGEDITDISABLED : Flags & DIF_NOFOCUS? COL_DIALOGEDITUNCHANGED : COL_DIALOGEDIT);
-					// Select
-					Color[1] = FarColorToReal(DisabledItem? COL_DIALOGEDITDISABLED : COL_DIALOGEDITSELECTED);
-					// Unchanged
-					Color[2] = FarColorToReal(DisabledItem ? COL_DIALOGEDITDISABLED : COL_DIALOGEDITUNCHANGED);
-					// History
-					Color[3] = FarColorToReal(DisabledItem? COL_DIALOGDISABLED : COL_DIALOGTEXT);
-					// Overflow arrow
-					Color[4] = FarColorToReal(DisabledItem? COL_DIALOGDISABLED : COL_DIALOGOVERFLOWARROW);
+					Color[0] = FarColorToReal( COLOR_FOCUS_IF (Flags & DIF_NOFOCUS, COL_DIALOGEDITUNCHANGED, COL_DIALOGEDIT, DisabledItem, COL_DIALOGEDITDISABLED) );
+					Color[1] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_DIALOGEDITSELECTED, COL_DIALOGEDITDISABLED) );
+					Color[2] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_DIALOGEDITUNCHANGED, COL_DIALOGEDITDISABLED) );
+					Color[3] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_DIALOGTEXT, COL_DIALOGDISABLED) );
+					Color[4] = FarColorToReal( COLOR_D_IF (DisabledItem, COL_DIALOGOVERFLOWARROW, COL_DIALOGDISABLED) );
 				}
 			}
+
+			if (IsWxBackend() && Opt.Backend.UseModernLook && !DisabledItem && !Focus && (Hover || Pressed)) {
+				Color[0] = SoftenItemColor(Color[0], Focus, Hover, Pressed, 0);
+				Color[1] = SoftenItemColor(Color[1], Focus, Hover, Pressed, 0);
+				Color[2] = SoftenItemColor(Color[2], Focus, Hover, Pressed, 0);
+			}
+
 			break;
 /**
 			if (Type == DI_COMBOBOX && (Flags & DIF_DROPDOWNLIST)) {
@@ -1766,6 +1837,10 @@ DWORD Dialog::CtlColorDlgItem(int ItemPos, const DialogItemEx *CurItem, uint64_t
 	DWORD out = DlgProc((HANDLE)this, DN_CTLCOLORDLGITEM, ItemPos, (LONG_PTR)Color);
 	--InCtlColorDlgItem;
 	return out;
+#undef COLOR_IF
+#undef COLOR_DFL_IF
+#undef COLOR_FOCUS_IF
+#undef COLOR_D_IF
 }
 
 /*
@@ -1780,6 +1855,38 @@ static void SetColorFrame(DWORD Attr, const std::unique_ptr<DialogItemTrueColors
 }
 */
 
+int Dialog::IsLastBevelPriorToButtons(int _I) {
+	unsigned I = _I < 0 ? 0 : (unsigned)_I;
+	return I < ItemCount - 1 && Item[I + 1]->Type == DI_BUTTON && (Item[I + 1]->Flags & DIF_CENTERGROUP);
+}
+
+bool Dialog::IsOkCancelButtons(int _I) {
+	unsigned I = _I < 0 ? 0 : (unsigned)_I;
+	return I < ItemCount && Item[I]->Type == DI_BUTTON && (Item[I]->Flags & DIF_CENTERGROUP);
+}
+
+void Dialog::CountBorders(int& BorderY1, int& BorderY2) {
+	BorderY1 = Y1;
+	BorderY2 = Y2;
+	if (MaxY2 != Y2) {
+		// Actually
+
+		int deltaY = -Y1 + 1;
+		for (int I = 0; I < (int)ItemCount; I++) {
+			if (Item[I]->Flags & DIF_HIDDEN) continue;
+
+			if (IsOkCancelButtons(I)) {
+				BorderY2 = std::min(BorderY2, Y1 + Item[I]->Y2 - (MaxY2 - Y2) - 1);
+			}
+			if (Item[I]->Type == DI_DOUBLEBOX) 
+				BorderY1 = Y1 + Item[I]->Y1 + 1;
+		}
+		BorderY2 += deltaY;
+		BorderY1 += deltaY;
+		// fprintf(stderr, "Y in [%d, %d] in [%d, %d/%d]\n", BorderY1, BorderY2, Y1, Y2, MaxY2);
+	}
+}
+
 //////////////////////////////////////////////////////////////////////////
 /*
 	Private:
@@ -1791,6 +1898,8 @@ void Dialog::ShowDialog(unsigned ID)
 
 	if (Locked())
 		return;
+
+	CloseX = CloseY = -1;
 
 	FARString strStr;
 	DialogItemEx *CurItem;
@@ -1859,8 +1968,25 @@ void Dialog::ShowDialog(unsigned ID)
 		SetCursorType(CursorVisible, CursorSize);
 	}
 
+	if (Opt.Backend.UseModernLook && IsWxBackend()){ 
+		ID = 0; // draw everything always: backend will filter the rendering area
+		DrawItemCount = ItemCount;
+	}
+
+	dialogBox = false;
+
+	// vk: count borders for scrolling
+	int BorderY1 = Y1, BorderY2 = Y2;
+	CountBorders(BorderY1, BorderY2);
+
+	HintBeginContainer();
+	Hint(X1, Y1, X2, Y2, HintDialog, HintObjectNone);
 	for (I = ID; I < DrawItemCount; I++) {
 		CurItem = Item[I];
+
+		bool no_scroll = MaxY2 == Y2;
+
+		if (!no_scroll && IsOkCancelButtons(I)) no_scroll = true;
 
 		if (CurItem->Flags & DIF_HIDDEN)
 			continue;
@@ -1875,24 +2001,59 @@ void Dialog::ShowDialog(unsigned ID)
 
 		int LenText;
 		short CX1 = CurItem->X1;
-		short CY1 = CurItem->Y1;
+		short CY1 = CurItem->Y1;                               
 		short CX2 = CurItem->X2;
 		short CY2 = CurItem->Y2;
 
 		if (CX2 > X2 - X1)
 			CX2 = X2 - X1;
 
-		if (CY2 > Y2 - Y1)
-			CY2 = Y2 - Y1;
+		if (CY2 > MaxY2 - Y1)
+			CY2 = MaxY2 - Y1;
 
-		short CW = CX2 - CX1 + 1;
-		short CH = CY2 - CY1 + 1;
+		/*if (IsOkCancelButtons(I)) {
+			CY1 = CY2 = BorderY2;
+		}*/
 
 		CtlColorDlgItem(I, CurItem, ItemColor);
 
 		for (size_t g = 0; g < DLG_ITEM_MAX_CUST_COLORS; g++)
 			if (CurItem->customItemColor[g])
 				ItemColor[g] = CurItem->customItemColor[g];
+
+		// drawing hacks here
+		bool dialogBoxFound = false;
+		if (Opt.Backend.UseModernLook || Opt.Dialogs.EliminateOuterBorders) {
+			// main border: rearrange to real corners
+			if (CurItem->Type == DI_DOUBLEBOX /* && CX1 == 2 && CX2 == X2 - -X1 - 2 && CY1 == 1 && CY2 == Y2 - Y1 - 1*/) {
+				if (Opt.Backend.UseModernLook) {
+					CX1 = 0; 
+					CX2 = X2 - X1; 
+					CY1 = 0; 
+					CY2 = Y2 - Y1;
+				}
+
+				if (Opt.Dialogs.EliminateOuterBorders) {
+					CY2 = CY1;
+					CX1 = 1;
+					CX2 = X2 - X1 - 2;
+				}
+
+				dialogBoxFound = true;	
+			}
+		}
+
+		if (!no_scroll && dialogBoxFound) no_scroll = true;
+
+		int CScrollY = 0;
+		if (!no_scroll) {
+			// skip elements that ain't visible due to scrolling
+			if (CY2 + ScrollY < BorderY1)  
+				continue;
+			if (CY1 + ScrollY > BorderY2)
+			 	continue;
+			CScrollY = ScrollY;
+		}
 
 #if 0
 
@@ -1903,12 +2064,15 @@ void Dialog::ShowDialog(unsigned ID)
 
 #endif
 
+		short CW = CX2 - CX1 + 1;
+		short CH = CY2 - CY1 + 1;
+
 		switch (CurItem->Type) {
 				/* ***************************************************************** */
 			case DI_SINGLEBOX:
 			case DI_DOUBLEBOX: {
 				BOOL IsDrawTitle = TRUE;
-				GotoXY(X1 + CX1, Y1 + CY1);
+				GotoXY(X1 + CX1, Y1 + CY1 + CScrollY);
 //				SetColorFrame(Attr, CurItem->TrueColors);
 				SetColor(ItemColor[2]);
 
@@ -1917,14 +2081,35 @@ void Dialog::ShowDialog(unsigned ID)
 				} else if (CX1 == CX2) {
 					DrawLine(CY2 - CY1 + 1, CurItem->Type == DI_SINGLEBOX ? 10 : 11);
 					IsDrawTitle = FALSE;
+					dialogBoxFound = false;
 				} else {
 					Box(X1 + CX1, Y1 + CY1, X1 + CX2, Y1 + CY2, ItemColor[2],
 							(CurItem->Type == DI_SINGLEBOX) ? SINGLE_BOX : DOUBLE_BOX);
 				}
 
+				if (dialogBoxFound && Opt.Backend.UseModernLook) {
+                	CloseX = X1 + CX2 - 1; // - (IsWxBackend() ? 0 : 1);
+                    CloseY = Y1 + CY1;
+                    dialogBox = true;
+
+					GotoXY(CloseX, CloseY);
+                    strStr = L"✘"; // IsWxBackend() ? L"✖" : L"❌";
+                    SetColor(SoftenItemColor(ItemColor[0], CurItem->Focus, CurItem->Hover, CurItem->Pressed, 0));
+					Text(strStr);
+				}
+
+                /*
+				if (Opt.Backend.UseModernLook && Resizable) {
+					GotoXY(X1 + (X2 - X1) / 2, Y2);
+                    SetColor(SoftenItemColor(ItemColor[0], CurItem->Focus, CurItem->Hover, CurItem->Pressed, 0));
+                    strStr = L"┉┉";
+					Text(strStr);
+				}*/
+
 				if (!CurItem->strData.IsEmpty() && IsDrawTitle) {
 					// ! Пусть диалог сам заботится о ширине собственного заголовка.
 					strStr = CurItem->strData;
+					// if (Opt.Backend.UseModernLook) CW = X2 - X1 - 2;
 					TruncStrFromEnd(strStr, CW - 2);	// 5 ???
 					LenText = LenStrItem(I, strStr);
 
@@ -1940,17 +2125,36 @@ void Dialog::ShowDialog(unsigned ID)
 
 					X = X1 + CX1 + (CW - LenText) / 2;
 
-					if ((CurItem->Flags & DIF_LEFTTEXT) && X1 + CX1 + 1 < X)
+					if (Opt.Backend.UseModernLook || ((CurItem->Flags & DIF_LEFTTEXT) && X1 + CX1 + 1 < X))
 						X = X1 + CX1 + 1;
 
 //					SetColorNormal(Attr, CurItem->TrueColors);
 					SetColor(ItemColor[0]);
-					GotoXY(X, Y1 + CY1);
+					GotoXY(X, Y1 + CY1 + CScrollY);
 
 					if (CurItem->Flags & DIF_SHOWAMPERSAND)
 						Text(strStr);
 					else
 						HiText(strStr, ItemColor[1]);
+
+					if (Opt.Backend.UseModernLook) {
+						MiniToolX = X + strStr.CellsCount();
+						MiniToolY = Y1 + CY1 + CScrollY;
+						GotoXY(MiniToolX, MiniToolY);
+
+						strStr = L"📎";
+    	                SetColor(SoftenItemColor(ItemColor[0], CurItem->Focus, MiniToolHover == 0, CurItem->Pressed, 0));
+						Text(strStr);
+
+						strStr = L"🔍";
+    	                SetColor(SoftenItemColor(ItemColor[0], CurItem->Focus, MiniToolHover == 1, CurItem->Pressed, 0));
+						Text(strStr);
+					}
+					
+					Hint(X1 + CX1, Y1 + CY1 + CScrollY, X1 + CX2, Y1 + CY1 + CScrollY, HintDialog, HintBox);
+					Hint(X1 + CX1, Y1 + CY1 + CScrollY, X1 + CX1, Y1 + CY2 + CScrollY, HintDialog, HintBox);
+					Hint(X1 + CX2, Y1 + CY1 + CScrollY, X1 + CX2, Y1 + CY2 + CScrollY, HintDialog, HintBox);
+					Hint(X1 + CX2, Y1 + CY1 + CScrollY, X1 + CX2, Y1 + CY2 + CScrollY, HintDialog, HintBox);
 
 /**
 					if (CurItem->Flags & DIF_SHOWAMPERSAND)
@@ -1960,7 +2164,17 @@ void Dialog::ShowDialog(unsigned ID)
 					else
 						HiText(strStr, ItemColor[1]);
 **/
+					if (findEditBox) {
 
+        				DlgEdit *EditPtr = findEditBox;
+       					EditPtr->SetOverflowArrowsColor(0);
+   						SetCursorType(1, -1);
+       					EditPtr->Show();
+
+						int EditX1, EditY1, EditX2, EditY2;
+        				EditPtr->GetPosition(EditX1, EditY1, EditX2, EditY2);
+        				Hint(EditX1, EditY1, EditX2, EditY2, HintDialog, HintMemoEdit, true, false, false);
+					}
 				}
 
 				break;
@@ -1974,12 +2188,24 @@ void Dialog::ShowDialog(unsigned ID)
 						&& (CurItem->Flags & DIF_CENTERTEXT) && CX1 != -1)
 					LenText = LenStrItem(I, CenterStr(strStr, strStr, CX2 - CX1 + 1));
 
-				X = (CX1 == -1 || (CurItem->Flags & (DIF_SEPARATOR | DIF_SEPARATOR2)))
-						? (X2 - X1 + 1 - LenText) / 2
-						: CX1;
+				X = (CX1 == -1) ? (X2 - X1 + 1 - LenText) / 2 : CX1;
+
+				if (CurItem->Flags & (DIF_SEPARATOR | DIF_SEPARATOR2)) {
+					X = (X2 - X1 + 1 - LenText) / 2;
+
+					if (Opt.Backend.UseModernLook && CX1 >= 0)
+						X = CX1 + 1;
+					if ((Opt.Backend.UseModernLook || Opt.Dialogs.EliminateOuterBorders) && 
+							CurItem->strData.GetLength() == 0 && 
+							IsLastBevelPriorToButtons(I)) {
+						// crazy plug-in based bevel over the buttons line -> skip it!
+						CurItem->Flags &= ~(DIF_SEPARATOR | DIF_SEPARATOR2);
+					}
+				}
+
 				Y = (CY1 == -1) ? (Y2 - Y1 + 1) / 2 : CY1;
 
-				if (X < 0)
+				if (X < 0) 
 					X = 0;
 
 				if ((CX2 <= 0) || (CX2 < CX1))
@@ -2003,7 +2229,7 @@ void Dialog::ShowDialog(unsigned ID)
 					int CntChr = CX2 - CX1 + 1;
 //					SetColorNormal(Attr, CurItem->TrueColors);
 					SetColor(ItemColor[0]);
-					GotoXY(X1 + X, Y1 + Y);
+					GotoXY(X1 + X, Y1 + Y + CScrollY);
 
 					if (X1 + X + CntChr - 1 > X2)
 						CntChr = X2 - (X1 + X) + 1;
@@ -2020,7 +2246,7 @@ void Dialog::ShowDialog(unsigned ID)
 						/*
 						int CntChr=CX2-CX1+1;
 						SetColor(ItemColor[0]);
-						GotoXY(X1+X,Y1+Y);
+						GotoXY(X1+X, Y1+Y + CScrollY);
 
 						if (X1+X+CntChr-1 > X2)
 							CntChr=X2-(X1+X)+1;
@@ -2035,11 +2261,11 @@ void Dialog::ShowDialog(unsigned ID)
 				if (CurItem->Flags & (DIF_SEPARATORUSER | DIF_SEPARATOR | DIF_SEPARATOR2)) {
 //					SetColorFrame(Attr, CurItem->TrueColors);
 					SetColor(ItemColor[2]);
-					GotoXY(X1
-									+ ((CurItem->Flags & DIF_SEPARATORUSER)
-													? X
-													: (!DialogMode.Check(DMODE_SMALLDIALOG) ? 3 : 0)),
-							Y1 + Y);	//????
+					GotoXY(X1 + 
+								((CurItem->Flags & DIF_SEPARATORUSER)
+								? X
+								: (!DialogMode.Check(DMODE_SMALLDIALOG) ? 3 : 0)),
+							Y1 + Y + CScrollY);	//????
 					ShowUserSeparator((CurItem->Flags & DIF_SEPARATORUSER)
 									? X2 - X1 + 1
 									: RealWidth - (!DialogMode.Check(DMODE_SMALLDIALOG) ? 6 : 0 /* -1 */),
@@ -2047,11 +2273,12 @@ void Dialog::ShowDialog(unsigned ID)
 									? 12
 									: (CurItem->Flags & DIF_SEPARATOR2 ? 3 : 1),
 							CurItem->strMask);
+					HintAt(HintDialog, HintLine, false, false, (CurItem->Flags & DIF_DISABLE) != 0);
 				}
 
 //				SetColorNormal(Attr, CurItem->TrueColors);
 				SetColor(ItemColor[0]);
-				GotoXY(X1 + X, Y1 + Y);
+				GotoXY(X1 + X, Y1 + Y + CScrollY);
 
 				if (CurItem->Flags & DIF_SHOWAMPERSAND) {
 					// MessageBox(0, strStr, strStr, MB_OK);
@@ -2060,6 +2287,7 @@ void Dialog::ShowDialog(unsigned ID)
 					// MessageBox(0, strStr, strStr, MB_OK);
 					HiText(strStr, ItemColor[1]);
 				}
+				HintAt(HintDialog, HintText, false, false, (CurItem->Flags & DIF_DISABLE) != 0);
 
 				break;
 			}
@@ -2101,7 +2329,7 @@ void Dialog::ShowDialog(unsigned ID)
 					int CntChr = CY2 - CY1 + 1;
 					SetColor(ItemColor[0]);
 //					SetColorNormal(Attr, CurItem->TrueColors);
-					GotoXY(X1 + X, Y1 + Y);
+					GotoXY(X1 + X, Y1 + Y + CScrollY);
 
 					if (Y1 + Y + CntChr - 1 > Y2)
 						CntChr = Y2 - (Y1 + Y) + 1;
@@ -2118,7 +2346,7 @@ void Dialog::ShowDialog(unsigned ID)
 					/*
 					int CntChr=CY2-CY1+1;
 					SetColor(ItemColor[0]);
-					GotoXY(X1+X,Y1+Y);
+					GotoXY(X1+X, Y1+Y + CScrollY);
 
 					if (Y1+Y+CntChr-1 > Y2)
 						CntChr=Y2-(Y1+Y)+1;
@@ -2136,7 +2364,7 @@ void Dialog::ShowDialog(unsigned ID)
 //					SetColorFrame(Attr, CurItem->TrueColors);
 					SetColor(ItemColor[2]);
 					GotoXY(X1 + X,
-							Y1
+							Y1 + CScrollY
 									+ ((CurItem->Flags & DIF_SEPARATORUSER)
 													? Y
 													: (!DialogMode.Check(DMODE_SMALLDIALOG) ? 1 : 0)));		//????
@@ -2147,51 +2375,62 @@ void Dialog::ShowDialog(unsigned ID)
 									? 13
 									: (CurItem->Flags & DIF_SEPARATOR2 ? 7 : 5),
 							CurItem->strMask);
+					HintAt(HintDialog, HintLine, false, false, (CurItem->Flags & DIF_DISABLE) != 0);
 				}
 
 #endif
 				SetColor(ItemColor[0]);
 //				SetColorNormal(Attr, CurItem->TrueColors);
-				GotoXY(X1 + X, Y1 + Y);
+				GotoXY(X1 + X, Y1 + Y + CScrollY);
 
 				if (CurItem->Flags & DIF_SHOWAMPERSAND)
 					VText(strStr);
 				else
 					HiText(strStr, ItemColor[1], TRUE);
-
+				HintAt(HintDialog, HintText, false, false, (CurItem->Flags & DIF_DISABLE) != 0);
 				break;
 			}
 			/* ***************************************************************** */
 			case DI_CHECKBOX:
 			case DI_RADIOBUTTON: {
+				FARString checkMark;
+
 //				SetColorNormal(Attr, CurItem->TrueColors);
 				SetColor(ItemColor[0]);
-				GotoXY(X1 + CX1, Y1 + CY1);
+				GotoXY(X1 + CX1, Y1 + CY1 + CScrollY);
 
 				if (CurItem->Type == DI_CHECKBOX) {
-					const wchar_t Check[] = {L'[',
+					const wchar_t Check[] = {
+						(Opt.Backend.UseModernLook ? L' ' : L'['),
 							(CurItem->Selected ? (((CurItem->Flags & DIF_3STATE) && CurItem->Selected == 2)
 												? *Msg::CheckBox2State
-												: L'x')
-												: L' '),
-							L']', L'\0'};
+												: ( Opt.Backend.UseModernLook ? L'✔' /* ☑️ ☒ ✔️✓ ✅ */ : L'x'))
+												: ( Opt.Backend.UseModernLook ? L'☐' /* L'✘' 🔲 🔳 ▢ ☐ ⧠ ✖️ X ✘ X ❌ ❎ */ : L' ')),
+						(Opt.Backend.UseModernLook ? L' ' : L']'), L'\0'};
 					strStr = Check;
+
+					checkMark = Check;
 
 					if (CurItem->strData.GetLength())
 						strStr+= L" ";
 				} else {
-					wchar_t Dot[] = {L' ', CurItem->Selected ? L'\x2022' : L' ', L' ', L'\0'};
+					wchar_t Dot[] = {L' ', CurItem->Selected ? 
+						( Opt.Backend.UseModernLook ? L'⦿' : L'\x2022') : 
+						( Opt.Backend.UseModernLook ? L'◯' : L' '), 
+						L' ', L'\0'};
 
 					if (CurItem->Flags & DIF_MOVESELECT) {
 						strStr = Dot;
 					} else {
-						Dot[0] = L'(';
-						Dot[2] = L')';
+						Dot[0] = Opt.Backend.UseModernLook ? L' ' : L'(';
+						Dot[2] = Opt.Backend.UseModernLook ? L' ' : L')';
 						strStr = Dot;
 
 						if (CurItem->strData.GetLength())
 							strStr+= L" ";
 					}
+
+					checkMark = Dot; 
 				}
 
 				strStr+= CurItem->strData;
@@ -2204,34 +2443,121 @@ void Dialog::ShowDialog(unsigned ID)
 					Text(strStr);
 				else
 					HiText(strStr, ItemColor[1]);
+				HintAt(HintDialog, HintCheckbox, CurItem->Focus, CurItem->Hover, (CurItem->Flags & DIF_DISABLE) != 0, CurItem->Selected);
+
+				if (Opt.Backend.UseModernLook) {
+					if(!IsWxBackend()) {
+						SetColor(SoftenItemColor(GetAccentColors(ItemColor[0]), CurItem->Focus, CurItem->Hover, CurItem->Pressed, 0));
+						GotoXY(X1 + CX1, Y1 + CY1 + CScrollY);
+						Text(checkMark);
+					}
+					else {
+						// check status needs to be changed on both places
+						SetColor(SoftenItemColor(ItemColor[0], CurItem->Focus, CurItem->Hover, CurItem->Pressed, CurItem->Selected));
+						// SetColor(SoftenItemColor(GetAccentColors(ItemColor[0]), CurItem->Focus, CurItem->Hover, CurItem->Pressed, 0));
+						GotoXY(X1 + CX1 + 1, Y1 + CY1 + CScrollY);
+						Text(checkMark.LShift(1));
+					}
+				}
 
 				if (CurItem->Focus) {
 					// Отключение мигающего курсора при перемещении диалога
-					if (!DialogMode.Check(DMODE_DRAGGED))
-						SetCursorType(1, -1);
-
-					MoveCursor(X1 + CX1 + 1, Y1 + CY1);
+					if (!Opt.Backend.UseModernLook) {
+						if (!DialogMode.Check(DMODE_DRAGGED)) SetCursorType(1, -1);
+						MoveCursor(X1 + CX1 + 1, Y1 + CY1 + CScrollY);
+					}
 				}
 
 				break;
 			}
 			/* ***************************************************************** */
 			case DI_BUTTON: {
+				bool drawn = false;
+
 				strStr = CurItem->strData;
 				SetColor(ItemColor[0]);
 //				SetColorNormal(Attr, CurItem->TrueColors);
-				GotoXY(X1 + CX1, Y1 + CY1);
-
-				if (CurItem->Flags & DIF_SHOWAMPERSAND)
-					Text(strStr);
+				if (IsOkCancelButtons(I) && Y2 != MaxY2)
+					GotoXY(X1 + CX1, Y1 + CY1 - (MaxY2 - Y2) + 1);
 				else
-					HiText(strStr,ItemColor[1]);
-//					HiText(strStr, HIBYTE(LOWORD(Attr)));
+					GotoXY(X1 + CX1, Y1 + CY1 + CScrollY);
+
+				if ((CurItem->Flags & DIF_NOBRACKETS) == 0 && (strStr.At(0) == L'{' || strStr.At(0) == L'[')) {
+    				if (CurItem->Focus) { 
+    					strStr.ReplaceChar(0, L'►');
+    					strStr.ReplaceChar(strStr.GetLength() - 1, L'◄'); 
+    					strStr.ReplaceChar(1, CurItem->DefaultButton ? L'★' : L' ');
+    					strStr.ReplaceChar(strStr.GetLength() - 2, L' '); 
+    				}
+    				else {
+    					// modern + wx: no brackets
+    					// modern + !wx: unicode glyphs
+    					// !modern: old crazy brackets
+
+    					if(Opt.Backend.UseModernLook) {
+    						strStr.ReplaceChar(1, CurItem->DefaultButton ? L'★' : L' ');
+    						if (IsWxBackend() /*&& Opt.Backend.Use3D*/) {
+    							strStr.ReplaceChar(0, L' ');
+    							strStr.ReplaceChar(strStr.GetLength() - 1, L' '); 
+    						}
+    						else {
+    							strStr.ReplaceChar(strStr.GetLength() - 2, CurItem->DefaultButton ? L'★' : L' ');  // •
+
+	                        	SetColor(ItemColor[0]);
+	   							//strStr.ReplaceChar(0, L'❲');
+    							//strStr.ReplaceChar(strStr.GetLength() - 1, L'❳'); 
+    							strStr.ReplaceChar(0, L' ');
+    							strStr.ReplaceChar(strStr.GetLength() - 1, L' '); 
+
+	           					if (!(CurItem->Flags & DIF_SHOWAMPERSAND)) 
+	           					{
+    	                            FARString left = strStr.SubStr(0, 1);
+        	                        FARString text = strStr.SubStr(1, strStr.GetLength() - 2);
+            	                    FARString right = strStr.SubStr(strStr.GetLength() - 1);
+
+            						Text(left);
+                                   	// SetColor(COMMON_LVB_UNDERSCORE | ItemColor[0]);
+                                    SetColor(COMMON_LVB_UNDERSCORE |
+                                    	// SoftenItemColor(GetAccentColors(ItemColor[0]), CurItem->Focus, CurItem->Hover, CurItem->Pressed, 0));
+                                        GetLinkColor(ItemColor[0]));
+            						HiText(text, COMMON_LVB_UNDERSCORE | ItemColor[1]);
+                                    SetColor(ItemColor[0]);
+            						Text(right);
+
+                                    drawn = true;
+            					}
+    						}
+    					}
+    					else {
+    						strStr.ReplaceChar(0, CurItem->DefaultButton ? L'{' : L'[');
+    						strStr.ReplaceChar(strStr.GetLength() - 1, CurItem->DefaultButton ? L'}' : L']'); 
+    					}
+    				}
+				}
+
+				if (!drawn) {
+					if (CurItem->Flags & DIF_SHOWAMPERSAND)
+						Text(strStr);
+					else
+						HiText(strStr,ItemColor[1]);
+				}
 
 				if (CurItem->Flags & DIF_SETSHIELD) {
 					int startx = X1 + CX1 + (CurItem->Flags & DIF_NOBRACKETS ? 0 : 2);
-					ScrBuf.ApplyColor(startx, Y1 + CY1, startx + 1, Y1 + CY1, 0xE9);
+					ScrBuf.ApplyColor(startx, Y1 + CY1 + CScrollY, startx + 1, Y1 + CY1 + CScrollY, 0xE9);
 				}
+				HintAt(HintDialog, HintButton, 
+					CurItem->Focus, false, 
+					(CurItem->Flags & DIF_DISABLE) != 0, 
+					CurItem->Selected, 
+					CurItem->DefaultButton,
+					(CurItem->Flags & DIF_NOBRACKETS) != 0);
+                /*
+        		fprintf(stderr, "button `%ls`: pos=%d,%d..%d,%d, focus=%c hover=%c disabled=%c\n", 
+                	strStr.GetWide().c_str(),
+        			X1 + CX1, Y1 + CY1, (int)(X1 + CX1 + strStr.GetLength()), Y1 + CY1,
+        			CurItem->Focus ? 'Y': 'n', false ? 'Y': 'n', (CurItem->Flags & DIF_DISABLE) != 0 ? 'Y': 'n');
+                */
 				break;
 			}
 			/* ***************************************************************** */
@@ -2268,18 +2594,20 @@ void Dialog::ShowDialog(unsigned ID)
 				if (DialogMode.Check(DMODE_DRAGGED))
 					SetCursorType(0, 0);
 
+				int EditX1, EditY1, EditX2, EditY2;
+				EditPtr->GetPosition(EditX1, EditY1, EditX2, EditY2);
 				if (ItemHasDropDownArrow(CurItem)) {
-					int EditX1, EditY1, EditX2, EditY2;
-					EditPtr->GetPosition(EditX1, EditY1, EditX2, EditY2);
 					// Text((CurItem->Type == DI_COMBOBOX?"\x1F":"\x19"));
 					Text(EditX2 + 1, EditY1, ItemColor[3], L"\x2193");
+                    ++EditX2;
 				}
 
-				if (CurItem->Type == DI_COMBOBOX && GetDropDownOpened() && CurItem->ListPtr->IsVisible())		// need redraw VMenu?
-				{
+				if (CurItem->Type == DI_COMBOBOX && GetDropDownOpened() && CurItem->ListPtr->IsVisible()) { // need redraw VMenu?
 					CurItem->ListPtr->Hide();
 					CurItem->ListPtr->Show();
 				}
+
+				Hint(EditX1, EditY1 + CScrollY, EditX2, EditY2 + CScrollY, HintDialog, HintMemoEdit, CurItem->Focus, false, (CurItem->Flags & DIF_DISABLE) != 0);
 
 				break;
 			}
@@ -2302,6 +2630,10 @@ void Dialog::ShowDialog(unsigned ID)
 					GetCursorType(CursorVisible, CursorSize);
 					CurItem->ListPtr->Show();
 
+					int EditX1, EditY1, EditX2, EditY2;
+					CurItem->ListPtr->GetPosition(EditX1, EditY1, EditX2, EditY2);
+					Hint(EditX1, EditY1 + CScrollY, EditX2, EditY2 + CScrollY, HintDialog, HintListBox, CurItem->Focus, false, (CurItem->Flags & DIF_DISABLE) != 0);
+
 					// .. а теперь восстановим!
 					if (FocusPos != I)
 						SetCursorType(CursorVisible, CursorSize);
@@ -2313,22 +2645,25 @@ void Dialog::ShowDialog(unsigned ID)
 			/* ***************************************************************** */
 			case DI_USERCONTROL:
 				if (CurItem->Reserved > 0xff) {
-					PutText(X1 + CX1, Y1 + CY1, X1 + CX2, Y1 + CY2, CurItem->VBuf);
+					PutText(X1 + CX1, Y1 + CY1 + CScrollY, X1 + CX2, Y1 + CY2 + CScrollY, CurItem->VBuf);
+					Hint(X1 + CX1, Y1 + CY1 + CScrollY, X1 + CX2, Y1 + CY2 + CScrollY, HintDialog, HintUserControl, CurItem->Focus, false, (CurItem->Flags & DIF_DISABLE) != 0);
 				} else { // fill with spaces of given attibutes
 					CHAR_INFO ci{};
 					CI_SET_WCHAR(ci, L' ');
 					CI_SET_ATTR(ci, FarColorToReal(CurItem->Reserved));
-					for (auto Y = Y1 + CY1; Y <= Y1 + CY2; ++Y) {
+					for (auto Y = Y1 + CY1 + CScrollY; Y <= Y1 + CY2 + CScrollY; ++Y) {
 						for (auto X = X1 + CX1; X <= X1 + CX2; ++X) {
 							PutText(X, Y, X, Y, &ci);
+							Hint(X, Y, X, Y, HintDialog, HintUserControl, CurItem->Focus, false, (CurItem->Flags & DIF_DISABLE) != 0);
 						}
 					}
 				}
+
 				// не забудем переместить курсор, если он позиционирован.
 				if (FocusPos == I) {
 					if (CurItem->UCData->CursorPos.X != -1 && CurItem->UCData->CursorPos.Y != -1) {
 						MoveCursor(CurItem->UCData->CursorPos.X + CX1 + X1,
-								CurItem->UCData->CursorPos.Y + CY1 + Y1);
+								CurItem->UCData->CursorPos.Y + CY1 + Y1 + CScrollY);
 						SetCursorType(CurItem->UCData->CursorVisible, CurItem->UCData->CursorSize);
 					} else
 						SetCursorType(0, -1);
@@ -2341,6 +2676,17 @@ void Dialog::ShowDialog(unsigned ID)
 		}	// end switch(...
 	}		// end for (I=...
 
+	// add vertical scroll if needed
+	if (Y2 != MaxY2) {
+		auto color = FarColorToReal(COL_DIALOGLISTSCROLLBAR);
+		color = SoftenItemColor(color, false, ScrollBarHover ? 1 : 0, ScrollBarPressed ? 1 : 0, 0);
+		SetColor(color);
+		ScrollBar(X2 - 1, Y1 + 3, BorderY2 - BorderY1 + 1, std::abs(ScrollY), MaxY2 - Y2);
+		Hint(X2 - 1, Y1 + 3, X2 - 1, Y1 + 3 + BorderY2 - BorderY1 + 1, HintDialog, HintScrollBar,
+			/* focused */ true, ScrollBarHover, /* disabled */ false, ScrollBarPressed);
+	}
+	HintEndContainer();
+
 	// КОСТЫЛЬ!
 	// но работает ;-)
 	for (I = 0; I < ItemCount; I++) {
@@ -2349,7 +2695,9 @@ void Dialog::ShowDialog(unsigned ID)
 		if (CurItem->ListPtr && GetDropDownOpened() && CurItem->ListPtr->IsVisible()) {
 			if ((CurItem->Type == DI_COMBOBOX)
 					|| ((CurItem->Type == DI_EDIT || CurItem->Type == DI_FIXEDIT)
-							&& !(CurItem->Flags & DIF_HIDDEN) && (CurItem->Flags & DIF_HISTORY))) {
+							&& !(CurItem->Flags & DIF_HIDDEN) 
+							&& IsItemVisible(I, BorderY1, BorderY2)
+							&& (CurItem->Flags & DIF_HISTORY))) {
 				CurItem->ListPtr->Show();
 			}
 		}
@@ -2464,6 +2812,7 @@ int Dialog::ProcessMoveDialog(DWORD Key)
 					if (Y2 > 0) {
 						Y1--;
 						Y2--;
+						MaxY2--;
 						AdjustEditPos(0, -1);
 					}
 
@@ -2486,6 +2835,7 @@ int Dialog::ProcessMoveDialog(DWORD Key)
 					if (Y1 < ScrY) {
 						Y1++;
 						Y2++;
+						MaxY2++;
 						AdjustEditPos(0, 1);
 					}
 
@@ -2511,6 +2861,7 @@ int Dialog::ProcessMoveDialog(DWORD Key)
 				X2 = OldX2;
 				Y1 = OldY1;
 				Y2 = OldY2;
+				MaxY2 = OldMaxY2;
 				DialogMode.Clear(DMODE_DRAGGED);
 
 				if (!DialogMode.Check(DMODE_ALTDRAGGED)) {
@@ -2539,6 +2890,7 @@ int Dialog::ProcessMoveDialog(DWORD Key)
 			OldX2 = X2;
 			OldY1 = Y1;
 			OldY2 = Y2;
+			OldMaxY2 = MaxY2;
 			// # GetText(0,0,3,0,LV);
 			Show();
 		}
@@ -2999,6 +3351,10 @@ int Dialog::ProcessKey(FarKey Key)
 		// $ 27.04.2001 VVM - Обработка колеса мышки
 		case KEY_MSWHEEL_UP:
 		case KEY_MSWHEEL_DOWN:
+			// vk: scroll dialog in case focus out of edit box
+			if (!IsItemScrollable(Item[FocusPos]) && Y2 != MaxY2) {
+				ScrollDialogUpDown(Key == KEY_MSWHEEL_DOWN ? -1 : 1);
+			}
 		case KEY_CTRLUP:
 		case KEY_CTRLNUMPAD8:
 		case KEY_CTRLDOWN:
@@ -3304,6 +3660,20 @@ int Dialog::ProcessKey(FarKey Key)
 	return FALSE;
 }
 
+bool Dialog::ScrollDialogUpDown(int deltaY) {
+	int OldScrollY = ScrollY;
+	ScrollY += deltaY;
+	if (ScrollY > 0) ScrollY = 0;
+	if ((MaxY2 - Y2) + ScrollY < 0) ScrollY = - (MaxY2 - Y2);
+	fprintf(stderr, "scroll Y = %d of %d/%d\n", ScrollY, Y2, MaxY2);
+	if (OldScrollY != ScrollY) { 
+		AdjustEditPos(0, ScrollY - OldScrollY);
+		ShowDialog();
+		return true;
+	}
+	return false;
+}
+
 void Dialog::ProcessKey(FarKey Key, unsigned ItemPos)
 {
 	unsigned SavedFocusPos = FocusPos;
@@ -3323,6 +3693,26 @@ void Dialog::ProcessKey(FarKey Key, unsigned ItemPos)
 	$ 18.08.2000 SVS
 	+ DN_MOUSECLICK
 */
+
+bool Dialog::IsItemVisible(int I, int BorderY1, int BorderY2) 
+{
+	if (Item[I]->Flags & DIF_HIDDEN) return false;
+	if (IsOkCancelButtons(I)) return true;
+
+	SMALL_RECT Rect;
+	GetItemRect(I, Rect);
+
+	Rect.Left+= X1;
+	Rect.Top+= Y1 + ScrollY;
+	Rect.Right+= X1;
+	Rect.Bottom+= Y1 + ScrollY;
+
+	if (Rect.Bottom < BorderY1) return false;
+	if (Rect.Top > BorderY2) return false;
+
+	return true;
+}
+
 int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 {
 	CriticalSectionLock Lock(CS);
@@ -3343,15 +3733,172 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 		return FALSE;
 
 	MsX = MouseEvent->dwMousePosition.X;
-	MsY = MouseEvent->dwMousePosition.Y;
+	MsY = MouseEvent->dwMousePosition.Y - ScrollY;
 
-	// for (I=0;I<ItemCount;I++)
+  	// first, we need actual borders
+	int BorderY1 = Y1, BorderY2 = Y2;
+	CountBorders(BorderY1, BorderY2);
+
+	/* last buttons that are pinned and not scrolled; no scroll  means MaxY2 == Y2 */
+	int MsBY = MouseEvent->dwMousePosition.Y + (MaxY2 - Y2) - 1; 
+	int MsOY = MouseEvent->dwMousePosition.Y;
+
+	// vk: Hover effect processing
+	if (Opt.Backend.UseModernLook && MouseEvent->dwEventFlags == MOUSE_MOVED) {
+		int oldHover = -1, newHover = -1;
+		MiniToolHover = -1;
+		ScrollBarHover = false;
+		for (I = ItemCount - 1; I != (unsigned)-1; I--) {
+			if (Item[I]->Hover) oldHover = I;
+			Item[I]->Hover = 0;
+			Item[I]->Pressed = 0;
+
+			// hover for close button / mini tool bar
+			if (dialogBox && (Item[I]->Type == DI_SINGLEBOX || Item[I]->Type == DI_DOUBLEBOX )) {
+				if (MsOY == CloseY && (MsX == CloseX || MsX == CloseX + 1)) {
+					Item[I]->Hover = 1;
+					newHover = I;
+				}
+				else if (MsOY == MiniToolY && (MsX == MiniToolX || MsX == MiniToolX + 1)) {
+					MiniToolHover = MsX == MiniToolX ? 0 : 1;
+					newHover = I;
+				}
+
+    			if (Y2 != MaxY2 && MsX == X2 - 1) {
+					if (MsOY >= BorderY1 && MsOY <= BorderY2) {
+						// we are on the scroll bar
+						ScrollBarHover = true;
+						newHover = I;
+					}
+				}
+			}
+
+			if (Item[I]->Flags & (DIF_DISABLE | DIF_HIDDEN)) continue;
+			if (!IsItemVisible(I, BorderY1, BorderY2)) continue;
+
+			GetItemRect(I, Rect);
+			Rect.Left+= X1;
+			Rect.Top+= Y1;
+			Rect.Right+= X1;
+			Rect.Bottom+= Y1;
+
+			if (MsX >= Rect.Left && MsY >= Rect.Top && MsX <= Rect.Right && MsY <= Rect.Bottom) {
+				if(IsItemFocusable(Item[I])) {
+					newHover = I;
+					Item[I]->Hover = 1;
+				}
+			}
+
+			if (IsOkCancelButtons(I) && IsItemFocusable(Item[I]) && 
+					MsX >= Rect.Left && MsX <= Rect.Right &&
+					MsBY >= Rect.Top && MsBY <= Rect.Bottom) {
+				newHover = I;
+				Item[I]->Hover = 1;
+			}
+		}
+		// return TRUE;
+
+		if (oldHover != newHover) {
+			ShowDialog();
+			return TRUE;
+		}
+	}
+
+	// vk: scroll bar control
+	if(MouseEvent->dwButtonState & (FROM_LEFT_1ST_BUTTON_PRESSED)) {
+	    if (Y2 != MaxY2 && MsX == X2 - 1 && (MouseEvent->dwButtonState & (FROM_LEFT_1ST_BUTTON_PRESSED))) {
+	    	// ScrollBar(X2 - 1, BorderY1, BorderY2 - BorderY1 + 1, std::abs(ScrollY), MaxY2 - Y2);
+			if (MsOY >= BorderY1 && MsOY <= BorderY2) {
+				// we are on the scroll bar
+				ScrollBarPressed = true;
+
+				if (ScrollBarPressed) {
+					if (MsOY == BorderY1 || MsOY == BorderY2) { // scroll bar arrows
+						if (ScrollDialogUpDown(MsOY == BorderY2 ? -1 : 1))
+							return TRUE;
+					}
+					else { /* band */
+						int page = (BorderY2 - BorderY1) / (MaxY2 - Y2);
+						int thumb = page * - ScrollY + BorderY1;
+						if (ScrollDialogUpDown(MsOY > thumb ? -1 : 1))
+							return TRUE;
+					}
+				}
+
+				ShowDialog();
+				return TRUE; // no further actions on top of scroll bar
+			}
+	    }
+    	else {
+    		ScrollBarPressed = false;
+            ShowDialog();
+        }
+    }
+
+	// vk: middle click, pinned buttons, close dialog button, scroll bar events
 	for (I = ItemCount - 1; I != (unsigned)-1; I--) {
-		if (Item[I]->Flags & (DIF_DISABLE | DIF_HIDDEN))
-			continue;
+		// close button / mini tool bar is here
+		if (dialogBox && (Item[I]->Type == DI_SINGLEBOX || Item[I]->Type == DI_DOUBLEBOX )) {
+			if (MsOY == CloseY && (MsX == CloseX || MsX == CloseX + 1) && MouseEvent->dwButtonState & (FROM_LEFT_1ST_BUTTON_PRESSED)) {
+				ProcessKey(KEY_ESC);
+				return TRUE;
+			}
+			else if (MsOY == MiniToolY && (MsX >= MiniToolX && MsX <= MiniToolX + 5) && MouseEvent->dwButtonState & (FROM_LEFT_1ST_BUTTON_PRESSED)) {
+				fprintf(stderr, ".mini tool bar %d\n", MsX - MiniToolX);
+				ProcessMiniToolBar(MsX - MiniToolX);
+				return TRUE;
+			}
+		}
+
+		if (Item[I]->Flags & (DIF_DISABLE | DIF_HIDDEN)) continue;
+		if (!IsItemVisible(I, BorderY1, BorderY2)) continue;
 
 		Type = Item[I]->Type;
 
+		GetItemRect(I, Rect);
+		Rect.Left+= X1;
+		Rect.Top+= Y1;
+		Rect.Right+= X1;
+		Rect.Bottom+= Y1;
+
+ 		// pinned buttons for scroll
+ 		if (Y2 != MaxY2 && Type == DI_BUTTON && (MouseEvent->dwButtonState & (FROM_LEFT_1ST_BUTTON_PRESSED)) && IsOkCancelButtons(I)) {
+			if (MsX >= Rect.Left && MsX <= Rect.Right &&
+					MsBY >= Rect.Top && MsBY <= Rect.Bottom) {
+	 			ChangeFocus2(I);
+ 				ShowDialog();
+
+				while (IsMouseButtonPressed()) ;
+
+ 				ShowDialog();
+
+                fprintf(stderr, "Click on pinned button %d: %d,%d/%d/%d in %d,%d..%d,%d/%d\n", I, MsX, MsOY, MsY, MsBY, X1, Y1, X2, Y2, MaxY2);
+
+				ProcessKey(KEY_ENTER, I);
+				return TRUE;
+            }
+ 		}
+
+        /* middle mouse click */ 
+		if ( MouseEvent->dwButtonState & (FROM_LEFT_2ND_BUTTON_PRESSED) ) {
+			if (MsX >= Rect.Left && MsY >= Rect.Top && MsX <= Rect.Right && MsY <= Rect.Bottom) {
+
+				if (FarIsEdit(Type)) {
+					DlgEdit *EditLine = (DlgEdit *)(Item[I]->ObjPtr);
+					ChangeFocus2(I);
+
+					if (EditLine->ProcessMouse(MouseEvent)) {
+						EditLine->SetClearFlag(0);	// а может это делать в самом edit?
+						ShowDialog();	// нужен ли только один контрол или весь диалог?
+						return TRUE;
+					} 
+				}
+
+				break;
+			}
+		}
+
+        // list box
 		if (Type == DI_LISTBOX && MsY >= Y1 + Item[I]->Y1 && MsY <= Y1 + Item[I]->Y2
 				&& MsX >= X1 + Item[I]->X1 && MsX <= X1 + Item[I]->X2) {
 			VMenu *List = Item[I]->ListPtr;
@@ -3415,10 +3962,8 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 						else
 							ProcessKey(KEY_ENTER, I);
 					}
-
 #endif
 				}
-
 				return TRUE;
 			} else {
 				if (!MouseEvent->dwButtonState
@@ -3457,7 +4002,8 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 			return TRUE;
 	}
 
-	if (MsX < X1 || MsY < Y1 || MsX > X2 || MsY > Y2) {
+	// click outside
+	if (MsX < X1 || MsOY < Y1 || MsX > X2 || MsOY > Y2) {
 		if (DialogMode.Check(DMODE_CLICKOUTSIDE)
 				&& !DlgProc((HANDLE)this, DN_MOUSECLICK, -1, (LONG_PTR)MouseEvent)) {
 			if (!DialogMode.Check(DMODE_SHOW))
@@ -3472,7 +4018,7 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 			else if (!(MouseEvent->dwButtonState & RIGHTMOST_BUTTON_PRESSED)
 					&& (PrevMouseButtonState & RIGHTMOST_BUTTON_PRESSED)
 					&& (Opt.Dialogs.MouseButton & DMOUSEBUTTON_RIGHT))
-				ProcessKey(KEY_ENTER);
+				ProcessKey(Opt.Dialogs.EnableAccidentalConfirmation ? KEY_ENTER : KEY_ESC);
 		}
 
 		if (MouseEvent->dwButtonState)
@@ -3480,6 +4026,7 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 
 		if (!MouseEvent->dwButtonState && FocusPos < ItemCount
 				&& !(Item[FocusPos]->Flags & (DIF_DISABLE | DIF_HIDDEN))
+				&& IsItemVisible(FocusPos, BorderY1, BorderY2)
 				&& FarIsEdit(Item[FocusPos]->Type)) {
 			DlgEdit *EditLine = (DlgEdit *)(Item[FocusPos]->ObjPtr);
 			EditLine->ProcessMouse(MouseEvent);
@@ -3507,12 +4054,14 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 		for (I = ItemCount - 1; I != (unsigned)-1; I--) {
 			if (Item[I]->Flags & (DIF_DISABLE | DIF_HIDDEN))
 				continue;
+			if (!IsItemVisible(I, BorderY1, BorderY2)) continue;
 
 			GetItemRect(I, Rect);
 			Rect.Left+= X1;
 			Rect.Top+= Y1;
 			Rect.Right+= X1;
 			Rect.Bottom+= Y1;
+
 			//_D(SysLog(L"? %2d) Rect (%2d,%2d) (%2d,%2d) '%ls'",I,Rect.left,Rect.top,Rect.right,Rect.bottom,Item[I].Data));
 
 			if (MsX >= Rect.Left && MsY >= Rect.Top && MsX <= Rect.Right && MsY <= Rect.Bottom) {
@@ -3556,12 +4105,15 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 			}
 		}
 
-		if ((MouseEvent->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED)) {
+		// dialog hides other clicks except left mouse?
+		if ( MouseEvent->dwButtonState & (FROM_LEFT_1ST_BUTTON_PRESSED) ) {
 			// for (I=0;I<ItemCount;I++)
 
 			for (I = ItemCount - 1; I != (unsigned)-1; I--) {
 				// Исключаем из списка оповещаемых о мыши недоступные элементы
 				if (Item[I]->Flags & (DIF_DISABLE | DIF_HIDDEN))
+					continue;
+				if (!IsItemVisible(I, BorderY1, BorderY2)) 
 					continue;
 
 				Type = Item[I]->Type;
@@ -3571,6 +4123,7 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 				Rect.Top+= Y1;
 				Rect.Right+= X1;
 				Rect.Bottom+= Y1;
+
 				if (ItemHasDropDownArrow(Item[I]))
 					Rect.Right++;
 
@@ -3589,15 +4142,36 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 						DlgEdit *EditLine = (DlgEdit *)(Item[I]->ObjPtr);
 						EditLine->GetPosition(EditX1, EditY1, EditX2, EditY2);
 
-						if (MsY == EditY1 && Type == DI_COMBOBOX && (Item[I]->Flags & DIF_DROPDOWNLIST)
-								&& MsX >= EditX1 && MsX <= EditX2 + 1) {
+						if (Type == DI_COMBOBOX) {
+							fprintf(stderr, "combo: %d,%d..%d,%d of %d,%d..%d,%d/%d, ev=%d,%d scroll=%d\n",
+								EditX1, EditY1, EditX2, EditY2, 
+								X1, Y1, X2, Y2, MaxY2, 
+								MsX, MsY, 
+								ScrollY);
+
+						}
+
+						// open combo by clicking on arrow
+						if (Type == DI_COMBOBOX && (Item[I]->Flags & DIF_DROPDOWNLIST)) {
 							EditLine->SetClearFlag(0);
+
+							int EcX1, EcY1, EcX2, EcY2;
+							Item[I]->ListPtr->GetPosition(EcX1, EcY1, EcX2, EcY2);
+
+							fprintf(stderr, "combo arrow: %d,%d..%d,%d of %d,%d..%d,%d/%d, ev=%d,%d scroll=%d combo=%d,%d..%d,%d\n",
+								EditX1, EditY1, EditX2, EditY2, 
+								X1, Y1, X2, Y2, MaxY2, 
+								MsX, MsY, 
+								ScrollY,
+								EcX1, EcY1, EcX2, EcY2);
 
 							ChangeFocus2(I);
 							ShowDialog();
 
 							ProcessOpenComboBox(Item[I]->Type, Item[I], I);
 
+							// Item[I]->ListPtr->SetPosition(EditX1, EditY1 - ScrollY, EditX2, EditY2 - ScrollY);
+							// Item[I]->ListPtr->Show();
 							return TRUE;
 						}
 
@@ -3672,6 +4246,8 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 				OldX2 = X2;
 				OldY1 = Y1;
 				OldY2 = Y2;
+				OldMaxY2 = MaxY2;
+
 				// запомним delta места хватания и Left-Top диалогового окна
 				MsX = abs(X1 - MouseX);
 				MsY = abs(Y1 - MouseY);
@@ -3703,6 +4279,7 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 							}
 
 							// Да, мальчик был. Зачнем...
+							// Dragged here: Hide / Show with locked window?
 							{
 								LockScreen LckScr;
 								Hide();
@@ -3710,13 +4287,15 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 								X2 = NX2;
 								Y1 = NY1;
 								Y2 = NY2;
+								MaxY2 += AdjY;
 
 								AdjustEditPos(AdjX, AdjY);	//?
 
 								Show();
 							}
 						}
-					} else if (Mb == RIGHTMOST_BUTTON_PRESSED)		// abort
+					} 
+					else if (Mb == RIGHTMOST_BUTTON_PRESSED)		// abort
 					{
 						LockScreen LckScr;
 						Hide();
@@ -3725,6 +4304,7 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 						X2 = OldX2;
 						Y1 = OldY1;
 						Y2 = OldY2;
+						MaxY2 = OldMaxY2;
 						DialogMode.Clear(DMODE_DRAGGED);
 						DlgProc((HANDLE)this, DN_DRAGGED, 1, TRUE);
 
@@ -3732,7 +4312,8 @@ int Dialog::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 							Show();
 
 						break;
-					} else		// release key, drop dialog
+					} 
+					else		// release key, drop dialog
 					{
 						if (OldX1 != X1 || OldX2 != X2 || OldY1 != Y1 || OldY2 != Y2) {
 							LockScreen LckScr;
@@ -3777,7 +4358,6 @@ int Dialog::ProcessOpenComboBox(int Type, DialogItemEx *CurItem, unsigned CurFoc
 	{
 		SelectFromComboBox(CurItem, CurEditLine, CurItem->ListPtr);
 	}
-
 	return TRUE;
 }
 
@@ -4115,69 +4695,72 @@ void Dialog::ChangeFocus2(unsigned SetFocusPos)
 	CriticalSectionLock Lock(CS);
 	int FocusPosNeed = -1;
 
-	if (IsItemFocusable(Item[SetFocusPos])) {
-		if (DialogMode.Check(DMODE_INITOBJECTS)) {
-			FocusPosNeed = (int)DlgProc((HANDLE)this, DN_KILLFOCUS, FocusPos, 0);
+	if (!IsItemFocusable(Item[SetFocusPos])) return;
 
-			if (!DialogMode.Check(DMODE_SHOW))
-				return;
-		}
+	if (DialogMode.Check(DMODE_INITOBJECTS)) {
+		FocusPosNeed = (int)DlgProc((HANDLE)this, DN_KILLFOCUS, FocusPos, 0);
 
-		if (FocusPosNeed >= 0 && FocusPosNeed < (int)ItemCount && IsItemFocusable(Item[FocusPosNeed]))
-			SetFocusPos = FocusPosNeed;
-
-		Item[FocusPos]->Focus = 0;
-
-		// "снимать выделение при потере фокуса?"
-		if (FarIsEdit(Item[FocusPos]->Type)
-				&& !(Item[FocusPos]->Type == DI_COMBOBOX && (Item[FocusPos]->Flags & DIF_DROPDOWNLIST))) {
-			DlgEdit *EditPtr = (DlgEdit *)Item[FocusPos]->ObjPtr;
-			EditPtr->GetSelection(Item[FocusPos]->SelStart, Item[FocusPos]->SelEnd);
-
-			if ((Opt.Dialogs.EditLine & DLGEDITLINE_CLEARSELONKILLFOCUS)) {
-				EditPtr->Select(-1, 0);
-			}
-		}
-
-		Item[SetFocusPos]->Focus = 1;
-
-		// "не восстанавливать выделение при получении фокуса?"
-		if (FarIsEdit(Item[SetFocusPos]->Type)
-				&& !(Item[SetFocusPos]->Type == DI_COMBOBOX
-						&& (Item[SetFocusPos]->Flags & DIF_DROPDOWNLIST))) {
-			DlgEdit *EditPtr = (DlgEdit *)Item[SetFocusPos]->ObjPtr;
-
-			if (!(Opt.Dialogs.EditLine & DLGEDITLINE_NOTSELONGOTFOCUS)) {
-				if (Opt.Dialogs.EditLine & DLGEDITLINE_SELALLGOTFOCUS)
-					EditPtr->Select(0, EditPtr->GetStrSize());
-				else
-					EditPtr->Select(Item[SetFocusPos]->SelStart, Item[SetFocusPos]->SelEnd);
-			} else {
-				EditPtr->Select(-1, 0);
-			}
-
-			// при получении фокуса ввода переместить курсор в конец строки?
-			if (Opt.Dialogs.EditLine & DLGEDITLINE_GOTOEOLGOTFOCUS) {
-				EditPtr->SetCurPos(EditPtr->GetStrSize());
-			}
-		}
-
-		// проинформируем листбокс, есть ли у него фокус
-		if (Item[FocusPos]->Type == DI_LISTBOX)
-			Item[FocusPos]->ListPtr->ClearFlags(VMENU_LISTHASFOCUS);
-
-		if (Item[SetFocusPos]->Type == DI_LISTBOX)
-			Item[SetFocusPos]->ListPtr->SetFlags(VMENU_LISTHASFOCUS);
-
-		SelectOnEntry(FocusPos, FALSE);
-		SelectOnEntry(SetFocusPos, TRUE);
-
-		PrevFocusPos = FocusPos;
-		FocusPos = SetFocusPos;
-
-		if (DialogMode.Check(DMODE_INITOBJECTS))
-			DlgProc((HANDLE)this, DN_GOTFOCUS, FocusPos, 0);
+		if (!DialogMode.Check(DMODE_SHOW))
+			return;
 	}
+
+	if (FocusPosNeed >= 0 && FocusPosNeed < (int)ItemCount && IsItemFocusable(Item[FocusPosNeed]))
+		SetFocusPos = FocusPosNeed;
+
+	Item[FocusPos]->Focus = 0;
+
+	// "снимать выделение при потере фокуса?"
+	if (FarIsEdit(Item[FocusPos]->Type)
+			&& !(Item[FocusPos]->Type == DI_COMBOBOX && (Item[FocusPos]->Flags & DIF_DROPDOWNLIST))) {
+		DlgEdit *EditPtr = (DlgEdit *)Item[FocusPos]->ObjPtr;
+		EditPtr->GetSelection(Item[FocusPos]->SelStart, Item[FocusPos]->SelEnd);
+
+		if ((Opt.Dialogs.EditLine & DLGEDITLINE_CLEARSELONKILLFOCUS)) {
+			EditPtr->Select(-1, 0);
+		}
+	}
+
+	Item[SetFocusPos]->Focus = 1;
+
+	// "не восстанавливать выделение при получении фокуса?"
+	if (FarIsEdit(Item[SetFocusPos]->Type)
+			&& !(Item[SetFocusPos]->Type == DI_COMBOBOX
+					&& (Item[SetFocusPos]->Flags & DIF_DROPDOWNLIST))) {
+		DlgEdit *EditPtr = (DlgEdit *)Item[SetFocusPos]->ObjPtr;
+
+		if (!(Opt.Dialogs.EditLine & DLGEDITLINE_NOTSELONGOTFOCUS)) {
+			if (Opt.Dialogs.EditLine & DLGEDITLINE_SELALLGOTFOCUS)
+				EditPtr->Select(0, EditPtr->GetStrSize());
+			else
+				EditPtr->Select(Item[SetFocusPos]->SelStart, Item[SetFocusPos]->SelEnd);
+		} else {
+			EditPtr->Select(-1, 0);
+		}
+
+		// при получении фокуса ввода переместить курсор в конец строки?
+		if (Opt.Dialogs.EditLine & DLGEDITLINE_GOTOEOLGOTFOCUS) {
+			EditPtr->SetCurPos(EditPtr->GetStrSize());
+		}
+	}
+
+	// проинформируем листбокс, есть ли у него фокус
+	if (Item[FocusPos]->Type == DI_LISTBOX)
+		Item[FocusPos]->ListPtr->ClearFlags(VMENU_LISTHASFOCUS);
+
+	if (Item[SetFocusPos]->Type == DI_LISTBOX)
+		Item[SetFocusPos]->ListPtr->SetFlags(VMENU_LISTHASFOCUS);
+
+	SelectOnEntry(FocusPos, FALSE);
+	SelectOnEntry(SetFocusPos, TRUE);
+
+	PrevFocusPos = FocusPos;
+	FocusPos = SetFocusPos;
+
+	if (DialogMode.Check(DMODE_INITOBJECTS))
+		DlgProc((HANDLE)this, DN_GOTFOCUS, FocusPos, 0);
+
+	// adjust scrolling to focused element
+	ScrollDialogUpTo(FocusPos);
 }
 
 /*
@@ -4563,6 +5146,17 @@ void Dialog::AdjustEditPos(int dx, int dy)
 			y1+= dy;
 			y2+= dy;
 			DialogScrObject->SetPosition(x1, y1, x2, y2);
+
+            /*
+			if (Type == DI_COMBOBOX) {
+				DialogScrObject = (ScreenObject *)CurItem->ListPtr;
+    			DialogScrObject->GetPosition(x1, y1, x2, y2);
+    			x1+= dx;
+    			x2+= dx;
+    			y1+= dy;
+    			y2+= dy;
+    			DialogScrObject->SetPosition(x1, y1, x2, y2);
+			}*/
 		}
 	}
 
@@ -4772,6 +5366,16 @@ void Dialog::ResizeConsole()
 		c.Y = y1;
 		SendDlgMessage(reinterpret_cast<HANDLE>(this), DM_MOVEDIALOG, TRUE, reinterpret_cast<LONG_PTR>(&c));
 		Dialog::SetComboBoxPos();
+
+		Y2 = MaxY2;
+    	if (Y2 >= ScrY && Opt.Backend.UseModernLook) {
+    		// scroll is here
+    		// cut dialog
+    		ScrollY = 0;
+    		Y2 = ScrY - 1;
+    	}
+		Hide();
+		Show();
 	}
 };
 
@@ -4969,21 +5573,20 @@ LONG_PTR SendDlgMessageSynched(HANDLE hDlg, int Msg, int Param1, LONG_PTR Param2
 			Dlg->OldY1 = Dlg->Y1;
 			Dlg->OldX2 = Dlg->X2;
 			Dlg->OldY2 = Dlg->Y2;
+			Dlg->OldMaxY2 = Dlg->MaxY2;
 
 			// переместили
-			if (Param1 > 0)		// абсолютно?
-			{
+			if (Param1 > 0)	{	// абсолютно?
 				Dlg->X1 = ((COORD *)Param2)->X;
 				Dlg->Y1 = ((COORD *)Param2)->Y;
 				Dlg->X2 = W1;
 				Dlg->Y2 = H1;
 				Dlg->CheckDialogCoord();
-			} else if (!Param1)		// значит относительно
-			{
+			} 
+			else if (!Param1) {		// значит относительно
 				Dlg->X1+= ((COORD *)Param2)->X;
 				Dlg->Y1+= ((COORD *)Param2)->Y;
-			} else		// Resize, Param2=width/height
-			{
+			} else {		// Resize, Param2=width/height
 				int OldW1, OldH1;
 				OldW1 = W1;
 				OldH1 = H1;
@@ -6606,12 +7209,14 @@ void Dialog::SetComboBoxPos(DialogItemEx *CurItem)
 		}
 		int EditX1, EditY1, EditX2, EditY2;
 		((DlgEdit *)CurItem->ObjPtr)->GetPosition(EditX1, EditY1, EditX2, EditY2);
+		// EditY1 += ScrollY;
+		// EditY2 += ScrollY;
 
 		if (EditX2 - EditX1 < 20)
 			EditX2 = EditX1 + 20;
 
 		if (ScrY - EditY1 < Min(Opt.Dialogs.CBoxMaxHeight, CurItem->ListPtr->GetItemCount()) + 2
-				&& EditY1 > ScrY / 2)
+				&& EditY1 - ScrollY > ScrY / 2)
 			CurItem->ListPtr->SetPosition(EditX1,
 					Max(0, EditY1 - 1 - Min(Opt.Dialogs.CBoxMaxHeight, CurItem->ListPtr->GetItemCount()) - 1),
 					EditX2, EditY1 - 1);
@@ -6629,4 +7234,276 @@ void Dialog::SetId(const GUID &Id)
 {
 	this->Id = Id;
 	IdExist = true;
+}
+
+enum eToolIndexCommand {
+	ToolNavigate = 0,
+	ToolSearch,
+	ToolCommandsSize
+};
+
+int Dialog::ProcessMiniToolBarNaviagate() 
+{
+	std::vector<std::wstring> v;
+	std::vector<int> idv;
+
+	for(int I = 1; I < (int)ItemCount; ++I) { // surrounding border is not needed
+		if (Item[I]->Flags & DIF_HIDDEN) continue;
+
+		// in this mode we have only sections to do
+		if (Item[I]->Type != DI_SINGLEBOX && Item[I]->Type != DI_DOUBLEBOX && Item[I]->Type != DI_TEXT)
+			continue;
+		if (Item[I]->Type == DI_TEXT && !(Item[I]->Flags & (DIF_SEPARATORUSER | DIF_SEPARATOR | DIF_SEPARATOR2)))
+			continue;
+
+		FARString strStr;
+		if (!Item[I]->strData.IsEmpty()) 
+			strStr = Item[I]->strData;
+
+		if (strStr.GetLength() == 0)
+			continue;
+		v.push_back(strStr.GetWide());
+		idv.push_back(I + 1 /* next element afyter label with separator */);
+	}
+
+	int GroupsLen = (int)v.size();
+	if (GroupsLen < 1) return 0; // nothing to display
+
+	MenuDataEx Groups[GroupsLen];
+	for (int j = 0; j < GroupsLen; ++j) {
+		Groups[j] = { v[j].c_str(), 0, 0 };
+	}
+
+	{
+		int GroupsCode;
+		VMenu GroupsMenu(L"", Groups, GroupsLen, 0);
+
+		GroupsMenu.SetPosition(X1 + 2, Y1 + 1, 0, 0);
+		GroupsMenu.SetFlags(VMENU_WRAPMODE | VMENU_NOTCHANGE);
+		GroupsMenu.SetBoxType(SHORT_DOUBLE_BOX);
+		GroupsMenu.ClearDone();
+		GroupsMenu.Process();
+
+		GroupsCode = GroupsMenu.Modal::GetExitCode();
+		if (GroupsCode < 0 || GroupsCode >= GroupsLen) return 0;
+
+		fprintf(stderr, "item to select = %d %d\n", GroupsCode, idv[GroupsCode]);
+
+		int id = idv[GroupsCode];
+		if(id >= 0 && id < (int)ItemCount) {
+			fprintf(stderr, "scroll = %d\n", id);
+			ScrollDialogUpTo(id);
+			fprintf(stderr, "focus = %d\n", id);
+			ChangeFocus2(id);
+			fprintf(stderr, "redraw = %d\n", id);
+			ShowDialog();
+		}
+	}
+	return 0;
+}
+
+int Dialog::ProcessMiniToolBarSearch(int ToolIndex) 
+{
+	DlgEdit* DialogEdit = findEditBox = new DlgEdit(this, 0, DLGEDIT_SINGLELINE);
+
+    /*
+	if (Type == DI_COMBOBOX) {
+		CurItem->ListPtr = new VMenu(L"", nullptr, 0, Opt.Dialogs.CBoxMaxHeight,
+			VMENU_ALWAYSSCROLLBAR | VMENU_NOTCHANGE, nullptr, this);
+		CurItem->ListPtr->SetVDialogItemID(I);
+
+		if (CurItem->ListPtr) {
+			VMenu *ListPtr = CurItem->ListPtr;
+			ListPtr->SetBoxType(SHORT_SINGLE_BOX);
+			DialogEdit->SetDropDownBox(ItemFlags & DIF_DROPDOWNLIST);
+			ListPtr->ChangeFlags(VMENU_WRAPMODE, ItemFlags & DIF_LISTWRAPMODE);
+			ListPtr->ChangeFlags(VMENU_DISABLED, ItemFlags & DIF_DISABLE);
+			ListPtr->ChangeFlags(VMENU_SHOWAMPERSAND, !(ItemFlags & DIF_LISTNOAMPERSAND));
+			ListPtr->ChangeFlags(VMENU_AUTOHIGHLIGHT, ItemFlags & DIF_LISTAUTOHIGHLIGHT);
+
+			if (ItemFlags & DIF_LISTAUTOHIGHLIGHT)
+				ListPtr->AssignHighlights(FALSE);
+
+			if (CurItem->ListItems && !DialogMode.Check(DMODE_CREATEOBJECTS))
+				ListPtr->AddItem(CurItem->ListItems);
+
+			ListPtr->SetFlags(VMENU_COMBOBOX);
+			ListPtr->SetDialogStyle(DialogMode.Check(DMODE_WARNINGSTYLE));
+		}
+	}*/
+
+	int sw = std::min(X2 - X1 - 4, 40);
+
+	DialogEdit->SetDialogParent(FEDITLINE_PARENT_SINGLELINE);
+	DialogEdit->SetReadOnly(0);
+	DialogEdit->SetMaxLength(sw);
+	DialogEdit->SetPosition(X1 + 1, Y1 + 1, X1 + 1 + sw, Y1 + 1);
+	DialogEdit->SetObjectColor(FarColorToReal(COL_DIALOGEDIT), FarColorToReal(COL_DIALOGEDITSELECTED));
+
+	/*	
+	if (CurItem->Type == DI_COMBOBOX)
+		DialogEdit->SetClearFlag(1);*/
+
+	DialogEdit->SetString(L"");
+
+	DialogEdit->SetPersistentBlocks(Opt.Dialogs.EditBlock);
+	DialogEdit->SetDelRemovesBlocks(Opt.Dialogs.DelRemovesBlocks);
+
+	DialogEdit->Show();
+
+	fprintf(stderr, "tool button: %d -> edift field is here\n", ToolIndex);
+
+	// ShowDialog();
+
+	INPUT_RECORD rec;
+	DWORD Key;
+	FARString oldstr;
+
+	fprintf(stderr, "tool button: %d run input cycle\n", ToolIndex);
+
+	for (;;) {
+		Key = GetInputRecord(&rec);
+
+		if (rec.EventType == MOUSE_EVENT) { 
+			int MsX = rec.Event.MouseEvent.dwMousePosition.X;
+			int MsY = rec.Event.MouseEvent.dwMousePosition.Y;
+			
+			if (rec.Event.MouseEvent.dwButtonState && (MsY != Y1 + 1 || MsX < X1 + 1 || MsX > X1 + sw + 1 ))
+				break;
+
+			DialogEdit->ProcessMouse(&rec.Event.MouseEvent);
+		}
+		else if (rec.EventType == KEY_EVENT) {
+			if (Key != KEY_ESC && Key != KEY_ENTER && Key != KEY_NONE && Key != KEY_IDLE) {
+				DialogEdit->ProcessKey(Key);
+
+				FARString str;
+				DialogEdit->GetString(str);
+
+				if (oldstr == str) continue;
+				oldstr = str;
+
+				int id = Do_DlgSearch(str, ToolIndex);
+				fprintf(stderr, "tool button: %d: look for `%ls` => %d\n", ToolIndex, str.CPtr(), id);
+				if(id >= 0 && id < (int)ItemCount) {
+					ScrollDialogUpTo(id);
+					ShowDialog();
+				}
+
+				continue;
+			}
+
+			if(Key == KEY_NONE || Key == KEY_IDLE) 
+				continue;
+
+			if (Key == KEY_ENTER) {
+				FARString str;
+				DialogEdit->GetString(str);
+
+				int id = Do_DlgSearch(str, ToolIndex);
+				if(id >= 0 && id < (int)ItemCount) {
+					if(ScrollDialogUpTo(id))
+						ChangeFocus2(id);
+				}
+			}
+			// some unknown, let's stop
+			break;
+		}
+	}
+
+	fprintf(stderr, "tool button: %d run input cycle ended\n", ToolIndex);
+
+	DialogEdit->Hide();
+	findEditBox = nullptr;
+
+	ShowDialog();
+
+	return 0;
+}
+
+int Dialog::ProcessMiniToolBar(int ToolIndex) 
+{
+	// vk: todo: handle search / navigate here
+	if (findEditBox) return -1;
+
+	fprintf(stderr, "tool button: %d\n", ToolIndex);
+
+	if (ToolIndex == ToolNavigate) {
+		return ProcessMiniToolBarNaviagate();
+	}
+	else if (ToolIndex == ToolSearch) {
+		return ProcessMiniToolBarSearch(ToolIndex);
+	}
+	return -1;
+}
+
+bool Dialog::ScrollDialogUpTo(int FocusPos) 
+{
+	if (MaxY2 == Y2) return true; // dialog has no scroll bar active
+
+	int BorderY1 = Y1, BorderY2 = Y2;
+	CountBorders(BorderY1, BorderY2);
+
+	short CY2 = Item[FocusPos]->Y2;
+	short CY1 = Item[FocusPos]->Y1;
+	if (CY1 > MaxY2 - Y1) CY1 = MaxY2 - Y1;
+	if (CY2 > MaxY2 - Y1) CY2 = MaxY2 - Y1;
+
+	fprintf(stderr, "focus: [%d] %d..%d, dialog=%d,%d..%d,%d/%d, scroll=%d, box=%d..%d top=%c bottom=%c\n", FocusPos, CY1, CY2,
+		X1, Y1, X2, Y2, MaxY2, 
+		ScrollY, BorderY1, BorderY2, 
+		CY2 + ScrollY < BorderY1 ? 'Y' : 'n',
+		CY1 + ScrollY > BorderY2 ? 'Y' : 'n');
+
+	if (CY2 + ScrollY < BorderY1) {
+		ScrollDialogUpDown(- (CY1 + ScrollY - BorderY1 - 2));
+	}
+	else if (CY1 + ScrollY > BorderY2) {
+		ScrollDialogUpDown(- (CY2 + ScrollY - BorderY2 + 2));
+	}
+
+	return true;
+}
+
+/* 0 -- only headers, 1 - all */
+int Dialog::Do_DlgSearch(FARString& str, int ToolIndex) 
+{
+	if (str.GetLength() < 1) return -1;
+
+	for(int I = 0; I < (int)ItemCount; ++I) {
+		if (Item[I]->Flags & DIF_HIDDEN) continue;
+
+		FARString strStr;
+		if (!Item[I]->strData.IsEmpty()) 
+			strStr = Item[I]->strData;
+
+		// in this mode we have only sections to do
+		if (ToolIndex == ToolNavigate) {
+			if (Item[I]->Type != DI_SINGLEBOX && Item[I]->Type != DI_DOUBLEBOX && Item[I]->Type != DI_TEXT)
+				continue;
+			if (Item[I]->Type == DI_TEXT && !(Item[I]->Flags & (DIF_SEPARATORUSER | DIF_SEPARATOR | DIF_SEPARATOR2)))
+				continue;
+		}
+
+		DlgEdit *EditPtr;
+		if (FarIsEdit(Item[I]->Type)) {
+			EditPtr = (DlgEdit *)(Item[I]->ObjPtr);
+			if(EditPtr) EditPtr->GetString(strStr);
+		}
+
+		if (Item[I]->Type == DI_LISTBOX) {
+			// todo: need to search against all texts?
+			continue;
+		}
+
+		if (strStr.GetLength() == 0)
+			continue;
+		
+		size_t nPos;
+		if ( strStr.Pos(nPos, str.CPtr()) ) {
+			// match! we need scroll to it
+			return I;
+		}
+	}
+	return -1;
 }

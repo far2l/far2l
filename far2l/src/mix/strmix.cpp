@@ -59,15 +59,16 @@ FARString &FormatNumber(const wchar_t *Src, FARString &strDest, int NumDigits)
 	if (part == Src) {
 		result = L"0";
 	} else {
-		size_t i = 0;
-		for (;;) {
-			--part;
-			result.Insert(0, *part);
-			if (part == Src)
-				break;
-			++i;
-			if ((i % 3) == 0)
-				result.Insert(0, L' ');
+		// Build digits in forward order to avoid O(n²) Insert(0,...)
+		const size_t digits = (size_t)(part - Src);
+		const size_t separators = digits > 1 ? (digits - 1) / 3 : 0;
+		result.Reserve(digits + separators + 16);
+		for (const wchar_t *p = Src; p < part; ++p) {
+			size_t remaining = (size_t)(part - p); // chars remaining including current
+			// Insert separator before current digit if it starts a new group of 3
+			if (p != Src && remaining % 3 == 0)
+				result.Append(L' ');
+			result.Append(*p);
 		}
 	}
 	if (dot) {
@@ -482,10 +483,16 @@ FARString FixedSizeStr(FARString str, size_t Cells, bool RAlign, bool TruncateCe
 		else
 			TruncStr(str, Cells);
 	} else if (InitialStrCells < Cells) {
-		if (RAlign)
-			str.Insert(0, L' ', Cells - InitialStrCells);
-		else
+		if (RAlign) {
+			// Build padded string forward to avoid O(n) Insert(0,...)
+			FARString padded;
+			padded.Reserve(Cells + 1);
+			padded.Append(L' ', Cells - InitialStrCells);
+			padded.Append(str);
+			str = std::move(padded);
+		} else {
 			str.Append(L' ', Cells - InitialStrCells);
+		}
 	}
 	return str;
 }
@@ -856,11 +863,6 @@ FarFormatText( "Эта строка содержит ооооооооооооо�
 
 */
 
-enum FFTMODE
-{
-	FFTM_BREAKLONGWORD = 0x00000001,
-};
-
 FARString &WINAPI FarFormatText(const wchar_t *SrcText,		// источник
 		int Width,											// заданная ширина
 		FARString &strDestText,								// приемник
@@ -947,7 +949,14 @@ FARString &WINAPI FarFormatText(const wchar_t *SrcText,		// источник
 		}
 	} else {
 		/* Multiple character line break */
-		newtext = (wchar_t *)malloc((strSrc.GetLength() * (breakcharlen + 1) + 1) * sizeof(wchar_t));
+		size_t srcLen = strSrc.GetLength();
+		size_t allocSize = srcLen * (breakcharlen + 1) + 1;
+		// Check for overflow
+		if (allocSize < srcLen || allocSize > SIZE_MAX / sizeof(wchar_t)) {
+			strDestText.Clear();
+			return strDestText;
+		}
+		newtext = (wchar_t *)malloc(allocSize * sizeof(wchar_t));
 
 		if (!newtext) {
 			strDestText.Clear();
@@ -1290,7 +1299,7 @@ std::string UnescapeUnprintable(const std::string &str)
 
 bool SearchString(const wchar_t *Source, int StrSize, const FARString &Str, FARString &ReplaceStr,
 		int &CurPos, int Position, int Case, int WholeWords, int Reverse, int Regexp, int *SearchLength,
-		const wchar_t *WordDiv)
+		const wchar_t *WordDiv, int RegexpOptions)
 {
 	*SearchLength = 0;
 
@@ -1311,7 +1320,7 @@ bool SearchString(const wchar_t *Source, int StrSize, const FARString &Str, FARS
 		if (Regexp) {
 			FARString strSlash(Str);
 			InsertRegexpQuote(strSlash);
-			int reFlags = OP_PERLSTYLE | OP_OPTIMIZE | (!Case ? OP_IGNORECASE : 0);
+			int reFlags = OP_PERLSTYLE | OP_OPTIMIZE | (!Case ? OP_IGNORECASE : 0) | RegexpOptions;
 
 			// Use cached regex if pattern and flags match
 			RegExp *re = nullptr;
@@ -1358,7 +1367,8 @@ bool SearchString(const wchar_t *Source, int StrSize, const FARString &Str, FARS
 			if (found) {
 				*SearchLength = pm[half].end - pm[half].start;
 				CurPos = pm[half].start;
-				ReplaceStr = ReplaceBrackets(Source, ReplaceStr, pm + half, n);
+				if (ReplaceStr.Contains(L'$'))
+					ReplaceStr = ReplaceBrackets(Source, ReplaceStr, pm + half, n);
 			}
 
 			return found;

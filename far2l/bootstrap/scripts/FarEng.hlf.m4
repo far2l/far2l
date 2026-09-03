@@ -2472,11 +2472,25 @@ enclosed in quotes, you should specify #program "!.!"# and not
      'F' - use full pathnames;
      'A' - use ANSI code page;
      'U' - use UTF-8 code page;
-     'W' - use UTF-16 (Little endian) code page.
+     'W' - use UTF-16 (Little endian) code page;
+     'B' - collect marked files from both panels into a single list.
+
+    ^<wrap>When the #B# modifier is used, the temp file will contain marked
+(selected) files from both the active and passive panels. The command
+is executed once for all selected files rather than once per file.
+This is useful for comparing files from different panels.
 
     For example, the association #!@@AFQ!# means "name of file with the list of
 selected file names, in ANSI encoding, include full pathnames, names with
 spaces will be in quotes".
+
+    The association #!@@BF!# means "name of file with the list of marked files
+from both panels, using full pathnames". Example usage in user menu:
+
+      diff "$(sed -n '1p' "!@@BF!")" "$(sed -n '2p' "!@@BF!")"
+
+    ^<wrap>Mark one file on the left panel and one on the right panel (with #Insert#),
+then run the command to compare them.
 
     3. ^<wrap>When there are multiple associations specified, the meta-characters !@@!
 and !$! are shown in the menu as is. Those characters are translated when the
@@ -3213,6 +3227,7 @@ behavior can be changed in the ~Editor settings~@EditorSettings@ dialog.
    #Ctrl-F3#                 Toggle line numbers display
    #Shift-F4#                Edit ~new file~@FileOpenCreate@
    #F5#                      Toggle whitespace characters displaying
+   #Ctrl-Shift-F5#           Toggle physical line-ending characters displaying
    #Shift-F5#                Change Tab character width
    #Ctrl-F5#                 Toggle Tab-to-spaces expansion
    #Alt-F5#                  ^<wrap>Print file or selected block.
@@ -3292,6 +3307,9 @@ $ #Editor: search/replace#
 and shows the list of all found occurrences with their line and column numbers.
 Pressing #Enter# in that list moves the cursor to the selected occurrence, #Esc#
 leaves the current position unchanged.
+
+    When #Show line endings# is enabled with #Ctrl-Shift-F5#, physical line
+endings are shown as #␍# (CR) and #␊# (LF), so mixed styles can be identified.
 
 
 @FileOpenCreate
@@ -3768,9 +3786,25 @@ $ #Settings dialog: editor#
                           editor. This option can also be toggled by
                           pressing #Ctrl-F3# in the editor.
 
+  #Show line endings#       Show physical line endings as #␍# (CR) and #␊# (LF).
+                          This option can also be toggled by pressing
+                          #Ctrl-Shift-F5# in the editor.
+
   #Word wrap#               Word wrap. This option can also be toggled by
                           pressing #F3# in the editor.
 
+  #Copy mouse selection to PRIMARY#    This option is intended to place the selected text into 
+                          special X11 (some compositors like KDE KWin have the same for Wayland) 
+                          buffer named PRIMARY as addition to standard clipboard.                          
+                          
+                          If the option toggled, every time you select text block via mouse,
+                          it is being copied to PRIMARY buffer automatically and become available 
+                          immediately for other applications within the same X11 or Wayland 
+                          session. The standard clipboard works as before and won't be touched.
+
+  #Place content from PRIMARY buffer#        If toggled, the PRIMARY buffer contents will be 
+                          placed by 2nd mouse button click (typically mouse wheel) insterad of 
+                          the standard clipboard. 
 
   #Use .editorconfig#       Processing .editorconfig parameters
   #settings files#          (see ~https://editorconfig.org~@https://editorconfig.org@ for details)
@@ -4722,8 +4756,9 @@ The numbers are assigned to the groups in order of opening parentheses
 sequence in regular expression. #$0# means the whole found sequence.
 #$*# is replaced with '*' character.
 
-    Both #\n# and #\r# are interpreted as line breaks, depending on
-the end-of-line style used in the file. They behave the same way.
+    #\r# and #\n# represent literal CR and LF characters. Captured line endings
+are preserved exactly, so #\r\n# can be replaced with #\n#, and either character
+of a CRLF pair can be matched and replaced separately.
 
     #\t# is replaced with tab character (0x09).
 

@@ -10,6 +10,7 @@ src/clipboard.cpp
 src/printersupport.cpp
 src/fileedit2html.cpp
 src/cmdline.cpp
+src/backendsupport.cpp
 src/copy.cpp
 src/ctrlobj.cpp
 src/datetime.cpp
@@ -130,6 +131,7 @@ src/cfg/ConfigLegacy.cpp
 src/cfg/HotkeyLetterDialog.cpp
 src/cfg/language.cpp
 src/cfg/MaskGroups.cpp
+src/cfg/config_all.cpp
 
 src/hist/history.cpp
 src/hist/poscache.cpp
@@ -149,6 +151,7 @@ src/vt/vtshell_compose.cpp
 src/vt/vtshell_leader.cpp
 src/vt/vtshell_ioreaders.cpp
 src/vt/vtshell_mouse.cpp
+src/vt/VTShellBackend.cpp
 src/vt/vtlog.cpp
 src/vt/vtcompletor.cpp
 src/vt/VTFar2lExtensios.cpp
@@ -183,6 +186,9 @@ src/mix/CachedCreds.cpp
 src/mix/GitTools.cpp
 src/mix/WideCharToMultiByteBuffer.cpp
 src/shoco/shoco.c
+
+src/powerline.cpp
+src/tabbar.cpp
 )
 
 # Option to disable building macro subsystem completely

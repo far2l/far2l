@@ -165,6 +165,7 @@ class WinPortPanel: public wxPanel, protected IConsoleOutputBackend
 	virtual void OnConsoleSetMaximized(bool maximized);
 	virtual void OnConsoleAdhocQuickEdit();
 	virtual DWORD64 OnConsoleSetTweaks(DWORD64 tweaks);
+	virtual DWORD64 OnConsoleGetTweaks();
 	virtual void OnConsoleChangeFont();
 	virtual void OnConsoleSaveWindowState();
 	virtual void OnConsoleExit();
@@ -233,6 +234,7 @@ class WinPortFrame: public wxFrame
 	void OnShow(wxShowEvent &show);
 	void OnClose(wxCloseEvent &show);
 	void OnConsoleSaveWindowStateSync(wxCommandEvent& event);
+	void OnSetFocus( wxFocusEvent &event );
 
 public:
 	WinPortFrame(const wxString& title);

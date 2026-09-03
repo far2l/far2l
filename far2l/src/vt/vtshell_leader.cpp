@@ -39,18 +39,21 @@ static void SetupSignalHandlers(bool propagation)
 static int VTShell_ExecShell(char *const shell_argv[])
 {
 	if (!shell_argv || !*shell_argv) {
-		fprintf(stderr, "Shell command is empty\n");
+		fprintf(stderr, "VTShell_ExecShell: Shell command is empty\n");
 		return -1;
 	}
 
+	//fprintf(stderr, "VTShell_ExecShell: run shell\n");
+	//for(int i = 0; shell_argv[i]; ++i)
+	//	fprintf(stderr, "VTShell_ExecShell: [%d] = `%s`\n", i, shell_argv[i]);
+
 	int r = (shell_argv[0][0] == '/')
-		? execv(shell_argv[0], shell_argv)
-		: execvp(shell_argv[0], shell_argv);
-	fprintf(stderr, "%s: exec('%s') returned %d errno %u\n",
+		? execv(shell_argv[0], shell_argv + 1)
+		: execvp(shell_argv[0], shell_argv + 1);
+	fprintf(stderr, "VTShell_ExecShell: %s: exec('%s') returned %d errno %u\n",
 		__FUNCTION__, shell_argv[0], r, errno);
 	return -1;
 }
-
 
 int VTShell_Leader(char *const shell_argv[], const char *pty)
 {
@@ -64,6 +67,8 @@ int VTShell_Leader(char *const shell_argv[], const char *pty)
 	fprintf(stderr, "VT: parent_grp=%lx child_grp=%lx\n", (unsigned long)parent_grp, (unsigned long)child_grp);
 
 	SetupSignalHandlers(child_grp != parent_grp);
+
+	//fprintf(stderr, "VT: signals are set\n");
 
 	if (pty && *pty) {
 		int r = open(pty, O_RDWR);
@@ -80,6 +85,7 @@ int VTShell_Leader(char *const shell_argv[], const char *pty)
 		if ( ioctl( STDIN_FILENO, TIOCSCTTY, 0 ) == -1 ) {
 			perror( "VT: ioctl(TIOCSCTTY)" );
 		}
+		//fprintf(stderr, "VT: pty opened\n");
 	}
 
 	return VTShell_ExecShell(shell_argv);

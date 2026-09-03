@@ -383,6 +383,7 @@ void ConvertPanelItemA(const oldfar::PluginPanelItem *PanelItemA, PluginPanelIte
 		(*PanelItemW)[i].FindData.ftCreationTime = PanelItemA[i].FindData.ftCreationTime;
 		(*PanelItemW)[i].FindData.ftLastAccessTime = PanelItemA[i].FindData.ftLastAccessTime;
 		(*PanelItemW)[i].FindData.ftLastWriteTime = PanelItemA[i].FindData.ftLastWriteTime;
+		(*PanelItemW)[i].FindData.ftChangeTime = PanelItemA[i].FindData.ftChangeTime;
 		(*PanelItemW)[i].FindData.nPhysicalSize = PanelItemA[i].FindData.nPhysicalSize;
 		(*PanelItemW)[i].FindData.nFileSize = PanelItemA[i].FindData.nFileSize;
 		(*PanelItemW)[i].FindData.dwFileAttributes = PanelItemA[i].FindData.dwFileAttributes;
@@ -1191,6 +1192,9 @@ void UnicodeListItemToAnsi(FarListItem *li, oldfar::FarListItem *liA)
 	if (li->Flags & LIF_SELECTED)
 		liA->Flags|= oldfar::LIF_SELECTED;
 
+	if (li->Flags & LIF_HOVERED)
+		liA->Flags|= oldfar::LIF_HOVERED;
+
 	if (li->Flags & LIF_CHECKED)
 		liA->Flags|= oldfar::LIF_CHECKED;
 
@@ -1277,6 +1281,9 @@ void AnsiListItemToUnicode(oldfar::FarListItem *liA, FarListItem *li)
 
 	if (liA->Flags & oldfar::LIF_SELECTED)
 		li->Flags|= LIF_SELECTED;
+
+	if (liA->Flags & oldfar::LIF_HOVERED)
+		li->Flags|= LIF_HOVERED;
 
 	if (liA->Flags & oldfar::LIF_CHECKED)
 		li->Flags|= LIF_CHECKED;
