@@ -222,7 +222,14 @@ private:
 	long CacheSelIndex, CacheSelPos;
 	long CacheSelClearIndex, CacheSelClearPos;
 
+	int LastHoveredIndex {-1};
+	int ColumnHovered {-1};
+	int LocationHovered {-1};
+	int SortMarkHovered {-1};
+
 private:
+	int GetColumnTitleByMouse(int MsX);
+
 	virtual void SetSelectedFirstMode(int Mode);
 	virtual int GetSelectedFirstMode() { return SelectedFirst; }
 	virtual void DisplayObject();
@@ -310,6 +317,8 @@ public:
 	virtual int ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent);
 	virtual int64_t VMProcess(MacroOpcode OpCode, void *vParam = nullptr, int64_t iParam = 0);
 	virtual void MoveToMouse(MOUSE_EVENT_RECORD *MouseEvent);
+	virtual int MouseToPosition(MOUSE_EVENT_RECORD *MouseEvent);
+	virtual int MouseToColumn(MOUSE_EVENT_RECORD *MouseEvent);
 	virtual void SetFocus();
 	virtual void Update(int Mode);
 	/*

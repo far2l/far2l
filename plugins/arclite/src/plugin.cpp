@@ -439,7 +439,7 @@ public:
 			items[idx].FindData.ftCreationTime = archive->get_ctime(file_index);
 			items[idx].FindData.ftLastAccessTime = archive->get_atime(file_index);
 			items[idx].FindData.ftLastWriteTime = archive->get_mtime(file_index);
-//			items[idx].FindData.ftChangeTime = archive->get_chtime(file_index);
+			items[idx].FindData.ftChangeTime = archive->get_chtime(file_index);
 
 			items[idx].FindData.nFileSize = archive->get_size(file_index);
 			items[idx].FindData.nPhysicalSize = archive->get_psize(file_index);
@@ -2087,8 +2087,6 @@ SHAREDSYMBOL int WINAPI SetDirectoryW(HANDLE hPlugin, const wchar_t *Dir, int Op
 {
 	// CriticalSectionLock lock(GetExportSync());
 	FAR_ERROR_HANDLER_BEGIN
-
-	//fprintf(stderr, " +++ <<<<<<<<<<< SetDirectoryW( %ls ) OpMode = %i        >>>>>>>>>>>\n", Dir,  OpMode);
 
 	if (ArcAPI::have_virt_destructor())
 		reinterpret_cast<Plugin<true> *>(hPlugin)->get_tail()->set_dir(Dir);

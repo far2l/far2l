@@ -513,7 +513,7 @@ ContrastLevel AnazlyzeContrastLevel(const RGB& fg, const RGB& bg) {
 }
 
 // ------------------------------------------------------------
-// Final evaluation function
+// Final contrast evaluation function
 // ------------------------------------------------------------
 ContrastLevel ComputeContrast(const RGB& fg, const RGB& bg, RGB& newFg) {
     // --- Method A: Lab-based perceptual contrast ---
@@ -651,7 +651,6 @@ iRGB toIRGB(int r, int g, int b) {
 	return a;
 }
 
-
 RGB toRGB(int r, int g, int b) {
 	RGB a;
 
@@ -668,15 +667,36 @@ double Luminance(const RGB& c)
     return c.r * 0.299 + c.g * 0.587 + c.b * 0.114;
 }
 
+double blendHue(double H1, double H2, double w)
+{
+    // Normalize to [0, 360)
+    H1 = fmod(H1 + 360.0, 360.0);
+    H2 = fmod(H2 + 360.0, 360.0);
+
+    double d = H2 - H1;
+
+    // Wrap shortest direction
+    if (d > 180.0)  d -= 360.0;
+    if (d < -180.0) d += 360.0;
+
+    double H = H1 + w * d;
+
+    return fmod(H + 360.0, 360.0);
+}
+
 // Main function: compute accent background + readable foreground
 HoverResult ComputeControlAccent(const RGB& fg, const RGB& bg)
 {
     double lum_bg = Luminance(bg);
     bool dark_theme = (lum_bg < 0.3) || IsNearBlack(bg);
 
-    RGB accent = dark_theme
+    RGB accentSample = /* dark_theme
         ? toRGB( 215, 140, 0 )    // toRGB(80, 140, 255)   // bright blue for dark theme / toRGB( 215, 140, 0 ) orange toRGB(0x7F, 0x4F, 0x8C) violet
         : toRGB( 0, 120, 255);    // Windows-like blue for light theme
+        */
+        toRGB(0, 0, 0);
+
+    RGB accent = computeAccentColorBySample(bg, accentSample);
 
     HSL h;
     RGBtoHSL(accent, h.h, h.s, h.l);
@@ -930,3 +950,241 @@ RGB SoftenToPressedState_LAB(const RGB& fg,
     }
     return LABtoRGB(lab);
 }
+
+static inline double deg2rad(double d) {  return d * M_PI / 180.0; }
+static inline double rad2deg(double r) {  return r * 180.0 / M_PI; }
+
+LCH labToLch(const LAB& lab) {
+    LCH lch;
+
+    lch.L = lab.L;
+    lch.C = std::sqrt(lab.a * lab.a + lab.b * lab.b); // Chroma
+    double h = std::atan2(lab.b, lab.a); // radians, range [-pi, pi] Hue angle in degrees
+    h = rad2deg(h);                      // convert to degrees
+    if (h < 0.0) h += 360.0;             // normalize to [0, 360)
+    lch.H = h;
+    return lch;
+}
+
+LAB lchToLab(const LCH& lch) {
+    LAB lab;
+
+    lab.L = lch.L;
+    double Hrad = deg2rad(lch.H);
+    lab.a = lch.C * std::cos(Hrad);
+    lab.b = lch.C * std::sin(Hrad);
+    return lab;
+}
+
+// Compute accent color based on background
+RGB computeAccentColorByDegree(const RGB& bg, double accentHueDeg)
+{
+    LAB lab_bg = RGBtoLAB(bg);
+    LCH lch_bg = labToLch(lab_bg);
+
+    LCH lch_accent;
+
+    // Lightness shift
+    if (lch_bg.L < 50)
+        lch_accent.L = std::clamp(lch_bg.L + 40.0, 30.0, 95.0);
+    else
+        lch_accent.L = std::clamp(lch_bg.L - 40.0, 10.0, 80.0);
+
+    // Chroma shift
+    lch_accent.C = std::clamp(lch_bg.C + 30.0, 20.0, 80.0);
+
+    // Accent hue (fixed)
+    lch_accent.H = accentHueDeg;
+
+    LAB lab_accent = lchToLab(lch_accent);
+    RGB rgb_accent = LABtoRGB(lab_accent);
+
+    return rgb_accent;
+}
+
+static inline bool inRange(double x, double a, double b) {
+	return x >=a && x <= b;
+}
+
+static double computeHueWeight(const LCH& bg, const LCH& accent) {
+	// return bg.H + 180;
+	if (inRange(bg.L, 54.0, 56.0) && inRange(bg.C, 75.0, 80.0) && inRange(bg.H, 140, 141)) {
+		return bg.H; // no color shift
+	}
+
+    double chromaPart = bg.C / (bg.C + accent.C + 1e-6);
+    double lightnessPart = 1.0 - bg.L / 100.0; // dark → high weight, light → low weight
+    return chromaPart * lightnessPart;
+}
+
+RGB computeAccentColorBySample(const RGB& bg, const RGB& canonicalAccentC) {
+	RGB canonicalAccent = canonicalAccentC;
+    LAB lab_bg = RGBtoLAB(bg);
+    LCH lch_bg = labToLch(lab_bg);
+
+    LAB lab_accent = RGBtoLAB(canonicalAccent);
+    LCH lch_accent = labToLch(lab_accent);
+
+	if (lch_bg.C == 0) { /* crazy gray */
+		iRGB x = toIRGB(bg);
+		if (x.r == x.g && x.r == x.b && x.r == 0xa7) {
+			return toRGB(0x33, 0x33, 0x33); // eInk theme
+		}
+		else {
+			double lum_bg = Luminance(bg);
+		    bool dark_theme = (lum_bg < 0.3) || IsNearBlack(bg);
+
+	    	canonicalAccent = dark_theme
+	        ? toRGB( 215, 140, 0 )    // toRGB(80, 140, 255)   // bright blue for dark theme / toRGB( 215, 140, 0 ) orange toRGB(0x7F, 0x4F, 0x8C) violet
+	        : toRGB( 0, 120, 255);    // Windows-like blue for light theme
+        }
+	}
+
+    // Compute hue blend weight
+    // double w = lch_bg.C / (lch_bg.C + lch_accent.C + 1e-6); // not enough for big chrom a difference, e.g orange on black
+    double w = computeHueWeight(lch_bg, lch_accent);
+
+    // Blend hues
+    double H_final = blendHue(lch_accent.H, lch_bg.H, w);
+
+    // Compute final L and C (contrast logic from earlier)
+    double L_final = (lch_bg.L < 50)
+        ? std::clamp(lch_bg.L + 40.0, 30.0, 95.0)
+        : std::clamp(lch_bg.L - 40.0, 10.0, 80.0);
+
+    double C_final = std::clamp(lch_bg.C + 30.0, 20.0, 80.0);
+
+    LCH lch_final { L_final, C_final, H_final };
+
+    LAB lab_final = lchToLab(lch_final);
+    RGB rgb_final = LABtoRGB(lab_final);
+
+    return rgb_final;
+}
+
+static LCH computeHighlight(const LCH& text, const LCH& bg, const LCH& accent)
+{
+    LCH hl = text;
+
+    // Neutral text → use accent hue
+    if (text.C < 5.0)
+        hl.H = accent.H;
+    else
+        hl.H = fmod(text.H + 20.0, 360.0);
+
+    // Lightness adjustment
+    if (bg.L < 50.0)
+        hl.L = std::clamp(text.L + 20.0, 0.0, 100.0);
+    else
+        hl.L = std::clamp(text.L + 10.0, 0.0, 100.0);
+
+    // Chroma adjustment
+    hl.C = std::clamp(text.C + 15.0, 0.0, 60.0);
+    return hl;
+}
+
+static LCH computeHighlight2(const LCH& text, const LCH& bg, const LCH& accent)
+{
+    LCH hl;
+
+    // Special case: black text on light gray background
+    if (text.L < 10 && bg.L > 65 && bg.C < 5)
+    {
+        hl.H = accent.H;
+        hl.C = 40;                 // strong chroma
+        hl.L = 45;                 // mid-lightness highlight
+        return hl;
+    }
+
+    // Neutral text → use accent hue
+    if (text.C < 5.0)
+        hl.H = accent.H;
+    else
+        hl.H = fmod(text.H + 20.0, 360.0);
+
+    // Lightness adjustment
+    if (bg.L < 50.0)
+        hl.L = std::clamp(text.L + 20.0, 0.0, 100.0);
+    else
+        hl.L = std::clamp(text.L + 10.0, 0.0, 100.0);
+
+    // Chroma adjustment
+    hl.C = std::clamp(text.C + 15.0, 0.0, 60.0);
+
+    return hl;
+}
+
+RGB computeHighlight(const RGB& fg, const RGB& bg) 
+{
+	HoverResult h = ComputeControlAccent(fg, bg);
+
+	RGB canonicalAccent = h.fg_hover;
+
+    LAB lab_bg = RGBtoLAB(bg);
+    LCH lch_bg = labToLch(lab_bg);
+
+    LAB lab_accent = RGBtoLAB(canonicalAccent);
+    LCH lch_accent = labToLch(lab_accent);
+
+    LAB lab_fg = RGBtoLAB(fg);
+    LCH lch_fg = labToLch(lab_fg);
+
+    LCH lch_hi = computeHighlight2(lch_fg, lch_bg, lch_accent);
+
+    LAB lab_final = lchToLab(lch_hi);
+    RGB rgb_final = LABtoRGB(lab_final);
+
+    return rgb_final;
+}
+
+static LCH computeSelection(const LCH& fg, const LCH& bg, const LCH& accent)
+{
+    LCH sel;
+
+    // Special case: black text on light gray background
+    if (fg.L < 10 && bg.L > 65 && bg.C < 5)
+    {
+        sel.H = accent.H;
+        sel.C = 40;
+        sel.L = 55;
+        return sel;
+    }
+
+    // Normal case: use accent hue
+    sel.H = accent.H;
+
+    // Chroma: boost from background
+    sel.C = std::clamp(bg.C + 25.0, 10.0, 50.0);
+
+    // Lightness: move away from background
+    if (bg.L < 50.0)
+        sel.L = std::clamp(bg.L + 20.0, 10.0, 90.0);
+    else
+        sel.L = std::clamp(bg.L - 20.0, 10.0, 90.0);
+
+    return sel;
+}
+
+RGB computeSelected(const RGB& fg, const RGB& bg) 
+{
+	HoverResult h = ComputeControlAccent(fg, bg);
+
+	RGB canonicalAccent = h.fg_hover;
+
+    LAB lab_bg = RGBtoLAB(bg);
+    LCH lch_bg = labToLch(lab_bg);
+
+    LAB lab_accent = RGBtoLAB(canonicalAccent);
+    LCH lch_accent = labToLch(lab_accent);
+
+    LAB lab_fg = RGBtoLAB(fg);
+    LCH lch_fg = labToLch(lab_fg);
+
+    LCH lch_hi = computeSelection(lch_fg, lch_bg, lch_accent);
+
+    LAB lab_final = lchToLab(lch_hi);
+    RGB rgb_final = LABtoRGB(lab_final);
+
+    return rgb_final;
+}
+

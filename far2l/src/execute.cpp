@@ -471,8 +471,8 @@ void CommandLine::CheckForKeyPressAfterCmd(int r)
 {
 	if (CtrlObject && (Opt.CmdLine.WaitKeypress > 1 || (Opt.CmdLine.WaitKeypress == 1 && r != 0))) {
 		auto *cp = CtrlObject->Cp();
-		if (!CloseFAR && cp && cp->LeftPanel && cp->RightPanel
-				&& (cp->LeftPanel->IsVisible() || cp->RightPanel->IsVisible())) {
+		if (!CloseFAR && cp && cp->ActiveTab().LeftPanel && cp->ActiveTab().RightPanel
+				&& (cp->ActiveTab().LeftPanel->IsVisible() || cp->ActiveTab().RightPanel->IsVisible())) {
 			FarKey Key;
 			{
 				ChangeMacroMode cmm(MACRO_OTHER);	// prevent macros from intercepting key (#1003)
@@ -563,7 +563,7 @@ int CommandLine::CmdExecute(const wchar_t *CmdLine, bool SeparateWindow, bool Di
 	}
 
 	if (!Flags.Check(FCMDOBJ_LOCKUPDATEPANEL) && CtrlObject) {
-		ShellUpdatePanels(CtrlObject->Cp()->ActivePanel, FALSE);
+		ShellUpdatePanels(CtrlObject->Cp()->ActiveTab().ActivePanel, FALSE);
 		CtrlObject->MainKeyBar->Refresh(Opt.ShowKeyBar);
 	}
 

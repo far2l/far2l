@@ -364,7 +364,7 @@ struct VTAnsiContext
 	{
 		DWORD nWritten;
 
-//fprintf(stderr, "FlushBuffer: %u\n", chars_in_buffer);
+		//fprintf(stderr, "FlushBuffer: %u\n", chars_in_buffer);
 		if (chars_in_buffer <= 0)
 			return;
 		HANDLE con_hnd = vt_shell->ConsoleHandle();

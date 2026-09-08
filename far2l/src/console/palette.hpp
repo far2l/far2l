@@ -58,6 +58,7 @@ public:
 	~Palette() noexcept;
 
 	static void InitFarPalette( ) noexcept;
+	static void InitFarPaletteFromFile( const std::string& folder ) noexcept;
 
 	void Set();
 	bool Load(KeyFileHelper &kfh) noexcept;
@@ -74,5 +75,4 @@ public:
 	{
 		return 32;
 	}
-
 };

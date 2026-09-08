@@ -116,7 +116,12 @@ struct DialogItemEx
 {
 	int Type;
 	int X1, Y1, X2, Y2;
+	
 	int Focus;
+	int Hover;
+	int Pressed;
+	int Width {-1};
+
 	union
 	{
 		DWORD_PTR Reserved;
@@ -162,6 +167,7 @@ struct DialogItemEx
 		Y2 = 0;
 		Focus = 0;
 		Reserved = 0;
+		Hover = Pressed = 0;
 		strHistory.Clear();
 		strMask.Clear();
 		Flags = 0;
@@ -193,6 +199,8 @@ struct DialogItemEx
 			customItemColor);
 
 		Focus = Other.Focus;
+		Hover = Other.Hover;
+		Pressed = Other.Pressed;
 		Reserved = Other.Reserved;
 		Flags = Other.Flags;
 		DefaultButton = Other.DefaultButton;
@@ -297,7 +305,8 @@ private:
 	FARWINDOWPROC RealDlgProc;	// функция обработки диалога
 
 	// переменные для перемещения диалога
-	int OldX1, OldX2, OldY1, OldY2;
+	int OldX1, OldX2, OldY1, OldY2, OldMaxY2;
+	int ScrollY {0}, MaxY2 {-1}, MaxHeight{0};
 
 	wchar_t *HelpTopic;
 
@@ -310,14 +319,30 @@ private:
 	GUID Id;
 	bool IdExist;
 	int AltState, CtrlState, ShiftState;
+	bool dialogBox;
+	int CloseX, CloseY;
+	int MiniToolX, MiniToolY;
+	int MiniToolHover {-1};
+	bool ScrollBarHover {false}, ScrollBarPressed {false};
+	bool Resizable {false};
+
+	DlgEdit* findEditBox {nullptr};
 
 private:
 	void Init(FARWINDOWPROC DlgProc, LONG_PTR InitParam);
 	virtual void DisplayObject();
 	void DeleteDialogObjects();
 	int LenStrItem(int ID, const wchar_t *lpwszStr = nullptr);
+	int IsLastBevelPriorToButtons(int I);
+	bool IsOkCancelButtons(int I);
+	bool ScrollDialogUpDown(int deltaY);
+	bool IsItemVisible(int I, int BorderY1, int BorderY2);
+
+	int Do_DlgSearch(FARString& str, int ToolIndex);
+	bool ScrollDialogUpTo(int ID);
 
 	void ShowDialog(unsigned ID = (unsigned)-1);	// ID=-1 - отрисовать весь диалог
+	void CountBorders(int& BorderY1, int& BorderY2);
 
 	DWORD CtlColorDlgItem(int ItemPos, const DialogItemEx *CurItem, uint64_t *ItemColor);
 	/*
@@ -364,6 +389,10 @@ private:
 
 	int ProcessOpenComboBox(int Type, DialogItemEx *CurItem, unsigned CurFocusPos);
 	int ProcessMoveDialog(DWORD Key);
+
+	int ProcessMiniToolBar(int ToolIndex);
+	int ProcessMiniToolBarNaviagate();
+	int ProcessMiniToolBarSearch(int ToolIndex);
 
 	int Do_ProcessTab(int Next);
 	int Do_ProcessNextCtrl(int Next, BOOL IsRedraw = TRUE);
@@ -450,6 +479,9 @@ public:
 	LONG_PTR WINAPI DlgProc(HANDLE hDlg, int Msg, int Param1, LONG_PTR Param2);
 
 	virtual void SetPosition(int X1, int Y1, int X2, int Y2);
+
+	virtual bool IsResizable() { return Resizable; }
+	virtual void SetResizable(bool r) { Resizable = r; }
 
 	BOOL IsInited();
 	bool ProcessEvents();

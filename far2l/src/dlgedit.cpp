@@ -176,7 +176,7 @@ int DlgEdit::ProcessKey(FarKey Key)
 
 int DlgEdit::ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent)
 {
-
+	fprintf(stderr, "dlgedit::mouse %x\n", MouseEvent->dwButtonState);
 	if (Type == DLGEDIT_MULTILINE) {
 		DialogEditorPluginScope scope(multiEdit);
 		return multiEdit->ProcessMouse(MouseEvent);
@@ -743,7 +743,7 @@ void DlgEdit::ShowConsoleTitle()
 
 void DlgEdit::SetScreenPosition()
 {
-
+	// VK: todo: place as dialog, editor hint here?
 	if (Type == DLGEDIT_MULTILINE)
 		multiEdit->SetScreenPosition();
 	else
@@ -752,7 +752,6 @@ void DlgEdit::SetScreenPosition()
 
 void DlgEdit::ResizeConsole()
 {
-
 	if (Type == DLGEDIT_MULTILINE)
 		multiEdit->ResizeConsole();
 	else

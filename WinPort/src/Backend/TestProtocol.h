@@ -16,6 +16,14 @@ enum TestCommand
 	TEST_CMD_SEND_KEY,
 	TEST_CMD_SYNC,
 	TEST_CMD_SEND_MOUSE,
+	TEST_CMD_SEND_RAW, // inject raw bytes into PTY slave, bypassing TTYInput parser
+};
+
+struct TestRequestSendRaw
+{
+	uint32_t cmd;
+	uint32_t len; // number of raw bytes (max 2048)
+	char data[2048];
 };
 
 struct TestReplyStatus
@@ -75,6 +83,11 @@ struct TestRequestSendKey
 struct TestRequestSendMouse
 {
 	uint32_t cmd;
+	uint32_t button_state;
+	uint32_t control_key_state;
+	uint32_t event_flags;
+	uint8_t  pressed;
+	uint8_t  reserved[3];
 	uint32_t flags;
 	uint32_t controls;
 	uint32_t buttons;

@@ -96,6 +96,8 @@ void QuickView::DisplayObject()
 			QView->Show();
 
 		Flags.Clear(FSCROBJ_ISREDRAWING);
+
+		Hint(X1, Y1, X2, Y2, HintQuickView, HintObjectNone);
 	}
 }
 
@@ -181,9 +183,8 @@ void QuickView::PrintContent(const wchar_t *WalkedNowDir)
 				PrintNamedValue(X1 + 3, y, FirstColumnLen - 1, Msg::QuickViewDevices, InsertCommas(di.DeviceCount, strTmp));
 			if (++y > 0)
 				PrintNamedValue(X1 + 3, y, FirstColumnLen - 1, Msg::QuickViewFolders, InsertCommas(di.DirCount, strTmp));
-			if (++y > 0) {
+			if (++y > 0)
 				PrintNamedValue(X1 + 3, y, FirstColumnLen - 1, Msg::QuickViewFiles, InsertCommas(di.FileCount, strTmp));
-			}
 			if (++y > 0)
 				PrintNamedValue(X1 + 3, y, FirstColumnLen - 1, Msg::QuickViewBytes, InsertCommas(di.FileSize, strTmp));
 			if (++y > 0)
@@ -467,7 +468,7 @@ void QuickView::ShowFile(const wchar_t *FileName, int TempFile, HANDLE hDirPlugi
 
 	Redraw();
 
-	if (CtrlObject->Cp()->ActivePanel == this) {
+	if (CtrlObject->Cp()->ActiveTab().ActivePanel == this) {
 		DynamicUpdateKeyBar();
 		CtrlObject->MainKeyBar->Redraw();
 	}

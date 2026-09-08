@@ -39,6 +39,7 @@
 #include "AnsiEsc.hpp"
 #include "TestPath.h"
 #include "vtshell_translation.h"
+#include "VTShellBackend.h"
 
 #define BRACKETED_PASTE_SEQ_START  "\x1b[200~"
 #define BRACKETED_PASTE_SEQ_STOP   "\x1b[201~"
@@ -170,35 +171,57 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 	std::atomic<bool> _allow_osc_clipset{false};
 	std::atomic<bool> _alternate_mode{false};
 	std::string _init_user_profile;
+	std::unique_ptr<IVTShellBackend> _backend;
 
 	int ExecLeaderProcess()
 	{
 		std::string home = GetMyHome();
-
 		std::string far2l_exename = g_strFarModuleName.GetMB();
 
+		std::string shell_to_use;
+		bool shell_interactive = true;
+		bool shell_noprofile = false;
+
+		// Parsing Opt.CmdLine.strShell to detect overrides like --noprofile or specific shell path
 		Environment::ExplodeCommandLine shell_exploded;
-		if (Opt.CmdLine.UseShell) {
-			shell_exploded.Parse(Opt.CmdLine.strShell.GetMB());
-		}
+		shell_exploded.Parse(Opt.CmdLine.strShell.GetMB());
 
 		if (shell_exploded.empty() || shell_exploded.front().empty()) {
 			shell_exploded.Parse(VTShell_GetSystemShell());
 			shell_exploded.emplace_back("-i");
 		}
 
-		fprintf(stderr, "%s:", __FUNCTION__);
+		if (!shell_exploded.empty()) {
+			shell_to_use = shell_exploded.front();
+			// This is a simplified logic. In a real scenario we might want to check args more carefully
+			for (size_t i = 1; i < shell_exploded.size(); ++i) {
+				if (shell_exploded[i] == "--noprofile" || shell_exploded[i] == "--no-config")
+					shell_noprofile = true;
+				// -i detection is implicit
+			}
+		}
+
+		//fprintf(stderr, "ExecLeaderProcess: shell to use = `%s`\n", shell_to_use.c_str());
+
+		_backend = CreateVTShellBackend(shell_to_use);
+
+		std::vector<std::string> args = _backend->GetStartArgs(shell_interactive, shell_noprofile);
+		std::string exec_path = _backend->GetExecPath();
+
+		//fprintf(stderr, "ExecLeaderProcess: exec path=`%s`, called=%s, execute=[", exec_path.c_str(), __FUNCTION__);
 		std::vector<char *> shell_argv;
+
+		shell_argv.emplace_back(const_cast<char *>(exec_path.c_str()));
+
 		for (const auto &arg : shell_exploded) {
 			shell_argv.emplace_back((char *)arg.c_str());
-			fprintf(stderr, " '%s'", arg.c_str());
+			//fprintf(stderr, " '%s'", arg.c_str());
 		}
-		fprintf(stderr, "\n");
+		//fprintf(stderr, "]\n");
 		shell_argv.emplace_back(nullptr);
 
-		// Will need to ensure that HISTCONTROL prevents adding to history commands that start by space
-		// to avoid shell history pollution by far2l's intermediate script execution commands
-		const std::string &hc_override = VTSanitizeHistcontrol();
+		std::map<std::string, std::string> env_vars;
+		_backend->SetupEnvironment(env_vars);
 
 		const BYTE col = static_cast<BYTE>(FarColorToReal(COL_COMMANDLINEUSERSCREEN));
 		char colorfgbg[32];
@@ -228,6 +251,8 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 			return r;
 		}
 
+		//fprintf(stderr, "ExecLeaderProcess: forked\n");
+
 		switch (color_bpp) {
 			case 24:
 				setenv("TERM", "xterm-256color", 1);
@@ -252,16 +277,21 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 
 		setenv("COLORFGBG", colorfgbg, 1);
 
-		if (!hc_override.empty()) {
-			setenv("HISTCONTROL", hc_override.c_str(), 1);
+		for (const auto &kv : env_vars) {
+			setenv(kv.first.c_str(), kv.second.c_str(), 1);
 		}
+
+		//fprintf(stderr, "ExecLeaderProcess: environment set\n");
 
 		// avoid locking current directory
 		if (chdir(home.c_str()) != 0) {
 			if (chdir("/") != 0) {
+				//fprintf(stderr, "ExecLeaderProcess: chdir failed!\n");
 				perror("chdir /");
 			}
 		}
+
+		//fprintf(stderr, "ExecLeaderProcess: slave name=`%s`\n", _slavename.c_str());
 
 		if (_slavename.empty()) {
 			dup2(_pipes_fallback_in, STDIN_FILENO);
@@ -270,8 +300,10 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 			CheckedCloseFD(_pipes_fallback_in);
 			CheckedCloseFD(_pipes_fallback_out);
 		}
+
+		//fprintf(stderr, "ExecLeaderProcess: reached VTShell_Leader\n");
 		r = VTShell_Leader(shell_argv.data(), _slavename.c_str());
-		fprintf(stderr, "%s: VTShell_Leader('%s', '%s') returned %d errno %u\n",
+		fprintf(stderr, "ExecLeaderProcess: : %s: VTShell_Leader('%s', '%s') returned %d errno %u\n",
 			__FUNCTION__, shell_argv[0], _slavename.c_str(), r, errno);
 
 		int err = errno;
@@ -338,9 +370,29 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 			if (grantpt(fd_term)==0 && unlockpt(fd_term)==0) {
 				UpdateTerminalSize(fd_term);
 				const char *slavename = ptsname(fd_term);
-				if (slavename && *slavename)
+				if (slavename && *slavename) {
 					_slavename = slavename;
-				else
+					// Put the slave in non-canonical, non-echoing mode so that
+					// individual bytes reach the shell immediately (no ICANON
+					// line buffering). ISIG is deliberately left SET so that the
+					// kernel still generates SIGINT/SIGTSTP/SIGQUIT for control
+					// bytes — clearing ISIG here would disable signal generation
+					// for any child that does not reset termios itself (cat, sh).
+					// Interactive shells (bash) override this on startup anyway;
+					// this only covers the pre-shell window and non-shell children.
+					int fd_slave = open(slavename, O_RDWR | O_NOCTTY);
+					if (fd_slave != -1) {
+						struct termios ts;
+						if (tcgetattr(fd_slave, &ts) == 0) {
+							ts.c_lflag &= ~(ICANON | ECHO);
+							ts.c_iflag &= ~(IXON | ICRNL | IGNCR | INLCR);
+							ts.c_cc[VMIN] = 1;
+							ts.c_cc[VTIME] = 0;
+							tcsetattr(fd_slave, TCSANOW, &ts);
+						}
+						close(fd_slave);
+					}
+				} else
 					perror("VT: ptsname");
 			} else
 				perror("VT: grantpt/unlockpt");
@@ -402,11 +454,17 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 		if (!InitTerminal())
 			return;
 
+		//fprintf(stderr, "VTShell::Startup: terminal initialized\n");
+
 		int r = ExecLeaderProcess();
 		if (r == -1) {
 			perror("VT: exec leader");
 			return;
 		}
+
+		if(r == 0) return;
+
+		//fprintf(stderr, "VTShell::Startup: leader started\n");
 
 		_leader_pid = r;
 		const auto when_started = GetProcessUptimeMSec();
@@ -416,7 +474,13 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 		std::string cmd = "\n ";
 		cmd+= VT_ComposeMarkerCommand(_startup_marker);
 		cmd+= '\n';
+		
+		//fprintf(stderr, "VTShell::Startup: prior to read reached\n");
+		
 		StartIOReaders();
+
+		//fprintf(stderr, "VTShell::Startup: IOReaders started\n");
+
 		for (;;) {
 			const auto now = GetProcessUptimeMSec();
 			if (when_printed_cmd == 0 || now - when_printed_cmd >= 300) {
@@ -427,34 +491,43 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 				}
 			}
 			DispatchInterThreadCalls();
+
 			InterThreadLock lock;
 			if (_startup_marker.empty()) {
 				break;
 			}
-			if (_output_reader.IsDeactivated()) {
-				fprintf(stderr, "%s: _output_reader deactivated\n", __FUNCTION__);
-				break;
-			}
+
+			//fprintf(stderr, "VTShell::Startup: worker is here, marker=`%s`\n", _startup_marker.c_str());
+
 			lock.WaitForWake(300);
 			if (!CheckLeaderAlive()) {
-				fprintf(stderr, "%s: leader terminated unexpectedly\n", __FUNCTION__);
+				fprintf(stderr, "VTShell::Startup: %s: leader terminated unexpectedly\n", __FUNCTION__);
 				break;
 			}
 			if (GetProcessUptimeMSec() - when_started > SHELL_TIMEOUT) {
-				fprintf(stderr, "%s: timed out\n", __FUNCTION__);
+				fprintf(stderr, "VTShell::Startup: %s: timed out\n", __FUNCTION__);
+				break;
+			}
+			if (_output_reader.IsDeactivated()) {
+				fprintf(stderr, "VTShell::Startup: %s: _output_reader deactivated\n", __FUNCTION__);
 				break;
 			}
 		}
+
+		//fprintf(stderr, "VTShell::Startup: read cycle is completed\n");
+
 		StopIOReaders();
+
+		//fprintf(stderr, "VTShell::Startup: readers are stopped\n");
 
 		_console_switch_requested = false;
 
 		if (_startup_marker.empty()) {
-			fprintf(stderr, "%s: startup took %lu msec\n",
+			fprintf(stderr, "VTShell::Startup: %s: startup took %lu msec\n",
 				__FUNCTION__, (unsigned long)(GetProcessUptimeMSec() - when_started));
 		} else {
-			fprintf(stderr, "%s: failed in %lu msec\n",
-				__FUNCTION__, (unsigned long)(GetProcessUptimeMSec() - when_started));
+			fprintf(stderr, "VTShell::Startup: %s: failed in %lu msec, marker=`%s` pid=%d\n",
+				__FUNCTION__, (unsigned long)(GetProcessUptimeMSec() - when_started), _startup_marker.c_str(), _leader_pid);
 			r = _leader_pid;
 			if (r != -1) {
 				kill(r, SIGKILL);
@@ -469,7 +542,6 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 			}
 		}
 	}
-
 
 	virtual bool OnProcessOutput(const char *buf, int len) //called from worker thread
 	{
@@ -653,28 +725,45 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 
 	void OnConsoleLog(ConsoleLogKind kind)//NB: called not from main thread!
 	{
-		std::unique_lock<std::mutex> lock(_inout_control_mutex, std::try_to_lock);
-		if (!lock) {
-			fprintf(stderr, "VTShell::OnConsoleLog: SKIPPED\n");
-			return;
+		// Two-phase lock discipline to avoid main-thread starvation:
+		//   Phase 1: lock → stop output reader → unlock.
+		//            VTA is suspended before the lock (VTAnsiSuspend RAII).
+		//            Output reader stays stopped across the InterThreadCall.
+		//   Phase 2: blocking InterThreadCall with NO mutex held —
+		//            the main thread can freely call StartIOReaders/StopIOReaders.
+		//   VTAnsiSuspend destructor fires at inner-scope exit:
+		//   VTA is resumed BEFORE the reader is restarted.
+		//   Phase 3: lock → restart output reader (only if we stopped it) → unlock.
+		bool did_stop = false;
+		{
+			VTAnsiSuspend vta_suspend(_vta);
+			if (!vta_suspend)
+				return;
+			{
+				std::lock_guard<std::mutex> lock(_inout_control_mutex);
+				if (_output_reader.IsStarted()) {
+					_output_reader.Stop();
+					did_stop = true;
+				}
+			}
+			DeliverPendingWindowInfo();
+			InterThreadCall<int>(std::bind(sShowConsoleLog, kind));
+		} // VTA resumed here, before reader restart
+		// Restart the output reader so terminal output flows again.
+		if (did_stop) {
+			std::lock_guard<std::mutex> lock(_inout_control_mutex);
+			if (!_output_reader.IsStarted()) {
+				_output_reader.Start(_fd_out);
+				if (!_output_reader.IsStarted()) {
+					fprintf(stderr, "VTShell::OnConsoleLog: failed to restart output reader\n");
+				}
+			}
 		}
-
-		//called in input thread context
-		//we're input, stop output and remember _vta state
-
-		StopAndStart<VTOutputReader> sas(_output_reader);
-		VTAnsiSuspend vta_suspend(_vta);
-		if (!vta_suspend)
-			return;
-
-		DeliverPendingWindowInfo();
-		InterThreadCall<int>(std::bind(sShowConsoleLog, kind));
 		if (!_slavename.empty())
 			UpdateTerminalSize(_fd_out);
 		if (_far2l_exts)
 			_far2l_exts->OnTerminalResized();
 	}
-
 	void OnConsoleSwitch()
 	{
 		InterThreadLockAndWake ittlaw;
@@ -1005,7 +1094,13 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 			if (_kitty_kb_flags) {
 				std::string as_kitty = VT_TranslateKeyToKitty(KeyEvent, _kitty_kb_flags, _keypad);
 				if (as_kitty.length() > 0) {
-					return as_kitty;
+					// Ctrl+letter (A-Z) keydown: bypass kitty encoding so the
+					// legacy (or win32) translation below produces raw control bytes.
+					if (!(KeyEvent.bKeyDown && ctrl && !alt && !shift
+						&& KeyEvent.wVirtualKeyCode >= 'A'
+						&& KeyEvent.wVirtualKeyCode <= 'Z')) {
+						return as_kitty;
+					}
 				}
 			}
 
@@ -1123,7 +1218,8 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 
 	bool ExecuteCommandBegin(const char *cd, const char *cmd, bool force_sudo) // return false on failure
 	{
-		_cce.reset(new VT_ComposeCommandExec(cd, cmd, force_sudo, _start_marker, _exit_marker));
+		fprintf(stderr, "vtshell::ExecuteCommandBegin: `%s`\n", cmd);
+		_cce.reset(new VT_ComposeCommandExec(*_backend, cd, cmd, force_sudo, _start_marker, _exit_marker, _init_user_profile));
 		if (!_cce->Created()) {
 			const std::string &error_str =
 				StrPrintf("Far2l::VT: error %u creating: '%s'\n",
@@ -1143,22 +1239,8 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 			// due to being typed while previous command being executed in interactive shell
 			cmd_str+= "\x15";
 		}
-		// then send sourcing directive (dot) with space trailing to avoid adding it to history
-		cmd_str+= " . ";
-		if (!_init_user_profile.empty()) {
-			_init_user_profile.insert(0, 1, '/');
-			_init_user_profile.insert(0, GetMyHome());
-			if (TestPath(_init_user_profile).Exists()) {
-				cmd_str+= '"';
-				cmd_str+= _init_user_profile;
-				cmd_str+= "\";. ";
-			}
-			_init_user_profile.clear();
-		}
-		cmd_str+= EscapeCmdStr(_cce->ScriptFile());
-		cmd_str+= ';';
-		cmd_str+= VT_ComposeMarkerCommand(_exit_marker + "$FARVTRESULT");
-		cmd_str+= ";PS1=''\n"; // set PS1 to empty
+		cmd_str+= _backend->MakeRunScriptCommand(_cce->ScriptFile());
+		cmd_str+= '\n';
 
 		if (!WriteTerm(cmd_str.c_str(), cmd_str.size())) {
 			const std::string &error_str =
@@ -1225,6 +1307,16 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 	HANDLE RealConsoleHandle()
 	{
 		return _console_handle;
+	}
+
+	virtual void InjectRawInput(const char *data, size_t len)
+	{
+		if (len == 0 || _fd_in == -1)
+			return;
+		std::lock_guard<std::mutex> lock(_write_term_mutex);
+		if (WriteAll(_fd_in, (const void *)data, len) != len) {
+			perror("VT: InjectRawInput - write");
+		}
 	}
 
 	bool ExecuteCommand(const char *cmd, bool force_sudo, bool may_bgnd, bool may_notify)
@@ -1378,8 +1470,8 @@ class VTShell : VTOutputReader::IProcessor, VTInputReader::IProcessor, IVTShell
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
 static std::mutex g_vts_mutex;
-static std::vector<std::unique_ptr<VTShell> > g_vts;
-static std::unique_ptr<VTShell> g_vt;
+static std::vector<std::shared_ptr<VTShell> > g_vts;
+static std::shared_ptr<VTShell> g_vt;
 static std::atomic<int> g_vt_busy{0};
 
 struct VTShell_BusyScope
@@ -1458,6 +1550,28 @@ void VTShell_Shutdown()
 	std::lock_guard<std::mutex> lock(g_vts_mutex);
 	g_vts.clear();
 	g_vt.reset();
+}
+
+void VTShell_InjectRawInput(const char *data, size_t len)
+{
+	// Inject into the foreground shell only. Background shells have no
+	// guaranteed route order (g_vts is insertion-ordered, and Switch
+	// erases by index), so injecting there would misroute bytes.
+	// Take a shared_ptr under the lock so the VTShell stays alive across
+	// the blocking WriteAll even if a concurrent VTShell_Shutdown clears
+	// g_vt — and release g_vts_mutex before the write so a wedged PTY
+	// cannot freeze VTShell_Switch / Enum / Shutdown.
+	std::shared_ptr<VTShell> target;
+	{
+		std::lock_guard<std::mutex> lock(g_vts_mutex);
+		target = g_vt;
+	}
+	if (target) {
+		target->InjectRawInput(data, len);
+		return;
+	}
+	fprintf(stderr, "VTShell_InjectRawInput: no foreground shell, dropped %lu bytes\n",
+		(unsigned long)len);
 }
 
 bool VTShell_Busy()

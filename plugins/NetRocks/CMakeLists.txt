@@ -1,5 +1,8 @@
 project(NetRocks)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 set(SOURCES
 src/Erroring.cpp
 src/Globals.cpp
@@ -188,7 +191,10 @@ if (LIBSMBCLIENT_FOUND AND ((NOT DEFINED NR_SMB) OR NR_SMB))
 endif ()
 
 if (LIBNFS_FOUND AND ((NOT DEFINED NR_NFS) OR NR_NFS))
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_NFS")
+    if(NOT DEFINED OLD_NFSLIB)
+        set(OLD_NFSLIB "0")
+    endif()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_NFS -DUSE_OLD_NFSLIB=${OLD_NFSLIB}")
     add_executable (NetRocks-NFS
         ${PROTOCOL_SOURCES}
         src/Protocol/NFS/ProtocolNFS.cpp

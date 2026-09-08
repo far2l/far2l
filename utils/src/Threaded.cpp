@@ -21,13 +21,16 @@ void *Threaded::sThreadProc(void *p)
 	Threaded *it = (Threaded *)p;
 	void *result = it->ThreadProc();
 
+	// vk: we should notify all who waits us first
+
+	std::lock_guard<std::mutex> lock(it->_trd_mtx);
+	it->_trd_exited = true;
+	it->_trd_cond.notify_all();
+
+	// vk: and only then destroy anything
+
 	if (it->_self_destruct) {
 		delete it;
-
-	} else {
-		std::lock_guard<std::mutex> lock(it->_trd_mtx);
-		it->_trd_exited = true;
-		it->_trd_cond.notify_all();
 	}
 
 	return result;

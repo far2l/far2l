@@ -174,6 +174,8 @@ void FileList::FileListToPluginItem(FileListItem *fi, PluginPanelItem *pi)
 	pi->FindData.ftLastWriteTime = fi->WriteTime;
 	pi->FindData.ftCreationTime = fi->CreationTime;
 	pi->FindData.ftLastAccessTime = fi->AccessTime;
+	pi->FindData.ftChangeTime = fi->ChangeTime;
+
 	pi->NumberOfLinks = fi->NumberOfLinks;
 	pi->Flags = fi->UserFlags;
 
@@ -186,8 +188,14 @@ void FileList::FileListToPluginItem(FileListItem *fi, PluginPanelItem *pi)
 
 	if (fi->UserData && (fi->UserFlags & PPIF_USERDATA)) {
 		DWORD Size = *(DWORD *)fi->UserData;
-		pi->UserData = (DWORD_PTR)malloc(Size);
-		memcpy((void *)pi->UserData, (void *)fi->UserData, Size);
+		void *userData = malloc(Size);
+		if (userData) {
+			memcpy(userData, (void *)fi->UserData, Size);
+			pi->UserData = (DWORD_PTR)userData;
+		} else {
+			pi->UserData = 0;
+			pi->Flags &= ~PPIF_USERDATA;
+		}
 	} else
 		pi->UserData = fi->UserData;
 
@@ -215,6 +223,8 @@ size_t FileList::FileListToPluginItem2(FileListItem *fi, PluginPanelItem *pi)
 		pi->FindData.ftLastWriteTime = fi->WriteTime;
 		pi->FindData.ftCreationTime = fi->CreationTime;
 		pi->FindData.ftLastAccessTime = fi->AccessTime;
+		pi->FindData.ftChangeTime = fi->ChangeTime;
+
 		pi->NumberOfLinks = fi->NumberOfLinks;
 		pi->Flags = fi->Selected ? fi->UserFlags | PPIF_SELECTED : fi->UserFlags;
 		pi->CustomColumnNumber = fi->CustomColumnNumber;
@@ -308,15 +318,23 @@ void FileList::PluginToFileListItem(PluginPanelItem *pi, FileListItem *fi)
 	fi->WriteTime = pi->FindData.ftLastWriteTime;
 	fi->CreationTime = pi->FindData.ftCreationTime;
 	fi->AccessTime = pi->FindData.ftLastAccessTime;
-	fi->ChangeTime.dwHighDateTime = 0;
-	fi->ChangeTime.dwLowDateTime = 0;
+	fi->ChangeTime = pi->FindData.ftChangeTime;
+
+//	fi->ChangeTime.dwHighDateTime = 0;
+//	fi->ChangeTime.dwLowDateTime = 0;
 	fi->NumberOfLinks = pi->NumberOfLinks;
 	fi->UserFlags = pi->Flags;
 
 	if (pi->UserData && (pi->Flags & PPIF_USERDATA)) {
 		DWORD Size = *(DWORD *)pi->UserData;
-		fi->UserData = (DWORD_PTR)malloc(Size);
-		memcpy((void *)fi->UserData, (void *)pi->UserData, Size);
+		void *userData = malloc(Size);
+		if (userData) {
+			memcpy(userData, (void *)pi->UserData, Size);
+			fi->UserData = (DWORD_PTR)userData;
+		} else {
+			fi->UserData = 0;
+			fi->UserFlags &= ~PPIF_USERDATA;
+		}
 	} else
 		fi->UserData = pi->UserData;
 
@@ -423,8 +441,8 @@ void FileList::PutDizToPlugin(FileList *DestPanel, PluginPanelItem *ItemList, in
 			&& !DestPanel->strPluginDizName.IsEmpty()
 			&& (!Info.HostFile || !*Info.HostFile || DestPanel->GetModalMode()
 					|| apiGetFileAttributes(Info.HostFile) != INVALID_FILE_ATTRIBUTES)) {
-		CtrlObject->Cp()->LeftPanel->ReadDiz();
-		CtrlObject->Cp()->RightPanel->ReadDiz();
+		CtrlObject->Cp()->ActiveTab().LeftPanel->ReadDiz();
+		CtrlObject->Cp()->ActiveTab().RightPanel->ReadDiz();
 
 		if (DestPanel->GetModalMode())
 			DestPanel->ReadDiz();
@@ -499,8 +517,8 @@ void FileList::PluginGetFiles(const wchar_t **DestPath, int Move)
 		for (auto &Item : ItemList) {
 			if (Item.Flags & PPIF_PROCESSDESCR) {
 				if (!DizFound) {
-					CtrlObject->Cp()->LeftPanel->ReadDiz();
-					CtrlObject->Cp()->RightPanel->ReadDiz();
+					CtrlObject->Cp()->ActiveTab().LeftPanel->ReadDiz();
+					CtrlObject->Cp()->ActiveTab().RightPanel->ReadDiz();
 					DestDiz.Read(*DestPath);
 					DizFound = true;
 				}

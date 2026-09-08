@@ -1,12 +1,13 @@
 #include "wxMain.h"
 #include <dlfcn.h>
-#include "../NotifySh.h"
 #include "wxWinTranslations.h"
 #include "wxKeyboardLedsState.h"
 #include "../../../utils/src/POpen.cpp"
 #include <vector>
 #include <memory>
 #include "wxPrinterSupport.h"
+#include "wxShareBackendOptions.h"
+#include "../NotifySh.h"
 
 #define AREAS_REDUCTION
 
@@ -80,6 +81,7 @@ bool WinPortAppThread::Prepare()
 void WinPortAppThread::Start(IConsoleOutputBackend *backend)
 {
 	_backend = backend;
+	wxInitAllImageHandlers();
 	_start.unlock();
 }
 
@@ -184,7 +186,12 @@ extern "C" __attribute__ ((visibility("default"))) bool WinPortMainBackend(WinPo
 	}
 
 	PrinterSupportBackendSetter printer_backend_setter;
-	printer_backend_setter.Set<wxPrinterSupportBackend>();
+	printer_backend_setter.Set<wxPrinterSupportBackend>(); // nullptr /* g_winport_frame */);
+
+	fprintf(stderr, "printer backend set\n");
+	
+	ShareBackendOptionsBackendSetter share_backend_setter;
+	share_backend_setter.Set<wxShareBackendOptionsBackend>();
 
 	if (a->app_main && !g_winport_app_thread) {
 		g_winport_app_thread = new(std::nothrow) WinPortAppThread(a->argc, a->argv, a->app_main);
@@ -346,6 +353,12 @@ wxBEGIN_EVENT_TABLE(WinPortFrame, wxFrame)
 
 	EVT_COMMAND(wxID_ANY, WX_CONSOLE_SAVE_WIN_STATE, WinPortFrame::OnConsoleSaveWindowStateSync)
 wxEND_EVENT_TABLE()
+
+void WinPortFrame::OnSetFocus( wxFocusEvent &event )
+{
+	fprintf(stderr, "frame::OnSetFocus\n");
+	_panel->SetFocus();
+}
 
 WinPortFrame::WinPortFrame(const wxString& title)
 	: _shown(false),  _menu_bar(nullptr)
@@ -596,9 +609,113 @@ wxBEGIN_EVENT_TABLE(WinPortPanel, wxPanel)
 	EVT_KILL_FOCUS(WinPortPanel::OnKillFocus )
 wxEND_EVENT_TABLE()
 
+///////////////////////////
+// Drag and drop support
+
+class MyDropTarget : public wxDropTarget
+{
+public:
+    MyDropTarget(WinPortPanel* self) {
+    	this->self = self;
+
+        // Create a composite data object
+        wxDataObjectComposite* comp = new wxDataObjectComposite;
+
+        // Add supported formats
+        m_textObj = new wxTextDataObject;
+        //m_urlObj  = new wxURLDataObject;
+        m_fileObj = new wxFileDataObject;
+
+        comp->Add(m_textObj, true);   // primary
+        //comp->Add(m_urlObj);
+        comp->Add(m_fileObj);
+
+        SetDataObject(comp);
+    }
+
+    virtual bool OnDrop(wxCoord x, wxCoord y) override
+    {
+        m_dropPos = wxPoint(x, y);
+        return true;    // allow drop
+    }
+
+    virtual wxDragResult OnData(wxCoord x, wxCoord y, wxDragResult def) override
+    {
+        if (!GetData())
+            return wxDragNone;
+
+        // Check which format was received
+        if (!m_textObj->GetText().empty())
+        {
+            HandleText(m_textObj->GetText());
+        }
+        /*else if (!m_urlObj->GetURL().empty())
+        {
+            HandleURL(m_urlObj->GetURL());
+        }*/
+        else if (!m_fileObj->GetFilenames().empty())
+        {
+            HandleFiles(m_fileObj->GetFilenames());
+        }
+
+        return def;
+    }
+
+private:
+    wxTextDataObject* m_textObj;
+    //wxURLDataObject*  m_urlObj;
+    wxFileDataObject* m_fileObj;
+    WinPortPanel* self { nullptr };
+    wxPoint m_dropPos;
+
+    void HandleText(const wxString& text)
+    {
+        fprintf(stderr, "Dropped TEXT: %ls\n", text.wc_str());
+        self->DragDropHandleText(text, m_dropPos.x, m_dropPos.y);
+    }
+
+    void HandleURL(const wxString& text)
+    {
+        fprintf(stderr, "Dropped URL: %ls\n", text.wc_str());
+        self->DragDropHandleText(text, m_dropPos.x, m_dropPos.y);
+    }
+
+    void HandleFiles(const wxArrayString& files)
+    {
+        for (auto& f : files) {
+            fprintf(stderr, "Dropped FILE: %ls\n", f.wc_str());
+            self->DragDropHandleFile(f, m_dropPos.x, m_dropPos.y);
+        }
+    }
+};
+
+void WinPortPanel::DragDropHandleText(const wxString& text, int x , int y) {
+	INPUT_RECORD ir = {};
+	ir.EventType = EXT_DROP_EVENT;
+	ir.Event.DropTarget.DropType = DROP_TYPE_TEXT;
+	ir.Event.DropTarget.Text = wcsdup(text.wc_str());
+
+	COORD pos_char = TranslateMousePosition( x, y);
+	ir.Event.DropTarget.X = pos_char.X;
+	ir.Event.DropTarget.Y = pos_char.Y;
+
+	wxConsoleInputShim::Enqueue(&ir, 1);
+}
+
+void WinPortPanel::DragDropHandleFile(const wxString& file, int x, int y) {
+	INPUT_RECORD ir = {};
+	ir.EventType = EXT_DROP_EVENT;
+	ir.Event.DropTarget.DropType = DROP_TYPE_FILE;
+	ir.Event.DropTarget.Text = wcsdup(file.wc_str());
+
+	COORD pos_char = TranslateMousePosition( x, y);
+	ir.Event.DropTarget.X = pos_char.X;
+	ir.Event.DropTarget.Y = pos_char.Y;
+
+	wxConsoleInputShim::Enqueue(&ir, 1);
+}
 
 ///////////////////////////
-
 
 WinPortPanel::WinPortPanel(WinPortFrame *frame, const wxPoint& pos, const wxSize& size)
 	: _paint_context(this), _frame(frame), _refresh_rects_throttle(WINPORT(GetTickCount)())
@@ -639,6 +756,8 @@ WinPortPanel::WinPortPanel(WinPortFrame *frame, const wxPoint& pos, const wxSize
 	_periodic_timer->Start(g_TIMER_PERIOD);
 	OnConsoleOutputTitleChanged();
 	_resize_pending = RP_INSTANT;
+
+	SetDropTarget(new MyDropTarget(this));
 }
 
 WinPortPanel::~WinPortPanel()
@@ -750,7 +869,6 @@ void WinPortPanel::OnTouchbarKey(bool alternate, int index)
 	wxConsoleInputShim::Enqueue(&ir, 1);
 	ir.Event.KeyEvent.bKeyDown = FALSE;
 	wxConsoleInputShim::Enqueue(&ir, 1);
-
 }
 
 void WinPortPanel::SetConsoleSizeFromWindow()
@@ -819,8 +937,16 @@ void WinPortPanel::CheckForUnfreeze(bool force)
 	}
 }
 
+#include "easteregg.h"
+
 void WinPortPanel::OnTimerPeriodic(wxTimerEvent& event)
 {
+	if (IsEasterEggActive()) {
+		fire.Update();
+		//terrain.Update();
+		//potato.Update();
+	}
+
 	if (_extra_refresh) {
 		// see comment on WinPortPanel::OnTitleChangedSync
 		if (WINPORT(GetTickCount)() - _last_title_ticks > TIMER_EXTRA_REFRESH) {
@@ -849,6 +975,8 @@ void WinPortPanel::OnTimerPeriodic(wxTimerEvent& event)
 			&& _text2clip.empty()) {
 		_periodic_timer->Stop();
 	}
+
+	if(IsEasterEggActive()) Refresh(false);
 }
 
 void WinPortPanel::ResetTimerIdling()
@@ -1441,13 +1569,27 @@ void WinPortPanel::OnKeyDown( wxKeyEvent& event )
 	int _prev_key_code = _key_tracker.LastKeydown().GetKeyCode();
 
 	_key_tracker.OnKeyDown(event, now);
+
+	// Must reset before the Composing() early-return below — otherwise
+	// OnChar's `!_last_keydown_enqueued` gate stays poisoned by the prior
+	// keystroke and silently drops the AltGr character.
+	_last_keydown_enqueued = false;
+
+	// In composing mode skip only printable keys: the layout produces a
+	// glyph that arrives via OnChar. F-keys / navigation have no layout
+	// glyph, so let them fall through and dispatch as Alt+key.
 	if (_key_tracker.Composing()) {
-		fprintf(stderr, " COMPOSING\n");
-		event.Skip();
-		return;
+		const int kc = event.GetKeyCode();
+		if (kc >= 0x20 && kc < 0x7f) {
+			fprintf(stderr, " COMPOSING\n");
+			event.Skip();
+			return;
+		}
 	}
 
 	fprintf(stderr, "\n");
+
+	// _last_keydown_enqueued = false;
 
 	// dont check for alt key sudden keyup cuz it breaks Win key Alt behaviour
 	// also it didnt cause problems yet
@@ -1465,8 +1607,6 @@ void WinPortPanel::OnKeyDown( wxKeyEvent& event )
 		}
 	}
 
-	_last_keydown_enqueued = false;
-
 	wx2INPUT_RECORD ir(TRUE, event, _key_tracker);
 	const DWORD &dwMods = (ir.Event.KeyEvent.dwControlKeyState
 		& (LEFT_ALT_PRESSED | SHIFT_PRESSED | LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED));
@@ -1476,6 +1616,8 @@ void WinPortPanel::OnKeyDown( wxKeyEvent& event )
 		activeMods &= ~LEFT_CTRL_PRESSED;
 	}
 
+    /* vk: damn switch off the alt-enter behavior */
+    /*
 	if (event.GetKeyCode() == WXK_RETURN && dwMods == LEFT_ALT_PRESSED
 		&& (_prev_key_code == WXK_ALT || _prev_key_code == WXK_RETURN)) {
 
@@ -1486,7 +1628,7 @@ void WinPortPanel::OnKeyDown( wxKeyEvent& event )
 			_resize_pending = RP_DEFER;
 		_last_keydown_enqueued = true;
 		return;
-	}
+	}*/
 
 #ifdef WX_ALT_NONLATIN
 	const bool alt_nonlatin_workaround = (
@@ -1649,11 +1791,14 @@ void WinPortPanel::OnChar( wxKeyEvent& event )
 	if (_key_tracker.LastKeydown().GetTimestamp() != event.GetTimestamp()) {
 		fprintf(stderr, "\n");
 	}
-	fprintf(stderr, "\nOnChar: %s %s raw=%x code=%x uni=%x \"%lc\" ts=%lu lke=%u",
+	fprintf(stderr, "\nOnChar: %s %s raw=%x code=%x uni=%x \"%lc\" ts=%lu lke=%u none=%c ts_eq=%c compose=%c",
 		FormatWxKeyState(event.GetModifiers()),
 		GetWxVirtualKeyCodeName(event.GetKeyCode()),
 		event.GetRawKeyCode(), event.GetKeyCode(),
-		uni, (uni > 0x1f) ? uni : L'?', event.GetTimestamp(), _last_keydown_enqueued);
+		uni, (uni > 0x1f) ? uni : L'?', event.GetTimestamp(), _last_keydown_enqueued,
+		event.GetUnicodeKey() != WXK_NONE ? 'N' : 'y',
+		_key_tracker.LastKeydown().GetTimestamp() == event.GetTimestamp() ? 'y': 'N',
+		_key_tracker.Composing() ? 'Y': 'n');
 	_exclusive_hotkeys.OnKeyUp(event);
 
 	if (event.GetSkipped()) {
@@ -1692,23 +1837,32 @@ void WinPortPanel::OnChar( wxKeyEvent& event )
 		{
 			// Likely an IME-generated event or a desynchronized event. Use the safe fallback.
 			ir.Event.KeyEvent.wVirtualKeyCode = VK_NONAME;
+			//fprintf(stderr, " IBus? -> VK_NONAME");
 		}
 		else
 		{
 			// The event seems to be a direct result of a key press.
 			// Use the new logic to get a more precise virtual key code.
 			ir.Event.KeyEvent.wVirtualKeyCode = wxKeyCode2WinKeyCode(last_keydown.GetKeyCode());
+			//fprintf(stderr, " direct keypress -> %s", GetWxVirtualKeyCodeName(ir.Event.KeyEvent.wVirtualKeyCode));
 			if (ir.Event.KeyEvent.wVirtualKeyCode == 0 && event.GetKeyCode() == 0) {
 				ir.Event.KeyEvent.wVirtualKeyCode = VK_NONAME;
+				//fprintf(stderr, " -> VK_NONAME");
 			}
 		}
 
 		if (event.GetUnicodeKey() <= 0x7f) {
+			//fprintf(stderr, " uni=%x", event.GetUnicodeKey());
 			if (_key_tracker.LastKeydown().GetTimestamp() == event.GetTimestamp()) {
 				wx2INPUT_RECORD irx(TRUE, _key_tracker.LastKeydown(), _key_tracker);
 				ir.Event.KeyEvent.wVirtualKeyCode = irx.Event.KeyEvent.wVirtualKeyCode;
 				ir.Event.KeyEvent.wVirtualScanCode = irx.Event.KeyEvent.wVirtualScanCode;
 				ir.Event.KeyEvent.dwControlKeyState = irx.Event.KeyEvent.dwControlKeyState;
+				/*
+				fprintf(stderr, " ir vk=%x %s key=%x scan=%x", event.GetUnicodeKey(), 
+					GetWxVirtualKeyCodeName(ir.Event.KeyEvent.wVirtualKeyCode),
+					ir.Event.KeyEvent.wVirtualKeyCode, 
+					ir.Event.KeyEvent.wVirtualScanCode);*/
 			}
 		}
 
@@ -1733,6 +1887,7 @@ void WinPortPanel::OnChar( wxKeyEvent& event )
 #endif
 
 		ir.Event.KeyEvent.uChar.UnicodeChar = event.GetUnicodeKey();
+		//fprintf(stderr, " uc=%x", ir.Event.KeyEvent.uChar.UnicodeChar);
 
 #if !defined(__WXOSX__) && wxCHECK_VERSION(3, 2, 3)
 		if (event.AltDown() && !_key_tracker.RightAlt() && isLayoutDependentKey(event)) {
@@ -1756,13 +1911,28 @@ void WinPortPanel::OnChar( wxKeyEvent& event )
 			ir.Event.KeyEvent.dwControlKeyState = irx.Event.KeyEvent.dwControlKeyState;
 		}
 
+		// In composing mode strip Alt so far2l types '@' instead of firing Alt+@.
+		// On X11/Wayland AltGr also synthesizes a Ctrl event, strip that too.
+		if (_key_tracker.Composing()) {
+			ir.Event.KeyEvent.dwControlKeyState &= ~(LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED
+#ifndef __WXOSX__
+				| LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED
+#endif
+				);
+		}
+
 		ir.Event.KeyEvent.bKeyDown = TRUE;
 		wxConsoleInputShim::Enqueue(&ir, 1);
+
+		//fprintf(stderr, " DOWN");
 
 		ir.Event.KeyEvent.bKeyDown = FALSE;
 		wxConsoleInputShim::Enqueue(&ir, 1);
 
+		//fprintf(stderr, " UP");
+
 		_enqueued_in_onchar = true;
+		//fprintf(stderr, " ENQUEUED");
 
 #if !defined(__WXOSX__)
 		// avoid double up event in ResetInputState()
@@ -1817,10 +1987,8 @@ void WinPortPanel::OnSize(wxSizeEvent &event)
 	}
 }
 
-COORD WinPortPanel::TranslateMousePosition( wxMouseEvent &event )
-{
-	wxClientDC dc(this);
-	wxPoint pos = event.GetLogicalPosition(dc);
+COORD WinPortPanel::TranslateMousePosition( int logicalX, int logicalY ) {
+	wxPoint pos(logicalX, logicalY);
 	if (pos.x < 0) pos.x = 0;
 	if (pos.y < 0) pos.y = 0;
 
@@ -1834,6 +2002,13 @@ COORD WinPortPanel::TranslateMousePosition( wxMouseEvent &event )
 	if ( (USHORT)out.X >= width) out.X = width - 1;
 	if ( (USHORT)out.Y >= height) out.Y = height - 1;
 	return out;
+}
+
+COORD WinPortPanel::TranslateMousePosition( wxMouseEvent &event )
+{
+	wxClientDC dc(this);
+	wxPoint pos = event.GetLogicalPosition(dc);
+	return TranslateMousePosition(pos.x, pos.y);
 }
 
 void WinPortPanel::OnMouse( wxMouseEvent &event )
@@ -2100,6 +2275,18 @@ DWORD64 WinPortPanel::OnConsoleSetTweaks(DWORD64 tweaks)
 	return out;
 }
 
+DWORD64 WinPortPanel::OnConsoleGetTweaks()
+{
+	DWORD64 out = TWEAK_STATUS_SUPPORT_CHANGE_FONT | TWEAK_STATUS_SUPPORT_BLINK_RATE;
+
+	if (_paint_context.IsSharpSupported())
+		out|= TWEAK_STATUS_SUPPORT_PAINT_SHARP;
+
+	if (_exclusive_hotkeys.Available())
+		out|= TWEAK_STATUS_SUPPORT_EXCLUSIVE_KEYS;
+
+	return out;
+}
 
 bool WinPortPanel::OnConsoleIsActive()
 {
@@ -2225,7 +2412,7 @@ void WinPortPanel::CheckPutText2CLip()
 
 void WinPortPanel::OnSetFocus( wxFocusEvent &event )
 {
-	//fprintf(stderr, "OnSetFocus\n");
+	fprintf(stderr, "OnSetFocus\n");
 	g_wx_keyboard_leds_state.Current(true);
 	const bool was_focused = (_focused_ts != 0);
 	const DWORD ts = WINPORT(GetTickCount)();
@@ -2382,4 +2569,40 @@ void WinPortPanel::OnConsoleOverrideColor(DWORD Index, DWORD *ColorFG, DWORD *Co
 
 	auto fn = std::bind(&ConsoleOverrideColorInMain, Index, ColorFG, ColorBK);
 	CallInMainNoRet(fn);
+}
+
+void StartDragHelper::StartDrag(const wxString& text, const wxString& url, const wxArrayString& files) {
+    wxDataObjectComposite* comp = new wxDataObjectComposite;
+
+    wxTextDataObject* textObj = nullptr;
+    if (!text.empty()) {
+        textObj = new wxTextDataObject(text);
+        comp->Add(textObj, true); // primary
+    }
+
+    // Add URL if provided
+    /*
+    wxURLDataObject* urlObj = nullptr;
+    if (!url.empty()) {
+        urlObj = new wxURLDataObject(url);
+        comp->Add(urlObj);
+    } */
+
+    // Add files if provided
+    wxFileDataObject* fileObj = nullptr;
+    if (!files.empty()) {
+        fileObj = new wxFileDataObject;
+        for (auto& f : files)
+            fileObj->AddFile(f);
+        comp->Add(fileObj);
+    }
+
+    // If nothing was provided, do nothing
+    if (comp->GetFormatCount() == 0)
+        return;
+
+    wxDropSource source(self);
+    source.SetData(*comp);
+
+    source.DoDragDrop(wxDrag_CopyOnly);
 }

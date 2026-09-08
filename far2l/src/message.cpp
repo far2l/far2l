@@ -102,6 +102,7 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 	wchar_t *PtrStr;
 	const wchar_t *CPtrStr = nullptr;
 	FARString strErrStr;
+	wchar_t* ptrBuf = nullptr;
 	size_t FormattedErrLength = 0;
 
 	if (Flags & MSG_ERRORTYPE)
@@ -109,6 +110,8 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 
 	if (ItemsNumber < 0 || Buttons < 0 || ItemsNumber < Buttons)
 		return -1;
+
+    /* OnPaint here */
 
 	for (;;) {	// #1248
 		StrCount = ItemsNumber - Buttons;
@@ -193,26 +196,32 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 		// PtrStr=FarFormatText(ErrStr,MaxLength-(MaxLength > MAX_WIDTH_MESSAGE/2?1:0),ErrStr,sizeof(ErrStr),"\n",0); //?? MaxLength ??
 		FarFormatText(strErrStr, LenErrStr, strErrStr, L"\n", 0);	//?? MaxLength ??
 		FormattedErrLength = strErrStr.GetLength();
-		PtrStr = strErrStr.GetBuffer();
-
-		// BUGBUG: FARString не предназначен для хранения строк разделённых \0
-		while ((PtrStr = wcschr(PtrStr, L'\n'))) {
-			*PtrStr++ = 0;
-
-			if (*PtrStr)
-				CountErrorLine++;
-		}
-
-		strErrStr.ReleaseBuffer(FormattedErrLength);
-
-		if (CountErrorLine > ADDSPACEFORPSTRFORMESSAGE)
-			CountErrorLine = ADDSPACEFORPSTRFORMESSAGE;		//??
 	}
+
+	// vk: hack with strErrStr makes buffer overflow
+	int bufSize = strErrStr.GetLength() + 2; /* we need to add \0\0 at the end */
+	ptrBuf = (wchar_t*)malloc(sizeof(wchar_t) * bufSize);
+	memset(ptrBuf, 0, bufSize);
+	wcscpy(ptrBuf, strErrStr.CPtr());
+
+	PtrStr = ptrBuf; // strErrStr.GetBuffer();
+
+	// BUGBUG: FARString не предназначен для хранения строк разделённых \0
+	while ((PtrStr = wcschr(PtrStr, L'\n'))) {
+		*PtrStr++ = 0;
+
+		if (*PtrStr)
+			CountErrorLine++;
+	}
+	//*PtrStr++ = 0;
+	// strErrStr.ReleaseBuffer();
+
+	if (CountErrorLine > ADDSPACEFORPSTRFORMESSAGE)
+		CountErrorLine = ADDSPACEFORPSTRFORMESSAGE;		//??
 
 	// BUGBUG: FARString не предназначен для хранения строк разделённых \0
 	//  заполняем массив...
-	CPtrStr = strErrStr;
-
+	CPtrStr = ptrBuf;  // strErrStr;
 	for (I = 0; I < CountErrorLine; I++) {
 		Str[I] = CPtrStr;
 		CPtrStr+= StrLength(CPtrStr);
@@ -254,8 +263,8 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 	MessageY2 = Y2 = Y1 + int(StrCount) + 3;
 	FARString strHelpTopic(strMsgHelpTopic);
 	strMsgHelpTopic.Clear();
-	// *** Вариант с Диалогом ***
 
+	// *** Вариант с Диалогом ***
 	if (Buttons > 0) {
 		DWORD ItemCount = StrCount + Buttons + 1;
 		DialogItemEx *PtrMsgDlg;
@@ -263,6 +272,7 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 
 		if (!MsgDlg) {
 			free(Str);
+			free(ptrBuf);
 			return -1;
 		}
 
@@ -289,7 +299,7 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 		for (PtrMsgDlg = MsgDlg + 1, I = 1; I < ItemCount; ++I, ++PtrMsgDlg, ++CurItem) {
 			if (I == StrCount + 1 && !StrSeparator && !Separator) {
 				PtrMsgDlg->Type = DI_TEXT;
-				PtrMsgDlg->Flags = DIF_SEPARATOR;
+				PtrMsgDlg->Flags = (Opt.Backend.UseModernLook ? 0 : DIF_SEPARATOR);
 				PtrMsgDlg->Y1 = PtrMsgDlg->Y2 = I + 1;
 				CurItem--;
 				I--;
@@ -321,7 +331,7 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 
 				if (Chr == L'\1' || Chr == L'\2') {
 					CPtrStr++;
-					PtrMsgDlg->Flags|= (Chr == 2 ? DIF_SEPARATOR2 : DIF_SEPARATOR);
+					if(!Opt.Backend.UseModernLook) PtrMsgDlg->Flags|= (Chr == 2 ? DIF_SEPARATOR2 : DIF_SEPARATOR);
 					if (I == StrCount) {
 						StrSeparator = true;
 					}
@@ -351,6 +361,9 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 			Dialog Dlg(MsgDlg, ItemCount, MsgDlgProc);
 			Dlg.SetPosition(X1, Y1, X2, Y2);
 
+			// todo: do we need this?
+			Hint(X1, Y1, X2, Y2, HintDialog, HintObjectNone);
+
 			if (!strHelpTopic.IsEmpty())
 				Dlg.SetHelp(strHelpTopic);
 
@@ -373,8 +386,12 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 
 		delete[] MsgDlg;
 		free(Str);
+		free(ptrBuf);
 		return (RetCode < 0 ? RetCode : RetCode - StrCount - 1 - (Separator ? 1 : 0));
 	}
+
+    /* actual paint begins here */
+	Hint(X1, Y1, X2, Y2, HintDialog, HintObjectNone);
 
 	// *** Без Диалога! ***
 	SetCursorType(0, 0);
@@ -384,8 +401,11 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 		MakeShadow(X1 + 2, Y2 + 1, X2, Y2 + 1);
 		MakeShadow(X2 + 1, Y1 + 1, X2 + 2, Y2 + 1);
 
-		Box(X1 + 3, Y1 + 1, X2 - 3, Y2 - 1, FarColorToReal((Flags & MSG_WARNING) ? COL_WARNDIALOGBOX : COL_DIALOGBOX),
-				DOUBLE_BOX);
+		Box(X1 + 3, Y1 + 1, X2 - 3, Y2 - 1, FarColorToReal((Flags & MSG_WARNING) ? COL_WARNDIALOGBOX : COL_DIALOGBOX),	DOUBLE_BOX);
+		Hint(X1 + 3, Y1 + 1, X2 - 3, Y1 + 1, HintDialog, HintBox);
+		Hint(X1 + 3, Y1 + 1, X1 + 3, Y2 - 1, HintDialog, HintBox);
+		Hint(X1 + 3, Y2 - 1, X2 - 3, Y2 - 1, HintDialog, HintBox);
+		Hint(X2 - 3, Y1 + 1, X2 - 3, Y2 - 1, HintDialog, HintBox);
 	}
 
 	SetFarColor((Flags & MSG_WARNING) ? COL_WARNDIALOGTEXT : COL_DIALOGTEXT);
@@ -396,8 +416,12 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 		if (strTempTitle.GetLength() > MaxLength)
 			strTempTitle.Truncate(MaxLength);
 
-		GotoXY(X1 + (X2 - X1 - 1 - (int)strTempTitle.GetLength()) / 2, Y1 + 1);
+		if (Opt.Backend.UseModernLook)
+			GotoXY(X1 + 3, Y1 + 1);
+		else
+			GotoXY(X1 + (X2 - X1 - 1 - (int)strTempTitle.GetLength()) / 2, Y1 + 1);
 		FS << L" " << strTempTitle << L" ";
+		HintAt(HintDialog, HintText);
 	}
 
 	for (I = 0; I < StrCount; I++) {
@@ -411,13 +435,17 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 			if (Length > 1) {
 				SetFarColor((Flags & MSG_WARNING) ? COL_WARNDIALOGBOX : COL_DIALOGBOX);
 				GotoXY(X1 + 3, Y1 + I + 2);
-				DrawLine(Length, (Chr == 2 ? 3 : 1));
+				if (!Opt.Backend.UseModernLook) DrawLine(Length, (Chr == 2 ? 3 : 1));
 				CPtrStr++;
 				int TextLength = StrLength(CPtrStr);
 
 				if (TextLength < Length) {
-					GotoXY(X1 + 3 + (Length - TextLength) / 2, Y1 + I + 2);
+					if (Opt.Backend.UseModernLook)
+						GotoXY(X1 + 3, Y1 + I + 2);
+					else
+						GotoXY(X1 + 3 + (Length - TextLength) / 2, Y1 + I + 2);
 					Text(CPtrStr);
+					HintAt(HintDialog, HintText);
 				}
 
 				SetFarColor((Flags & MSG_WARNING) ? COL_WARNDIALOGBOX : COL_DIALOGTEXT);
@@ -433,20 +461,32 @@ static int ShowMessageSynched(DWORD Flags, int Buttons, const wchar_t *Title, co
 		wchar_t *lpwszTemp = nullptr;
 
 		if (Flags & MSG_LEFTALIGN) {
-			lpwszTemp = (wchar_t *)malloc((Width - 10 + 1) * sizeof(wchar_t));
-			swprintf(lpwszTemp, Width - 10 + 1, L"%.*ls", Width - 10, CPtrStr);
+			int tempLen = Width - 10 + 1;
+			if (tempLen > 0) {
+				lpwszTemp = (wchar_t *)malloc(tempLen * sizeof(wchar_t));
+				if (lpwszTemp) {
+					swprintf(lpwszTemp, tempLen, L"%.*ls", Width - 10, CPtrStr);
+				}
+			}
 			GotoXY(X1 + 5, Y1 + I + 2);
 		} else {
 			PosX = X1 + (Width - Length) / 2;
-			lpwszTemp = (wchar_t *)malloc(
-					(PosX - X1 - 4 + Length + X2 - PosX - Length - 3 + 1) * sizeof(wchar_t));
-			swprintf(lpwszTemp, PosX - X1 - 4 + Length + X2 - PosX - Length - 3 + 1, L"%*ls%.*ls%*ls",
-					PosX - X1 - 4, L"", Length, CPtrStr, X2 - PosX - Length - 3, L"");
+			int tempLen = PosX - X1 - 4 + Length + X2 - PosX - Length - 3 + 1;
+			if (tempLen > 0) {
+				lpwszTemp = (wchar_t *)malloc(tempLen * sizeof(wchar_t));
+				if (lpwszTemp) {
+					swprintf(lpwszTemp, tempLen, L"%*ls%.*ls%*ls",
+							PosX - X1 - 4, L"", Length, CPtrStr, X2 - PosX - Length - 3, L"");
+				}
+			}
 			GotoXY(X1 + 4, Y1 + I + 2);
 		}
 
-		Text(lpwszTemp);
-		free(lpwszTemp);
+		if (lpwszTemp) {
+			Text(lpwszTemp);
+			HintAt(HintDialog, HintText);
+			free(lpwszTemp);
+		}
 	}
 
 	/*

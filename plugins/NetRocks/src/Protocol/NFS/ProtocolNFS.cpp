@@ -521,11 +521,17 @@ public:
 
 	virtual void Write(const void *buf, size_t len)
 	{
+#if USE_OLD_NFSLIB
+#define BUF_TYPE_A     char*
+#else
+#define BUF_TYPE_A     const char*
+#endif
+
 		if (len > 0) for (;;) {
 #ifdef LIBNFS_API_V2
-			const auto rc = nfs_write(_nfs->ctx, _file, (const char *)buf, len);
+			const auto rc = nfs_write(_nfs->ctx, _file, (BUF_TYPE_A)buf, len);
 #else
-			const auto rc = nfs_write(_nfs->ctx, _file, len, (const char *)buf);
+			const auto rc = nfs_write(_nfs->ctx, _file, len, (BUF_TYPE_A)buf);
 #endif
 			if (rc <= 0)
 				throw ProtocolError("Write file error", errno);
@@ -535,6 +541,7 @@ public:
 			len-= (size_t)rc;
 			buf = (const char *)buf + rc;
 		}
+#undef BUF_TYPE_A
 	}
 
 	virtual void WriteComplete()

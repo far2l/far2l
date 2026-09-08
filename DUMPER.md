@@ -72,7 +72,7 @@ will produce log output like this:
 ```
 
 
-## 1. DUMPV & DUMPV_IF macros
+## 1. DUMPV and DUMPV_IF macros
 
 Logs simple variables.
 
@@ -114,7 +114,7 @@ DUMPV_IF(answer == 42, name);
 |=> name = FAR2L
 ```
 
-## 2. DUMP & DUMP_IF macros
+## 2. DUMP and DUMP_IF macros
 
 Logs complex data and/or expressions.
 

@@ -78,6 +78,7 @@ public:
 public:
 	virtual int ProcessKey(FarKey Key) { return 0; };
 	virtual int ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent) { return 0; };
+	virtual int ProcessDrop(EXT_DROP_EVENT_DATA *DropEvent) { return 0; };
 
 	virtual void Hide();
 	virtual void Hide0();	// 15.07.2000 tran - dirty hack :(  // 0 mean - Don't purge saved screen

@@ -237,6 +237,8 @@ int DirInfo::FromFS(const wchar_t *DirName, DWORD Flags, FileFilter *Filter, Dir
 	const bool count_dir_size = !Opt.OnlyFilesSize;
 	const bool scan_symlinks = ScTree.IsSymlinksScanEnabled();
 	const bool can_break = !CtrlObject->Macro.IsExecuting() && !WinPortTesting();
+	bool ProgressShown = false;
+	DirInfoData Data;
 
 	if (count_dir_size) {	// include size of root dir's node
 		struct stat s{};
@@ -279,9 +281,8 @@ int DirInfo::FromFS(const wchar_t *DirName, DWORD Flags, FileFilter *Filter, Dir
 					return 0;
 				default:
 
-					if (Flags & GETDIRINFO_ENHBREAK) {
+					if (Flags & GETDIRINFO_ENHBREAK)
 						return -1;
-					}
 
 					GetInputRecord(&rec);
 					break;

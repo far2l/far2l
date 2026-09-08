@@ -101,19 +101,16 @@ static std::string FormatWallTime(unsigned long wall_time)
 	} 
 
 	unsigned int days = hours / 24;
-	if (days > 99999) { // just in case...
-		return StrPrintf("d%07.1f", double(wall_time) / (24 * 3600));
-	}
-	if (days > 9999) { // also not bad
-		return StrPrintf("d%07.2f", double(wall_time) / (24 * 3600));
+	if (days > 9999) { // just in case...
+		return StrPrintf("d%07.0f", double(wall_time) / (24 * 3600));
 	}
 	if (days > 999) {
-		return StrPrintf("d%07.3f", double(wall_time) / (24 * 3600));
+		return StrPrintf("d%07.2f", double(wall_time) / (24 * 3600));
 	}
 	if (days > 99) {
-		return StrPrintf("d%07.4f", double(wall_time) / (24 * 3600));
+		return StrPrintf("d%07.3f", double(wall_time) / (24 * 3600));
 	}
-	return StrPrintf("d%07.5f", double(wall_time) / (24 * 3600));
+	return StrPrintf("d%07.4f", double(wall_time) / (24 * 3600));
 }
 
 static void enumerateProcesses(std::vector<FarPidInfo>& v) 
@@ -201,7 +198,7 @@ static void enumerateProcesses(std::vector<FarPidInfo>& v)
 			}
 		}
 
-		text.Format(L"%s %lc %8d %lc %-12.12s %lc %-16.16s %lc %ls %lc %8ld Mb", 
+		text.Format(L"%8.8s %lc %8d %lc %-12.12s %lc %-16.16s %lc %ls %lc %8ld Mb", 
 			FormatWallTime(wall_time).c_str(), BoxSymbols[BS_V1], pid, BoxSymbols[BS_V1], uid_name.c_str(), BoxSymbols[BS_V1], 
 			proc_comm.c_str(), BoxSymbols[BS_V1],  CPU_LOAD_PLACEHOLDER, BoxSymbols[BS_V1], rss_kb / 1024);
 		v.push_back({ text, proc_comm, parent, pid, cpu_time, wall_time, rss_kb, -1 });
@@ -248,7 +245,7 @@ static void enumerateProcesses(std::vector<FarPidInfo>& v)
 		printf("----\n");
 		*/
 
-		text.Format(L"%s %lc %8d %lc %-40.40s %lc %ls %lc %8ld Mb",
+		text.Format(L"%8.8s %lc %8d %lc %-40.40s %lc %ls %lc %8ld Mb",
 			FormatWallTime(wall_time).c_str(), BoxSymbols[BS_V1], pid, BoxSymbols[BS_V1], bsd.pbi_name,
 			BoxSymbols[BS_V1], CPU_LOAD_PLACEHOLDER, BoxSymbols[BS_V1], rss_kb / 1024);
 		v.push_back({ text, bsd.pbi_name, parent, pid, cpu_time, wall_time, rss_kb, -1 });
@@ -310,7 +307,7 @@ static void enumerateProcesses(std::vector<FarPidInfo>& v)
 		printf("----\n");
 		*/
 
-		text.Format(L"%s %lc %8d %lc %-40.40s %lc %ls %lc %6ld Mb",
+		text.Format(L"%8.8s %lc %8d %lc %-40.40s %lc %ls %lc %6ld Mb",
 			FormatWallTime(wall_time).c_str(), BoxSymbols[BS_V1], pid, BoxSymbols[BS_V1], name,
 			BoxSymbols[BS_V1], CPU_LOAD_PLACEHOLDER, BoxSymbols[BS_V1], rss_kb / 1024);
 		v.push_back({ text, name, parent, pid, cpu_time, wall_time, rss_kb, -1 });
@@ -362,7 +359,7 @@ void ShowProcessList(Panel *ActivePanel)
 	FARString str_usage;
 	for (unsigned int loop_id = 1; !ProcList.Done(); ++loop_id) {
 		const auto now = GetProcessUptimeMSec();
-		if (last_refresh == 0 || (schedule_refresh && (now >= schedule_refresh || now < last_refresh))) {
+		if (last_refresh == 0 || (schedule_refresh && !ProcList.IsFilterEnabled() && (now >= schedule_refresh || now < last_refresh))) {
 			int selected_pos = ProcList.GetSelectPos();
 			int selected_pid = selected_pos < (int)v.size() ? v[selected_pos].pid : getpid();
 			ProcList.Hide();
@@ -514,18 +511,6 @@ void ShowProcessList(Panel *ActivePanel)
 			keep = AT_BOTTOM;
 			ProcList.ProcessInput();
 			break;
-#ifdef __linux__
-		case KEY_CTRLF10:
-			if (ActivePanel) {
-				FARString strProcDir;
-				strProcDir.Format(L"/proc/%d", v[ProcList.GetSelectPos()].pid);
-				if (CheckShortcutFolder(strProcDir, true)) {
-					ActivePanel->SetCurDir(strProcDir, TRUE);
-					return;
-				}
-			}
-			break;
-#endif
 		case KEY_NONE: case KEY_IDLE:
 			break;
 		default:
@@ -536,6 +521,16 @@ void ShowProcessList(Panel *ActivePanel)
 			ProcList.ProcessInput();
 		}
 	}
+#ifdef __linux__
+	int exit_pos = ProcList.GetExitCode();
+	if (exit_pos >= 0 && exit_pos < (int)v.size() && ActivePanel) {
+		FARString strProcDir;
+		strProcDir.Format(L"/proc/%d", v[exit_pos].pid);
+		if (CheckShortcutFolder(strProcDir, true)) {
+			ActivePanel->SetCurDir(strProcDir, TRUE);
+		}
+	}
+#endif
 }
 
 void ShowProcessList_OldPs()

@@ -40,6 +40,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "config.hpp"
 #include <unordered_map>
 #include <vector>
+#include <memory>
 #include "DList.hpp"
 #include "noncopyable.hpp"
 #include "FARString.hpp"
@@ -49,6 +50,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 class FileEditor;
 class KeyBar;
 class EditorMenuBar;
+struct MultilineSearchBuffer;
 
 struct InternalEditorBookMark
 {
@@ -72,7 +74,8 @@ struct EditorFoundCoord
 {
 	int Line;
 	int Pos;
-	int SearchLen;
+	int EndLine;
+	int EndPos;
 };
 
 // чем закончился сбор вхождений для поиска по кнопке "Все"
@@ -298,6 +301,7 @@ private:
 	bool m_showCursor;
 	clock_t m_BulkLoadStartTime;
 	FARString m_virtualFileName;
+	std::unique_ptr<MultilineSearchBuffer> m_MultilineSearchBuffer;
 
 private:
 	struct MouseTarget
@@ -335,6 +339,11 @@ private:
 	BOOL SearchAll(const FARString &strSearchStr, int Case, int WholeWords, int Regexp, int SelectFound);
 	EditorFindAllResult CollectFoundItems(const FARString &strSearchStr, int Case, int WholeWords,
 			int Regexp, std::vector<EditorFoundCoord> &FoundItems);
+	MultilineSearchBuffer &GetMultilineSearchBuffer();
+	bool ReplaceAllRegexp(MultilineSearchBuffer &Buffer, const FARString &SearchStr,
+			const FARString &ReplaceStr, int MatchPosition, int MatchLength,
+			const FARString &CurrentReplaceStr, int Case, int WholeWords, int Reverse);
+	void PasteRegexpReplacement(const FARString &Text, const wchar_t *EndEol);
 	void ShowFoundItems(const std::vector<EditorFoundCoord> &FoundItems, int SelectFound);
 	void SelectFoundPattern(const EditorFoundCoord &Coord, int SelectFound);
 
@@ -355,6 +364,7 @@ private:
 	void UnmarkMacroBlock();
 
 	void ProcessPasteEvent();
+	void ProcessPasteEventFromPrimary();
 
 	void AddUndoData(short Type, int StrNum, int StrPos, Edit *Line);
 	void AddUndoData(short Type, int StrNum = 0, int StrPos = 0, const wchar_t *Str = nullptr, const wchar_t *Eol = nullptr, int Length = -1);
@@ -366,10 +376,10 @@ private:
 	void HighlightAsWrapped(int Y, Edit &ShowString); // new helper function
 	int CalculateTotalLines();  // Helper to count total lines
 	int CalculateLineNumberWidth();  // Helper to calculate line number display width
+	void DrawGutterMark(int logical_line, int y, int line_num_x1);
 	int CalculateTextAreaWidth(int BaseWidth, bool ReserveScrollBar);  // Helper for text viewport width
 	void RecalculateAllWordWraps(bool SyncWordWrapState);
 	void RememberWordWrapPreferredCellPos();
-	void DrawGutterMark(int logical_line, int y, int line_num_x1);
 	// void SetStringsTable();
 	void BlockLeft();
 	void BlockRight();
@@ -380,7 +390,7 @@ private:
 	bool IsVerticalBlockEditMode() const;
 	bool ProcessVerticalBlockEditKey(FarKey Key);
 	Edit *GetStringByNumber(int DestLine);
-	static void EditorShowMsg(const wchar_t *Title, const wchar_t *Msg, const wchar_t *Name, int Percent);
+	static void EditorShowMsg(const wchar_t *Title, const wchar_t *Msg, const wchar_t *Name, int Percent, DWORD Flags = 0);
 
 	int SetBookmark(DWORD Pos);
 	int GotoBookmark(DWORD Pos);
@@ -484,6 +494,8 @@ public:
 
 	int GetShowWhiteSpace() const { return EdOpt.ShowWhiteSpace; }
 	void SetShowWhiteSpace(int NewMode);
+	int GetShowEOL() const { return EdOpt.ShowEOL; }
+	void SetShowEOL(int NewMode);
 
 	int GetShowLineNumbers() const { return EdOpt.ShowLineNumbers; }
 	void SetShowLineNumbers(int NewMode);
@@ -507,8 +519,7 @@ public:
 	void FreeAllocatedData(bool FreeUndo = true);
 
 	Edit *CreateString(const wchar_t *lpwszStr, int nLength);
-	Edit *
-	InsertString(const wchar_t *lpwszStr, int nLength, Edit *pAfter = nullptr, int AfterLineNumber = -1);
+	Edit *InsertString(const wchar_t *lpwszStr, int nLength, Edit *pAfter = nullptr, int AfterLineNumber = -1);
 
 	void SetDialogParent(DWORD Sets);
 	void SetReadOnly(int NewReadOnly) { Flags.Change(FEDITOR_LOCKMODE, NewReadOnly); };
@@ -540,7 +551,12 @@ public:
 	void SetObjectColor(uint64_t Color, uint64_t SelColor, uint64_t ColorUnChanged);
 	void DrawScrollbar();
 
+	int AutoGrabToClipboard();
+
 	virtual void SetPosition(int X1, int Y1, int X2, int Y2);
+
+	InternalEditorBookMark* GetBookmark(){ return &SavePos; }
+	FARString GetLine(int row, int col, int maxlen);
 };
 
 #define POSCACHE_EDIT_PARAM4_PACK(VALUE, CP, EXPAND_TABS, TAB_SIZE)                                            \

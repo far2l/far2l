@@ -6,6 +6,19 @@ quick navigation in sources. The demo is below:
 
 ![Demo](jumpword-demo.gif)
 
+Building
+========
+
+To build, do a git clone from this repository to your far2l source root folder, add `add_subdirectory(far2l-jumpword)` to
+CMakeLists.txt, build far2l in the usual way.
+
+Installing
+==========
+
+Perform the build and do the usual far2l installation from build directory.
+
+In addition you can install <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>↓</kbd> and <kbd>Ctrl</kbd> + <kbd>Alt</kbd> +
+=======
 Key macros
 ==========
 

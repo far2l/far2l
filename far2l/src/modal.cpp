@@ -97,6 +97,8 @@ void Modal::ProcessInput()
 {
 	if (ReadRec.EventType == MOUSE_EVENT)
 		ProcessMouse(&ReadRec.Event.MouseEvent);
+	else if (ReadRec.EventType == EXT_DROP_EVENT)
+		ProcessDrop(&ReadRec.Event.DropTarget);
 	else
 		ProcessKey(ReadKey);
 }

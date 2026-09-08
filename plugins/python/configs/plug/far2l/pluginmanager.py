@@ -10,7 +10,7 @@ import far2lc
 
 PLUGINSINI = far2lc.GetPluginsIni()
 USERHOME = PLUGINSINI[:-len('plugins.ini')-1]
-
+SYSHOME = os.path.expanduser("/usr/share/far2l/Plugins/python")
 
 logging.basicConfig(level=logging.INFO)
 
@@ -24,7 +24,13 @@ def setup():
                 ini = configparser.ConfigParser()
                 ini.read_file(fp)
                 logging.config.fileConfig(ini)
-
+    else:
+        fname = os.path.join(SYSHOME, "logger.ini")
+        if os.path.isfile(fname):
+            with open(fname, "rt") as fp:
+                ini = configparser.ConfigParser()
+                ini.read_file(fp)
+                logging.config.fileConfig(ini)
 
 setup()
 
@@ -73,6 +79,14 @@ class PluginManager:
         self.ffi = ffi
         self.ffic = ffic
         fname = os.path.join(USERHOME, "plugins.ini")
+        if os.path.isfile(fname):
+            with open(fname, "rt") as fp:
+                ini = configparser.ConfigParser()
+                ini.read_file(fp)
+                if ini.has_section('autoload'):
+                    for name in ini.options('autoload'):
+                        self.pluginInstall(name, ini.get('autoload', name)=='open')
+        fname = os.path.join(SYSHOME, "plugins.ini")
         if os.path.isfile(fname):
             with open(fname, "rt") as fp:
                 ini = configparser.ConfigParser()

@@ -47,6 +47,7 @@ struct ConfigOpt
 		T_DWORD,
 		T_INT,
 		T_BOOL,
+		T_WSTRBUF,
 	} const type : 8;
 
 	union V
@@ -57,6 +58,7 @@ struct ConfigOpt
 		int *i;
 		bool *b;
 		void *p;
+		wchar_t* wstr;
 	} const value;
 
 	union D
@@ -109,6 +111,14 @@ struct ConfigOpt
 						const wchar_t *help_topic_ = nullptr, const wchar_t *description_ = nullptr)
 		: section{section_}, key{key_}, bin_size{0}, save{save_},
 		type{T_BOOL}, value{.b = data_b_}, def{.b = def_b_},
+		help_topic{help_topic_}, description{description_}
+	{ }
+
+	constexpr ConfigOpt(unsigned save_, const char *section_, const char *key_,
+						wchar_t *data_str_, WORD strbuf, const wchar_t *def_str_,
+						const wchar_t *help_topic_ = nullptr, const wchar_t *description_ = nullptr)
+		: section{section_}, key{key_}, bin_size{strbuf}, save{save_},
+		type{T_WSTRBUF}, value{.wstr = data_str_}, def{.str = def_str_},
 		help_topic{help_topic_}, description{description_}
 	{ }
 };
