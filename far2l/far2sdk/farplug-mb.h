@@ -247,6 +247,7 @@ namespace oldfar
 		LIF_DISABLE            = 0x00080000UL,
 		LIF_GRAYED             = 0x00100000UL,
 		LIF_HIDDEN             = 0x00200000UL,
+		LIF_HOVERED            = 0x00400000UL,
 		LIF_USETEXTPTR         = 0x40000000UL,
 		LIF_DELETEUSERDATA     = 0x80000000UL,
 	};
@@ -541,6 +542,7 @@ namespace oldfar
 		FILETIME ftCreationTime;
 		FILETIME ftLastAccessTime;
 		FILETIME ftLastWriteTime;
+		FILETIME ftChangeTime;
 		DWORD64  nPhysicalSize;
 		DWORD64  nFileSize;
 		DWORD    dwFileAttributes;
@@ -1241,6 +1243,7 @@ namespace oldfar
 		ECTL_SERVICEREGION,
 		ECTL_ADDTRUECOLOR,
 		ECTL_GETTRUECOLOR,
+		ECTL_GETRECT,
 	};
 
 	enum EDITOR_SETPARAMETER_TYPES
@@ -1360,7 +1363,8 @@ namespace oldfar
 		DWORD CurState;
 		int WindowX;
 		int WindowY;
-		DWORD Reserved[4];
+		DWORD IsMemoEdit;
+		DWORD Reserved[3];
 	};
 
 	struct EditorBookMarks

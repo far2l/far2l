@@ -44,25 +44,25 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 RedrawDesktop::RedrawDesktop(BOOL IsHidden)
 	:
-	LeftVisible(CtrlObject->Cp()->LeftPanel->IsVisible()),
-	RightVisible(CtrlObject->Cp()->RightPanel->IsVisible()),
+	LeftVisible(CtrlObject->Cp()->ActiveTab().LeftPanel->IsVisible()),
+	RightVisible(CtrlObject->Cp()->ActiveTab().RightPanel->IsVisible()),
 	ClockVisible(Opt.Clock != 0)
 {
 	CtrlObject->CmdLine->ShowBackground();
 	CtrlObject->CmdLine->Show();
 
 	if (IsHidden) {
-		CtrlObject->Cp()->LeftPanel->CloseFile();
-		CtrlObject->Cp()->RightPanel->CloseFile();
+		CtrlObject->Cp()->ActiveTab().LeftPanel->CloseFile();
+		CtrlObject->Cp()->ActiveTab().RightPanel->CloseFile();
 
 		// ВНИМАНИЕ! КОСТЫЛЬ!
 		// соблюдем очередность, в зависимости от!
-		if (CtrlObject->Cp()->ActivePanel == CtrlObject->Cp()->LeftPanel) {
-			CtrlObject->Cp()->LeftPanel->Hide();
-			CtrlObject->Cp()->RightPanel->Hide();
+		if (CtrlObject->Cp()->ActiveTab().ActivePanel == CtrlObject->Cp()->ActiveTab().LeftPanel) {
+			CtrlObject->Cp()->ActiveTab().LeftPanel->Hide();
+			CtrlObject->Cp()->ActiveTab().RightPanel->Hide();
 		} else {
-			CtrlObject->Cp()->RightPanel->Hide();
-			CtrlObject->Cp()->LeftPanel->Hide();
+			CtrlObject->Cp()->ActiveTab().RightPanel->Hide();
+			CtrlObject->Cp()->ActiveTab().LeftPanel->Hide();
 		}
 		Opt.Clock = FALSE;
 		CtrlObject->MainKeyBar->Hide();
@@ -82,19 +82,19 @@ RedrawDesktop::~RedrawDesktop()
 	if (Opt.ShowMenuBar)
 		CtrlObject->TopMenuBar->Show();
 
-	int RightType = CtrlObject->Cp()->RightPanel->GetType();
+	int RightType = CtrlObject->Cp()->ActiveTab().RightPanel->GetType();
 
 	if (RightVisible && RightType != QVIEW_PANEL)
-		// CtrlObject->Cp()->RightPanel->Show();
-		CtrlObject->Cp()->RightPanel->SetVisible(TRUE);
+		// CtrlObject->Cp()->ActiveTab().RightPanel->Show();
+		CtrlObject->Cp()->ActiveTab().RightPanel->SetVisible(TRUE);
 
 	if (LeftVisible)
-		// CtrlObject->Cp()->LeftPanel->Show();
-		CtrlObject->Cp()->LeftPanel->SetVisible(TRUE);
+		// CtrlObject->Cp()->ActiveTab().LeftPanel->Show();
+		CtrlObject->Cp()->ActiveTab().LeftPanel->SetVisible(TRUE);
 
 	if (RightVisible && RightType == QVIEW_PANEL)
-		// CtrlObject->Cp()->RightPanel->Show();
-		CtrlObject->Cp()->RightPanel->SetVisible(TRUE);
+		// CtrlObject->Cp()->ActiveTab().RightPanel->Show();
+		CtrlObject->Cp()->ActiveTab().RightPanel->SetVisible(TRUE);
 
 	// Временное решение!
 	// Иначе траблы при пересчете...

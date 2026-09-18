@@ -65,11 +65,12 @@ bool wxConsoleImages::Set(const char *id, DWORD64 flags, const SMALL_RECT *area,
 				fprintf(stderr, "%s('%s'): unexpected height=%u\n", __FUNCTION__, id, height);
 				return false;
 			}
-			static bool s_ih = false;
-			if (!s_ih) {
-				wxInitAllImageHandlers();
-				s_ih = true;
-			}
+			// k: moved to main
+			// static bool s_ih = false;
+			//if (!s_ih) {
+			//	wxInitAllImageHandlers();
+			//	s_ih = true;
+			//}
 			wxMemoryInputStream stream(pixel_data, width);
 		    wx_img.emplace();
 		    if (!wx_img->LoadFile(stream, (fmt == WP_IMG_JPG) ? wxBITMAP_TYPE_JPEG : wxBITMAP_TYPE_PNG)) {

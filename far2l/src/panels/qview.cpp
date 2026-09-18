@@ -96,6 +96,8 @@ void QuickView::DisplayObject()
 			QView->Show();
 
 		Flags.Clear(FSCROBJ_ISREDRAWING);
+
+		Hint(X1, Y1, X2, Y2, HintQuickView, HintObjectNone);
 	}
 }
 
@@ -466,7 +468,7 @@ void QuickView::ShowFile(const wchar_t *FileName, int TempFile, HANDLE hDirPlugi
 
 	Redraw();
 
-	if (CtrlObject->Cp()->ActivePanel == this) {
+	if (CtrlObject->Cp()->ActiveTab().ActivePanel == this) {
 		DynamicUpdateKeyBar();
 		CtrlObject->MainKeyBar->Redraw();
 	}

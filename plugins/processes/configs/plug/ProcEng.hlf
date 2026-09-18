@@ -1,0 +1,48 @@
+.Language=English,English
+.PluginContents=Panel Processes list
+
+@Contents
+$ #Panel Processes list#
+
+   ~Panel Processes list~@ProcessesPanel@
+   ~Configuration~@Config@
+
+@ProcessesPanel
+$^#Panel Processes list:#
+   The panel allows:
+
+  - view and sort processes information
+    - #ctrl+F3# by name
+    - #ctrl+F4# by CPU usage
+    - #ctrl+F5# by PID
+    - #ctrl+F6# by resident memory usage
+    - #ctrl+F8# by time snice system start
+    - #ctrl+F11# by owner
+
+  - detailed view of process #F3#
+    - command line
+    - envinronment
+    - network connection
+    - loaded modules
+    - open files, pipes, sockets
+
+  - #alt+F7# search detailed view of process
+
+@Config
+$^#Panel Processes: Configuration#
+   In this dialog, you can change the following options:
+
+  #Add to disc menu#
+    Allows adding "Processes plugin" to the disk menu.
+
+  #Add to plugins menu#
+    Allows adding "Processes plugin" items to the plug-in menu.
+
+  #Display logs#
+    Allows, prohibits the output of logs to a file (set file path).
+
+  #Save configuration to file#
+    Saves the configuration to a file ($HOME/.config/far2l/plugins/processes/config.ini), additionally allows you to manually fine-tune the columns (width, display names, etc.).
+
+ #Select panel fields#
+   Aviable <-> Selected. Use #SPACE# #ENTER# or mouse click.

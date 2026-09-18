@@ -81,6 +81,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "message.hpp"
 
+#include "backendsupport.hpp"
+
 #ifdef DIRECT_RT
 int DirectRT = 0;
 #endif
@@ -198,9 +200,9 @@ static void Write_FAR2L_CWD()
 	}
 }
 
-
 static int MainProcess(FARString strEditViewArg, FARString strDestName1, FARString strDestName2,
-		int StartLine, int StartChar, bool cfgNeedSave)
+		int StartLine, int StartChar, bool cfgNeedSave,
+		FARString DestNames[], int CntDestName)
 {
 	InterThreadCallsDispatcherThread itc_dispatcher_thread;
 
@@ -216,7 +218,7 @@ static int MainProcess(FARString strEditViewArg, FARString strDestName1, FARStri
 			Panel *DummyPanel = new Panel;
 			_tran(SysLog(L"create dummy panels"));
 			CtrlObj.CreateFilePanels();
-			CtrlObj.Cp()->LeftPanel = CtrlObj.Cp()->RightPanel = CtrlObj.Cp()->ActivePanel = DummyPanel;
+			CtrlObj.Cp()->ActiveTab().LeftPanel = CtrlObj.Cp()->ActiveTab().RightPanel = CtrlObj.Cp()->ActiveTab().ActivePanel = DummyPanel;
 			CtrlObj.Plugins.LoadPlugins();
 			CtrlObj.Macro.LoadMacros(TRUE, FALSE);
 
@@ -253,7 +255,7 @@ static int MainProcess(FARString strEditViewArg, FARString strDestName1, FARStri
 				unlink(strEditViewArg.GetMB().c_str());
 			}
 
-			CtrlObj.Cp()->LeftPanel = CtrlObj.Cp()->RightPanel = CtrlObj.Cp()->ActivePanel = nullptr;
+			CtrlObj.Cp()->ActiveTab().LeftPanel = CtrlObj.Cp()->ActiveTab().RightPanel = CtrlObj.Cp()->ActiveTab().ActivePanel = nullptr;
 			delete DummyPanel;
 			_tran(SysLog(L"editor/viewer closed, delete dummy panels"));
 		} else {
@@ -261,9 +263,23 @@ static int MainProcess(FARString strEditViewArg, FARString strDestName1, FARStri
 			Opt.SetupArgv = 0;
 			FARString strPath;
 
+			if (CntDestName > 0 ) {
+				FARString leftFolderList = Opt.strLeftFolderList, rightFolderList = Opt.strRightFolderList;
+				for(int i = 0; i < ( CntDestName / 2) * 2; i += 2) {
+					if (!leftFolderList.IsEmpty()) leftFolderList += L"|";
+					if (!rightFolderList.IsEmpty()) rightFolderList += L"|";
+					leftFolderList  += DestNames[i];
+					rightFolderList += DestNames[i + 1];
+				}
+				Opt.strLeftFolderList = leftFolderList;
+				Opt.strRightFolderList= rightFolderList;
+			}
+
 			// воспользуемся тем, что ControlObject::Init() создает панели
 			// юзая Opt.*
-			if (strDestName1.GetLength())  // активная панель
+			// crazy logic to validate wrong paths, ignore it for case tabs are active
+			// todo: use it for every folder in list
+			if (CntDestName < 3 && strDestName1.GetLength())  // активная панель
 			{
 				UpdatePathOptions(strDestName1, true);
 
@@ -275,10 +291,12 @@ static int MainProcess(FARString strEditViewArg, FARString strDestName1, FARStri
 			CtrlObj.Init();
 
 			// а теперь "провалимся" в каталог или хост-файл (если получится ;-)
-			if (strDestName1.GetLength())		// актиная панель
+			// crazy logic to validate wrong paths, ignore it for case tabs are active
+			// todo: use it for every folder in list
+			if (CntDestName < 3 && strDestName1.GetLength())		// актиная панель
 			{
 				FARString strCurDir;
-				Panel *ActivePanel = CtrlObject->Cp()->ActivePanel;
+				Panel *ActivePanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 				Panel *AnotherPanel = CtrlObject->Cp()->GetAnotherPanel(ActivePanel);
 
 				if (strDestName2)		// пассивная панель
@@ -315,7 +333,7 @@ static int MainProcess(FARString strEditViewArg, FARString strDestName1, FARStri
 				} */
 
 				// Update pointers as the above prefixed plugin calls could recreate one or both panels
-				ActivePanel=CtrlObject->Cp()->ActivePanel;
+				ActivePanel=CtrlObject->Cp()->ActiveTab().ActivePanel;
 				AnotherPanel=CtrlObject->Cp()->GetAnotherPanel(ActivePanel);
 
 				// !!! ВНИМАНИЕ !!!
@@ -329,7 +347,11 @@ static int MainProcess(FARString strEditViewArg, FARString strDestName1, FARStri
 			if( Opt.IsFirstStart ) {
 				Help::Present(L"Far2lGettingStarted",L"",FHELP_NOSHOWERROR);
 
-				DWORD tweaks = WINPORT(SetConsoleTweaks)(TWEAKS_ONLY_QUERY_SUPPORTED);
+				// Under test control there is no human to answer the OSC52
+				// first-start question, so it would just invisibly swallow all
+				// injected input in its modal loop (same pattern as the
+				// WinPortTesting() guards around FlushInputBuffer in filelist.cpp).
+				DWORD tweaks = WinPortTesting() ? 0 : WINPORT(SetConsoleTweaks)(TWEAKS_ONLY_QUERY_SUPPORTED);
 				if (tweaks & TWEAK_STATUS_SUPPORT_OSC52CLIP_SET) {
 					SetMessageHelp(L"Far2lGettingStarted");
 
@@ -414,7 +436,7 @@ int FarAppMain(int argc, char **argv)
 
 	_OT(SysLog(L"[[[[[[[[New Session of FAR]]]]]]]]]"));
 	FARString strEditViewArg;
-	FARString DestNames[2];
+	FARString DestNames[128];
 	int StartLine = -1, StartChar = -1;
 	int CntDestName = 0;	// количество параметров-имен каталогов
 	/*
@@ -604,7 +626,7 @@ int FarAppMain(int argc, char **argv)
 		}
 		if (!switchHandled)		// простые параметры. Их может быть max две штукА.
 		{
-			if (CntDestName < 2) {
+			if (CntDestName < (int)ARRAYSIZE(DestNames)) {
 				if (IsPluginPrefixPath((const wchar_t *)arg_w.c_str())) {
 					DestNames[CntDestName++] = (const wchar_t *)arg_w.c_str();
 				} else {
@@ -692,12 +714,24 @@ int FarAppMain(int argc, char **argv)
 	UpdateDefaultColumnTypeWidths();
 	CheckForImportLegacyShortcuts();
 
+	// here we are: everything loaded
+
+	// workaround for legacy flags from command line
+	if (Opt.NoGraphics || Opt.NoBoxes) {
+		Opt.Backend.UseModernLook = 0;
+		Opt.AutoSaveSetup = 0;
+	}
+
+	BackendConfigSupport shareConfig;
+	shareConfig.ShareConfig(&Opt.Backend);
+
 	// (!!!) temporary STUB because now Editor can not input filename "", see: fileedit.cpp -> FileEditor::Init()
 	// default Editor file name for new empty file
 	if ( Opt.OnlyEditorViewerUsed == Options::ONLY_EDITOR && strEditViewArg.IsEmpty() )
 		strEditViewArg = Msg::NewFileName;
 
-	int Result = MainProcess(strEditViewArg, DestNames[0], DestNames[1], StartLine, StartChar, cfgNeedSave);
+	int Result = MainProcess(strEditViewArg, DestNames[0], DestNames[1], StartLine, StartChar, cfgNeedSave,
+		DestNames, CntDestName);
 
 	EmptyInternalClipboard();
 	doneMacroVarTable(1);

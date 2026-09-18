@@ -110,9 +110,9 @@ void FileList::RetryFailedRead()
 	}
 }
 
-void ReadFileNamesMsg(const wchar_t *Msg)
+void ReadFileNamesMsg(const wchar_t *Msg, DWORD Flags = 0)
 {
-	Message(0, 0, Msg::ReadingTitleFiles, Msg);
+	Message(Flags, 0, Msg::ReadingTitleFiles, Msg);
 	PreRedrawItem preRedrawItem = PreRedraw.Peek();
 	preRedrawItem.Param.Param1 = (void *)Msg;
 	PreRedraw.SetParam(preRedrawItem.Param);
@@ -148,7 +148,7 @@ void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessa
 	FARString strCurName, strNextCurName;
 	CloseChangeNotification();
 
-	if (this != CtrlObject->Cp()->LeftPanel && this != CtrlObject->Cp()->RightPanel)
+	if (this != CtrlObject->Cp()->ActiveTab().LeftPanel && this != CtrlObject->Cp()->ActiveTab().RightPanel)
 		return;
 
 	SudoClientRegion sdc_rgn;
@@ -265,6 +265,7 @@ void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessa
 	CachedFileGroupLookup cached_groups;
 
 	DWORD StartTime = WINPORT(GetTickCount)();
+	bool ProgressShown = false;
 
 	while (Find.Get(fdata)) {
 		FindErrorCode = WINPORT(GetLastError)();
@@ -332,16 +333,20 @@ void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessa
 
 					if (!IsShowTitle) {
 						if (!DrawMessage) {
-							Text(X1 + 1, Y1, FarColorToReal(COL_PANELBOX), Title);
+							auto color1 = FarColorToReal(COL_PANELBOX);
+							if (Opt.Backend.UseModernLook && !Focus) color1 = SoftenColorToDisabled(color1);
+							Text(X1 + 1, Y1, color1, Title);
 							IsShowTitle = TRUE;
-							SetFarColor(Focus ? COL_PANELSELECTEDTITLE : COL_PANELTITLE);
+							SetFarColorBlacked(Focus ? COL_PANELSELECTEDTITLE : COL_PANELTITLE, Focus);
 						}
 					}
 
 					strReadMsg.Format(Msg::ReadingFiles, ListData.Count());
 
 					if (DrawMessage) {
-						ReadFileNamesMsg(strReadMsg);
+						ReadFileNamesMsg(strReadMsg,
+								ProgressShown ? MSG_KEEPBACKGROUND : 0);
+						ProgressShown = true;
 					} else {
 						TruncStr(strReadMsg, TitleLength - 2);
 						int MsgLength = (int)strReadMsg.GetLength();

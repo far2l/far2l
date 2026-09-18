@@ -129,7 +129,7 @@ static int ShowBookmarksMenuIteration(int Pos)
 
 				case KEY_NUMPAD0:
 				case KEY_INS: {
-					Panel *ActivePanel = CtrlObject->Cp()->ActivePanel;
+					Panel *ActivePanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 					FARString strNewDir, strNewPluginModule, strNewPluginFile, strNewPluginData;
 					CtrlObject->CmdLine->GetCurDir(strNewDir);
 
@@ -190,7 +190,7 @@ static int ShowBookmarksMenuIteration(int Pos)
 	}
 
 	if (ExitCode >= 0) {
-		CtrlObject->Cp()->ActivePanel->ExecShortcutFolder(ExitCode);
+		CtrlObject->Cp()->ActiveTab().ActivePanel->ExecShortcutFolder(ExitCode);
 	}
 
 	return -1;

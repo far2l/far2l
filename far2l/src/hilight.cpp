@@ -755,8 +755,8 @@ void HighlightFiles::HiEdit(int MenuPos)
 	HiMenu.SetBottomTitle(Msg::HighlightBottom);
 	FillMenu(&HiMenu, MenuPos);
 	int NeedUpdate;
-	Panel *LeftPanel = CtrlObject->Cp()->LeftPanel;
-	Panel *RightPanel = CtrlObject->Cp()->RightPanel;
+	Panel *LeftPanel = CtrlObject->Cp()->ActiveTab().LeftPanel;
+	Panel *RightPanel = CtrlObject->Cp()->ActiveTab().RightPanel;
 	HiMenu.Show();
 
 	while (1) {
@@ -1181,10 +1181,10 @@ void HighlightFiles::UpdateHighlighting(bool RefreshMasks)
 		}
 	}
 
-	CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-	CtrlObject->Cp()->LeftPanel->Redraw();
-	CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION);
-	CtrlObject->Cp()->RightPanel->Redraw();
+	CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+	CtrlObject->Cp()->ActiveTab().LeftPanel->Redraw();
+	CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION);
+	CtrlObject->Cp()->ActiveTab().RightPanel->Redraw();
 
 	ScrBuf.Unlock();	// разрешаем прорисовку
 }

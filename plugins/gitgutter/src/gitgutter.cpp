@@ -310,20 +310,8 @@ static bool GetHunkAnchor(const Hunk &h, int &anchor_x, int &anchor_y)
 	if (!GetEditorInfo(ei))
 		return false;
 
-	int line_num_width = 1;
-	const bool show_numbers = (ei.Options & EOPT_SHOWNUMBERS) != 0;
+	int line_num_width = ei.StartX - ei.WindowX;
 	const bool show_gutter = (ei.Options & EOPT_SHOWGUTTER) != 0;
-	if (show_numbers) {
-		int digits = 1;
-		int temp = std::max(1, ei.TotalLines);
-		while (temp >= 10) {
-			digits++;
-			temp /= 10;
-		}
-		line_num_width = std::max(4, digits) + 1;
-	} else if (show_gutter) {
-		line_num_width = 1;
-	}
 
 	const int gutter_x = line_num_width - 1;
 	const int rel_y = h.start - ei.TopScreenLine;
@@ -1403,28 +1391,16 @@ static bool HandleGutterClick(const INPUT_RECORD *ir)
 	if (g_popup_active || g_pending_popup.active)
 		return true;
 
-	const int rel_x = me.dwMousePosition.X - ei.WindowX;
+	const int rel_x = me.dwMousePosition.X - ei.StartX - 1;
 	const int rel_y = me.dwMousePosition.Y - ei.WindowY;
 	if (rel_x < 0 || rel_y < 0)
 		return false;
 
-	const bool show_numbers = (ei.Options & EOPT_SHOWNUMBERS) != 0;
 	const bool show_gutter = (ei.Options & EOPT_SHOWGUTTER) != 0;
-	if (!show_numbers && !show_gutter)
+	if (!show_gutter)
 		return false;
 
-	int line_num_width = 0;
-	if (show_numbers) {
-		int digits = 1;
-		int temp = std::max(1, ei.TotalLines);
-		while (temp >= 10) {
-			digits++;
-			temp /= 10;
-		}
-		line_num_width = std::max(4, digits) + 1;
-	} else {
-		line_num_width = 1;
-	}
+	const int line_num_width = ei.StartX - ei.WindowX;
 	const int gutter_x = line_num_width - 1;
 	if (rel_x > gutter_x)
 		return false;

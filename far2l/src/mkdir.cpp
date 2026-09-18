@@ -69,25 +69,15 @@ LONG_PTR WINAPI MkDirDlgProc(HANDLE hDlg, int Msg, int Param1, LONG_PTR Param2)
 						reinterpret_cast<LPCWSTR>(SendDlgMessage(hDlg, DM_GETCONSTTEXTPTR, MKDIR_EDIT, 0));
 				Opt.MultiMakeDir = (SendDlgMessage(hDlg, DM_GETCHECK, MKDIR_CHECKBOX, 0) == BSTATE_CHECKED);
 
-				// это по поводу создания одиночного каталога, который
-				// начинается с пробела! Чтобы ручками не заключать
-				// такой каталог в кавычки
+				// Сохраняем пробелы в одиночном элементе списка.
 				if (Opt.MultiMakeDir && !strDirName.ContainsAnyOf(";,\"")) {
 					QuoteSpaceOnly(strDirName);
-				}
-
-				// нужно создать только ОДИН каталог
-				if (!Opt.MultiMakeDir) {
-					// уберем все лишние кавычки
-					Unquote(strDirName);
-					// возьмем в кавычки, т.к. могут быть разделители
-					InsertQuote(strDirName);
 				}
 
 				UserDefinedList *pDirList =
 						reinterpret_cast<UserDefinedList *>(SendDlgMessage(hDlg, DM_GETDLGDATA, 0, 0));
 
-				if (!pDirList->Set(strDirName)) {
+				if (strDirName.IsEmpty() || (Opt.MultiMakeDir && !pDirList->Set(strDirName))) {
 					Message(MSG_WARNING, 1, Msg::Warning, Msg::IncorrectDirList, Msg::Ok);
 					return FALSE;
 				}
@@ -108,9 +98,9 @@ void ShellMakeDir(Panel *SrcPanel)
 		{DI_DOUBLEBOX, 3, 1, 72, 8, {}, 0, Msg::MakeFolderTitle},
 		{DI_TEXT,      5, 2, 0,  2, {}, 0, Msg::CreateFolder },
 		{DI_EDIT,      5, 3, 70, 3, {(DWORD_PTR)L"NewFolder"}, DIF_FOCUS | DIF_EDITEXPAND | DIF_HISTORY | DIF_USELASTHISTORY | DIF_EDITPATH, L""},
-		{DI_TEXT,      0, 4, 0,  4, {}, DIF_SEPARATOR, L""},
+		{DI_TEXT,      0, 4, 0,  4, {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), L""},
 		{DI_CHECKBOX,  5, 5, 0,  5, {(DWORD_PTR)Opt.MultiMakeDir}, 0, Msg::MultiMakeDir},
-		{DI_TEXT,      0, 6, 0,  6, {}, DIF_SEPARATOR, L""},
+		{DI_TEXT,      0, 6, 0,  6, {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), L""},
 		{DI_BUTTON,    0, 7, 0,  7, {}, DIF_DEFAULT | DIF_CENTERGROUP, Msg::Ok},
 		{DI_BUTTON,    0, 7, 0,  7, {}, DIF_CENTERGROUP, Msg::Cancel}
 	};
@@ -122,10 +112,11 @@ void ShellMakeDir(Panel *SrcPanel)
 	Dlg.Process();
 
 	if (Dlg.GetExitCode() == MKDIR_OK) {
-		strDirName = MkDirDlg[MKDIR_EDIT].strData;
-		const wchar_t *OneDir;
+		const size_t DirCount = Opt.MultiMakeDir ? DirList.GetTotal() : 1;
 
-		for (size_t DI = 0; nullptr != (OneDir = DirList.Get(DI)); ++DI) {
+		for (size_t DI = 0; DI != DirCount; ++DI) {
+			const wchar_t *OneDir = Opt.MultiMakeDir ? DirList.Get(DI) : MkDirDlg[MKDIR_EDIT].strData.CPtr();
+			const bool isLast = DI + 1 == DirCount;
 			strDirName = OneDir;
 			strOriginalDirName = strDirName;
 
@@ -162,11 +153,11 @@ void ShellMakeDir(Panel *SrcPanel)
 				if (LastError == ERROR_ALREADY_EXISTS) {
 					Message(MSG_WARNING | MSG_ERRORTYPE, 1, Msg::Error, Msg::CannotCreateFolder,
 							strOriginalDirName, Msg::Ok);
-					bSkip = !DirList.IsLastElement(DI);
+					bSkip = !isLast;
 					break; // Jump to directory always if it existed before creation attempt
 				} else if (LastError == ERROR_INVALID_NAME || LastError == ERROR_DIRECTORY) {
 
-					if (DirList.IsLastElement(DI)) {
+					if (isLast) {
 						Message(MSG_WARNING | MSG_ERRORTYPE, 1, Msg::Error, Msg::CannotCreateFolder,
 								strOriginalDirName, Msg::Ok);
 						bSkip = false;
@@ -182,7 +173,7 @@ void ShellMakeDir(Panel *SrcPanel)
 				} else {
 					int ret;
 
-					if (DirList.IsLastElement(DI)) {
+					if (isLast) {
 						ret = Message(MSG_WARNING | MSG_ERRORTYPE, 2, Msg::Error, Msg::CannotCreateFolder,
 								strOriginalDirName, Msg::Retry, Msg::Cancel);
 					} else {

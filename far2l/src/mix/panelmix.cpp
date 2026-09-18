@@ -98,7 +98,7 @@ void UpdateDefaultColumnTypeWidths( void )
 void ShellUpdatePanels(Panel *SrcPanel, BOOL NeedSetUpADir)
 {
 	if (!SrcPanel)
-		SrcPanel = CtrlObject->Cp()->ActivePanel;
+		SrcPanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 
 	Panel *AnotherPanel = CtrlObject->Cp()->GetAnotherPanel(SrcPanel);
 
@@ -151,7 +151,7 @@ void ShellUpdatePanels(Panel *SrcPanel, BOOL NeedSetUpADir)
 bool CheckUpdateAnotherPanel(Panel *SrcPanel, const wchar_t *SelName)
 {
 	if (!SrcPanel)
-		SrcPanel = CtrlObject->Cp()->ActivePanel;
+		SrcPanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 
 	Panel *AnotherPanel = CtrlObject->Cp()->GetAnotherPanel(SrcPanel);
 	AnotherPanel->CloseFile();
@@ -200,23 +200,23 @@ int _MakePath1(DWORD Key, FARString &strPathName, const wchar_t *Param2, int esc
 			switch (Key) {
 				case KEY_CTRLALTBRACKET:
 				case KEY_CTRLBRACKET:
-					SrcPanel = Cp->LeftPanel;
+					SrcPanel = Cp->ActiveTab().LeftPanel;
 					break;
 				case KEY_CTRLALTBACKBRACKET:
 				case KEY_CTRLBACKBRACKET:
-					SrcPanel = Cp->RightPanel;
+					SrcPanel = Cp->ActiveTab().RightPanel;
 					break;
 				case KEY_SHIFTNUMENTER:
 				case KEY_SHIFTENTER:
 				case KEY_ALTSHIFTBRACKET:
 				case KEY_CTRLSHIFTBRACKET:
-					SrcPanel = Cp->ActivePanel;
+					SrcPanel = Cp->ActiveTab().ActivePanel;
 					break;
 				case KEY_CTRLSHIFTNUMENTER:
 				case KEY_CTRLSHIFTENTER:
 				case KEY_ALTSHIFTBACKBRACKET:
 				case KEY_CTRLSHIFTBACKBRACKET:
-					SrcPanel = Cp->GetAnotherPanel(Cp->ActivePanel);
+					SrcPanel = Cp->GetAnotherPanel(Cp->ActiveTab().ActivePanel);
 					break;
 			}
 

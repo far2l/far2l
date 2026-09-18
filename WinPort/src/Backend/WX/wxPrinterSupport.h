@@ -2,6 +2,7 @@
 #include "Backend.h"
 
 class wxHtmlEasyPrinting;
+class wxRichTextPrinting;
 
 class wxPrinterSupportBackend : public IPrinterSupport
 {
@@ -27,6 +28,7 @@ public:
 
 private:
 	wxHtmlEasyPrinting* html_printer;
+	wxRichTextPrinting* text_printer;
 
 	void ensurePrinterCreated();
 };

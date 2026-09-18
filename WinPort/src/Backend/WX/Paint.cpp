@@ -8,6 +8,7 @@
 #include "PathHelpers.h"
 #include "WinPort.h"
 #include <utils.h>
+#include <BackendOptions.h>
 
 #define COLOR_ATTRIBUTES ( FOREGROUND_INTENSITY | BACKGROUND_INTENSITY | \
 					FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | \
@@ -20,6 +21,14 @@
 #else
 # define DEFAULT_FONT_SIZE	16
 #endif
+
+WinPortRGB ComputeEmbossColor_HSL(const WinPortRGB& xbg, const WinPortRGB& xline);
+WinPortRGB ComputeEmbossColor_LAB(const WinPortRGB& xbg, const WinPortRGB& xline);
+
+namespace WXCustomDrawChar
+{
+	extern BackendOptions* options;
+};
 
 /////////////////////////////////////////////////////////////////////////////////
 static const char *g_known_good_fonts[] = { "Ubuntu", "Terminus", "DejaVu",
@@ -330,6 +339,128 @@ void ConsolePaintContext::ApplyFont(wxPaintDC &dc, uint8_t index)
 		dc.SetFont(_fonts[index]);
 }
 
+#include "easteregg.h"
+#include <wx/mstream.h>
+#include "GirlPoster.h"
+#include "AdeptusMechanics.h"
+
+void sharpenImage(wxImage& img) 
+{
+	if (!img.HasAlpha()) img.InitAlpha();
+	int w = img.GetWidth();
+	int h = img.GetHeight();
+
+	int maxAlpha = WXCustomDrawChar::options->FlyGirlMaxTransparency;
+	if (maxAlpha <= 0) maxAlpha = 40;
+	if (maxAlpha > 255) maxAlpha = 255;
+
+	unsigned maxBA = WXCustomDrawChar::options->FlyGirlMoreThanToTransparent & 0xFF;
+	unsigned maxGA = ( WXCustomDrawChar::options->FlyGirlMoreThanToTransparent >> 8 ) & 0xFF;
+	unsigned maxRA = ( WXCustomDrawChar::options->FlyGirlMoreThanToTransparent >> 16 ) & 0xFF;
+	unsigned minBA = WXCustomDrawChar::options->FlyGirlLessTnanToTransparent & 0xFF;
+	unsigned minGA = ( WXCustomDrawChar::options->FlyGirlLessTnanToTransparent >> 8 ) & 0xFF;
+	unsigned minRA = ( WXCustomDrawChar::options->FlyGirlLessTnanToTransparent >> 16 ) & 0xFF;
+
+	// unsigned char* data  = img.GetData();
+	unsigned char* alpha = img.GetAlpha();
+	unsigned char* data = img.GetData();
+
+	for (int i = 0; i < w * h; ++i){ 
+		unsigned r = data[i * 3 + 0];
+		unsigned g = data[i * 3 + 1];
+		unsigned b = data[i * 3 + 2];
+        if (r < minRA && g < minGA && b < minBA) alpha[i] = 0;
+        if (r > maxRA && g > maxGA && b > maxBA) alpha[i] = 0;
+		if (alpha[i] > maxAlpha) alpha[i] = maxAlpha;
+	}
+}
+
+bool loadImageAndScale(wxImage& img, wchar_t* fileName, int tw, int th, const wxRect& winbox) 
+{
+	img = wxImage(fileName, wxBITMAP_TYPE_PNG);
+	if (!img.IsOk()) return false;
+
+	int w = img.GetWidth();
+	int h = img.GetHeight();
+
+	int targetW = tw;
+	int targetH = th;
+
+	if (targetH < 0) targetH = winbox.GetHeight() - WXCustomDrawChar::options->FlyGirlPaddingY;
+	else if (targetH == 0) targetH = h;
+
+	if (targetW < 0) targetW = winbox.GetWidth() - WXCustomDrawChar::options->FlyGirlPaddingX;
+	else if (targetW == 0) targetW = w;
+
+	double scale = std::min(
+	    double(targetW) / w,
+	    double(targetH) / h
+	);
+
+	int newW = int(w * scale);
+	int newH = int(h * scale);
+
+    img = img.Scale(newW, newH, wxIMAGE_QUALITY_HIGH);
+    sharpenImage(img);
+
+	return true;
+}
+
+int GetFlyGirlX(const wxRect& winbox, int w) 
+{
+	// 0 - left-top, top, right-top, right, right-bottom, bottom, left-bottom, left. center
+	switch (WXCustomDrawChar::options->FlyGirlAnchor) {
+	// left-top, left-bottom, left
+	case 0:
+	case 6:
+	case 7:
+		return WXCustomDrawChar::options->FlyGirlPaddingX;
+
+	// top, bottom, center
+	case 1: 
+	case 5:
+	case 8:
+		return (winbox.GetWidth() - w - WXCustomDrawChar::options->FlyGirlPaddingX) / 2;
+
+	// right-top, right, right-bottom
+	case 2: 
+	case 3:
+	case 4:
+	default:
+		return winbox.GetWidth() - w - WXCustomDrawChar::options->FlyGirlPaddingX;
+	}
+}
+
+int GetFlyGirlY(const wxRect& winbox, int h) 
+{
+	// 0 - left-top, top, right-top, right, right-bottom, bottom, left-bottom, left. center
+	switch (WXCustomDrawChar::options->FlyGirlAnchor) {
+	// left-top, left-bottom, left
+	case 0:
+	case 1:
+	case 2:
+		return WXCustomDrawChar::options->FlyGirlPaddingY;
+
+	// right, left, center
+	case 3: 
+	case 7:
+	case 8:
+		return (winbox.GetHeight() - h - WXCustomDrawChar::options->FlyGirlPaddingY) / 2;
+
+	// right-bottom, bottom, left-bottom
+	case 4: 
+	case 5:
+	case 6:
+	default:
+		return winbox.GetHeight() - h - WXCustomDrawChar::options->FlyGirlPaddingY;
+	}
+}
+
+int random_int(int min, int max) 
+{
+    return min + rand() % (max - min + 1);
+}
+
 void ConsolePaintContext::OnPaint(wxPaintDC &dc, SMALL_RECT *qedit)
 {
 	if (UNLIKELY(_stage == STG_NOT_REFRESHED)) {
@@ -358,6 +489,8 @@ void ConsolePaintContext::OnPaint(wxPaintDC &dc, SMALL_RECT *qedit)
 
 	wxRegion rgn = _window->GetUpdateRegion();
 	wxRect box = rgn.GetBox();
+	//wxRect box = _window->GetSize();
+
 	SMALL_RECT area = {SHORT(box.GetLeft() / _font_width), SHORT(box.GetTop() / _font_height),
 		SHORT(box.GetRight() / _font_width), SHORT(box.GetBottom() / _font_height)};
 
@@ -383,13 +516,31 @@ void ConsolePaintContext::OnPaint(wxPaintDC &dc, SMALL_RECT *qedit)
 	_cursor_props.Update();
 
 	ConsolePainter painter(this, dc, _buffer, _cursor_props);
-	for (unsigned int cy = (unsigned)area.Top; cy <= (unsigned)area.Bottom; ++cy) {
-		wxRegionContain lc = rgn.Contains(0, cy * _font_height, cw * _font_width, _font_height);
 
-		if (lc == wxOutRegion) {
-			continue;
+	painter.paintBegin();
+	for (unsigned int cy = 0; cy < ch; ++cy) {
+		for (unsigned int cx = 0; cx < cw; ++cx) {
+    		const CHAR_INFO *line;
+    		{
+    			// dont keep console output locked for a long time to avoid output slowdown
+    			IConsoleOutput::DirectLineAccess dla(g_winport_con_out, cy);
+    			line = dla.Line();
+    			unsigned int cur_cw = line ? dla.Width() : 0;
+    			if (cur_cw < cw) {
+    				memcpy(&_line[0], line, cur_cw * sizeof(*line));
+    				memset(&_line[cur_cw], 0, (cw - cur_cw) * sizeof(*line));
+    			} else {
+    				memcpy(&_line[0], line, cw * sizeof(*line));
+    			}
+    			line = &_line[0];
+    		}
+
+			painter.ConsumeBlockHintAt(line[cx], (int)cx, (int)cy);
 		}
+	}
 
+	painter.HintBegin(cw, ch, area);
+	for (unsigned int cy = (unsigned)area.Top; cy <= (unsigned)area.Bottom; ++cy) {
 		const CHAR_INFO *line;
 		{
 			// dont keep console output locked for a long time to avoid output slowdown
@@ -405,11 +556,24 @@ void ConsolePaintContext::OnPaint(wxPaintDC &dc, SMALL_RECT *qedit)
 			line = &_line[0];
 		}
 
+		wxRegionContain lc = rgn.Contains(0, cy * _font_height, cw * _font_width, _font_height);
+		if (lc == wxOutRegion) {
+			continue;
+		}
+
 		painter.LineBegin(cy);
+
 		wchar_t tmp_wcz[2] = {0, 0};
 		DWORD64 attributes = line->Attributes;
 		const unsigned int cx_begin = (area.Left > 0 && !line[area.Left].Char.UnicodeChar) ? area.Left - 1 : area.Left;
 		const unsigned int cx_end = std::min(cw, (unsigned)area.Right + 1);
+		bool prev_space = cx_begin > 0 ? line[cx_begin - 1].Char.UnicodeChar == L' ' : false;
+
+#ifdef TAG_DEBUG
+		// out-of clipping: collect tags
+		std::vector<ConsolePainter::HintHatch> hatched;
+#endif
+
 		for (unsigned int cx = cx_begin; cx < cx_end; ++cx) {
 			if (!line[cx].Char.UnicodeChar) {
 				painter.LineFlush(cx + 1);
@@ -434,11 +598,25 @@ void ConsolePaintContext::OnPaint(wxPaintDC &dc, SMALL_RECT *qedit)
 					attributes^= 0xffffff0000000000;
 				}
 			}
+
 			const int nx = (cx + 1 < cw && !line[cx + 1].Char.UnicodeChar) ? 2 : 1;
-			painter.NextChar(cx, attributes, pwcz, nx);
+			painter.NextChar(cx, attributes, pwcz, nx, prev_space);
+			prev_space = pwcz[0] == L' ';
+
+			painter.ConsumeHintAt(line[cx], (int)cx, nx, (int)cy, pwcz);
+#ifdef TAG_DEBUG			
+			hatched.push_back({ line[cx].Extra.Hint.Container, line[cx].Extra.Hint.Object, (int)cx, (int)cy });
+#endif
 		}
 		painter.LineFlush(area.Right + 1);
+
+#ifdef TAG_DEBUG
+		painter.DrawHatch(hatched);
+#endif
 	}
+
+	painter.HintFlush();
+	painter.paintEnd(cw, ch, area);
 
 	// check if there is unused space in right and bottom and fill it with black color
 	const int right_edge = (area.Right + 1) * _font_width;
@@ -459,8 +637,89 @@ void ConsolePaintContext::OnPaint(wxPaintDC &dc, SMALL_RECT *qedit)
 		_stage = STG_PAINTED;
 		fprintf(stderr, "FIRST_PAINT: %lu msec\n", (unsigned long)GetProcessUptimeMSec());
 	}
-}
 
+	if (WXCustomDrawChar::options->UseModernLook && WXCustomDrawChar::options->UseFlyGirl) {
+		wxRect winbox = _window->GetSize();
+
+	    static bool readyToRender = false;
+		static wxBitmap bmpAM;
+		static wxBitmap bmpGR;
+		static wxBitmap bmpUG[16];
+		static wxImage  imgUG[16];
+		static int imgUGcount = 0;
+		static wchar_t lastFlyGirls[sizeof(WXCustomDrawChar::options->FlyGirls) / sizeof(wchar_t)];
+
+	    if (!readyToRender) {
+			wxMemoryInputStream streamAM(Adeptus_mecanics_png, Adeptus_mecanics_png_len);
+    		wxImage imgAM(streamAM, wxBITMAP_TYPE_PNG);
+            sharpenImage(imgAM);
+
+			wxMemoryInputStream streamGR(girl_poster_png, girl_poster_png_len);
+    		wxImage imgGR(streamGR, wxBITMAP_TYPE_PNG);
+            sharpenImage(imgGR);
+
+			bmpAM = wxBitmap(imgAM);
+			bmpGR = wxBitmap(imgGR);
+	    }
+
+		if (wcscmp(WXCustomDrawChar::options->FlyGirls, lastFlyGirls) && *WXCustomDrawChar::options->FlyGirls) {
+			wcscpy(lastFlyGirls, WXCustomDrawChar::options->FlyGirls);
+			wchar_t* context = nullptr;
+
+			int k = 0;
+			wchar_t* token = wcstok(lastFlyGirls, L";", &context);
+			while (token != nullptr) {
+    			if(loadImageAndScale(imgUG[k], token, 
+    					WXCustomDrawChar::options->FlyGirlMaxWidth, 
+    					WXCustomDrawChar::options->FlyGirlMaxHeight,
+    					winbox)) {
+    				bmpUG[k] = wxBitmap(imgUG[k]);
+	                ++k;
+				}
+                if (k > 15) break;
+    			token = wcstok(nullptr, L";", &context);
+			}
+			imgUGcount = k;
+		}
+
+		if (imgUGcount) {
+			int index = imgUGcount > 1 ? random_int(0, imgUGcount - 1) : 0;
+			dc.DrawBitmap(bmpUG[index], 
+				GetFlyGirlX(winbox, bmpUG[index].GetWidth()), 
+				GetFlyGirlY(winbox, bmpUG[index].GetHeight()), 
+				true);
+		}
+	    else
+	    	dc.DrawBitmap(bmpGR, 0 + winbox.GetRight() - bmpGR.GetWidth(), 40, true);
+
+	    if (IsEasterEggActive())  {
+	    	dc.DrawBitmap(bmpAM, 
+	    		0 + winbox.GetRight() - bmpAM.GetWidth() - 20, 
+	    		WXCustomDrawChar::options->FlyGirlAnchor == 4 && imgUGcount ? 40 : 0 + winbox.GetBottom() - bmpAM.GetHeight() - 40, 
+	    		true);
+		    
+		    if (IsEasterEggAnimationActive()){ 
+		    	fire.Update();
+			    //terrain.Update();
+			    //potato.Update();
+
+			    wxImage fireImg = fire.Render();
+			    wxImage scaledFire = fireImg.Scale(winbox.GetWidth(), fireImg.GetHeight(), wxIMAGE_QUALITY_HIGH);
+			    wxBitmap bmpFire(scaledFire);
+
+			    /*
+			    //wxImage marsImg = terrain.Render();
+			    wxImage marsImg = potato.Render();
+			    wxImage scaledMars = marsImg.Scale(winbox.GetWidth(), 40, wxIMAGE_QUALITY_HIGH);
+			    wxBitmap bmpMars(scaledMars);
+
+			    dc.DrawBitmap(bmpMars, 0, 0, true);
+			    */
+		    	dc.DrawBitmap(bmpFire, 0, winbox.GetBottom() - scaledFire.GetHeight(), true);
+			}
+		}
+	}
+}
 
 void ConsolePaintContext::RefreshArea( const SMALL_RECT &area )
 {
@@ -588,7 +847,7 @@ void ConsolePainter::PrepareBackground(unsigned int cx, const WinPortRGB &clr, u
 	if (h==0) h = 1;
 	unsigned int fill_height = _context->FontHeight() - h;
 	if (fill_height > _context->FontHeight()) fill_height = _context->FontHeight();
-	WinPortRGB clr_xored(clr.r ^ 0xff, clr.g ^ 0xff, clr.b ^ 0xff);
+	WinPortRGB clr_xored = GetCursorColor(clr);
 	SetFillColor(clr_xored);
 	_dc.DrawRectangle(x, _start_y + fill_height, _context->FontWidth() * nx, h);
 
@@ -597,7 +856,6 @@ void ConsolePainter::PrepareBackground(unsigned int cx, const WinPortRGB &clr, u
 		_dc.DrawRectangle(x, _start_y, _context->FontWidth() * nx, fill_height);
 	}
 }
-
 
 void ConsolePainter::FlushBackground(unsigned int cx_end)
 {
@@ -613,17 +871,24 @@ void ConsolePainter::FlushText(unsigned int cx_end)
 {
 	if (!_buffer.empty()) {
 		if (_prev_bold) {
-			wxFont normal = _dc.GetFont();
-			wxFont bold = normal;
-			bold.MakeBold(); 
-			//bold.SetWeight(wxFONTWEIGHT_SEMIBOLD);
-			bold.SetPixelSize(normal.GetPixelSize());
-			_dc.SetFont(bold);
-			_dc.SetTextForeground(wxColour(_clr_text.r, _clr_text.g, _clr_text.b));
-			_dc.DrawText(_buffer, _start_cx * _context->FontWidth(), _start_y);
-			_dc.SetFont(normal);
-
-			_prev_bold = false;
+			if (WXCustomDrawChar::options->UseEmbossAsBold) {
+				WinPortRGB emboss = GetEmbossColor(_clr_text);
+				_dc.SetTextForeground(wxColour(emboss.r, emboss.g, emboss.b));
+				_dc.DrawText(_buffer, _start_cx * _context->FontWidth() + 1, _start_y + 1);
+				_dc.SetTextForeground(wxColour(_clr_text.r, _clr_text.g, _clr_text.b));
+				_dc.DrawText(_buffer, _start_cx * _context->FontWidth(), _start_y);
+			}
+			else {
+				wxFont normal = _dc.GetFont();
+				wxFont bold = normal;
+				bold.MakeBold(); 
+				//bold.SetWeight(wxFONTWEIGHT_SEMIBOLD);
+				bold.SetPixelSize(normal.GetPixelSize());
+				_dc.SetFont(bold);
+				_dc.SetTextForeground(wxColour(_clr_text.r, _clr_text.g, _clr_text.b));
+				_dc.DrawText(_buffer, _start_cx * _context->FontWidth(), _start_y);
+				_dc.SetFont(normal);
+			}
 		}
 		else {
 			_dc.SetTextForeground(wxColour(_clr_text.r, _clr_text.g, _clr_text.b));
@@ -683,12 +948,13 @@ struct WXCustomDrawCharPainter : WXCustomDrawChar::Painter
 	const WinPortRGB &_clr_text;
 	const WinPortRGB &_clr_back;
 
-	inline WXCustomDrawCharPainter(ConsolePainter &painter, const WinPortRGB &clr_text, const WinPortRGB &clr_back)
+	inline WXCustomDrawCharPainter(ConsolePainter &painter, const WinPortRGB &clr_text, const WinPortRGB &clr_back, bool _prev_space)
 		: _painter(painter), _clr_text(clr_text), _clr_back(clr_back)
 	{
 		fw = (wxCoord)_painter._context->FontWidth();
 		fh = (wxCoord)_painter._context->FontHeight(),
 		thickness = (wxCoord)_painter._context->FontThickness();
+		prev_space = _prev_space;
 		_painter.SetFillColor(clr_text);
 	}
 
@@ -719,10 +985,111 @@ struct WXCustomDrawCharPainter : WXCustomDrawChar::Painter
 		_painter.SetFillColor(clr_fade);
 	}
 
+	inline void SetAccentBackgroundImpl() {
+		_painter.ComputeAccents();
+		_painter.SetFillColor(_painter._clr_accent_back);
+		//_painter.SetFillColor(_painter._clr_back);
+	}
+	
+	inline void SetBackgroundImpl() {
+		_painter.SetFillColor(_painter._clr_back);
+	}
+	
+	inline void SetAccentForegroundImpl() {
+		_painter.ComputeAccents();
+		_painter.SetFillColor(_painter._clr_accent_text);
+	}
+
+	inline void SetForegroundImpl() {
+		_painter.SetFillColor(_painter._clr_text);
+	}
+
+	inline void SetColorEmbossImpl()
+	{
+		WinPortRGB clr_fade;
+		/* near to black / near to white means LAB */
+		int blackb = _clr_back.r + _clr_back.g + _clr_back.b;
+		int blackf = _clr_text.r + _clr_text.g + _clr_text.b;
+		if (blackb < 0x5f || blackf < 0x5f || blackb > 700 || blackf > 700) 
+			clr_fade = ComputeEmbossColor_LAB(_clr_back, _painter.GetSoftenColorIf(_clr_text));
+		else
+			clr_fade = ComputeEmbossColor_HSL(_clr_back, _clr_text);
+		_painter.SetFillColor(clr_fade);
+	}
+
+	inline void SetColorSoftenImpl()
+	{
+		WinPortRGB fade = _painter.GetSoftenColorIf(_clr_text);
+		_painter._dc.SetBrush(wxColour(fade.r, fade.r, fade.r));
+		//SetColorRedImpl();
+	}
+
+	inline void SetColorRedImpl()
+	{
+		WinPortRGB clr_fade(0xff, 0, 0);
+		_painter.SetFillColor(clr_fade);
+	}
+
+	inline int GetFontAscentImpl()
+	{
+		return _painter._context->FontHeight() - _painter._context->FontDescent();
+	}
 
 	inline void FillRectangleImpl(wxCoord left, wxCoord top, wxCoord right, wxCoord bottom)
 	{
 		_painter._dc.DrawRectangle(left, top, right + 1 - left , bottom + 1 - top);
+	}
+
+	inline void FillGradientRectangleImpl(wxCoord left, wxCoord top, wxCoord right, wxCoord bottom)
+	{
+		wxBrush oldBrush = _painter._dc.GetBrush(); 
+		wxColour brushColor = oldBrush.GetColour();
+		WinPortRGB x{ (unsigned char)brushColor.Red(), (unsigned char)brushColor.Green(), (unsigned char)brushColor.Blue() };
+		_painter.DrawLiquidButtonBackground(left, top, right + 1 - left , bottom + 1 - top, x);
+	}
+
+	inline void DrawEllipticArcImpl(wxCoord left, wxCoord top, wxCoord width, wxCoord height, double start, double end, wxCoord thickness) {
+		wxBrush oldBrush = _painter._dc.GetBrush(); 
+		wxColour brushColor = oldBrush.GetColour();
+		wxPen oldPen = _painter._dc.GetPen(); 
+
+		_painter._dc.SetPen(wxPen(brushColor, thickness < 1 ? 1 : thickness));
+		_painter._dc.SetBrush(*wxTRANSPARENT_BRUSH);
+
+		_painter._dc.DrawEllipticArc(left, top, width, height, start, end);
+		
+		_painter._dc.SetBrush(oldBrush);
+		_painter._dc.SetPen(oldPen);
+	}
+
+	inline void FillEllipticPieImpl(wxCoord left, wxCoord top, wxCoord width, wxCoord height, double start, double end) {
+		_painter._dc.DrawEllipticArc(left, top, width, height, start, end);
+	}
+
+	inline void DrawLineImpl(wxCoord X1, wxCoord Y1, wxCoord X2, wxCoord Y2, wxCoord thickness) {
+		wxBrush oldBrush = _painter._dc.GetBrush(); 
+		wxColour brushColor = oldBrush.GetColour();
+		wxPen oldPen = _painter._dc.GetPen(); 
+		_painter._dc.SetPen(wxPen(brushColor, thickness < 1 ? 1 : thickness));
+
+		_painter._dc.SetBrush(*wxTRANSPARENT_BRUSH);
+		_painter._dc.DrawLine(X1, Y1, X2, Y2);
+		_painter._dc.SetBrush(oldBrush);
+		_painter._dc.SetPen(oldPen);
+	}
+
+	// wxBrush savedBrush;
+	// wxPen savedPen;
+
+	inline void SaveBrushImpl() {
+		// savedBrush = _painter._dc.GetBrush();
+		// savedPen = _painter._dc.GetPen();
+	}
+
+	inline void RestoreBrushImpl() {
+		//_painter._dc.SetBrush(savedBrush);
+		//_painter._dc.SetPen(savedPen);
+		_painter.SetFillColor(_clr_text);
 	}
 };
 
@@ -742,9 +1109,59 @@ void WXCustomDrawChar::Painter::SetColorExtraFaded()
 	((WXCustomDrawCharPainter *)this)->SetColorExtraFadedImpl();
 }
 
+void WXCustomDrawChar::Painter::SetAccentBackground() 
+{
+	((WXCustomDrawCharPainter *)this)->SetAccentBackgroundImpl();
+}
+
+void WXCustomDrawChar::Painter::SetBackground() 
+{
+	((WXCustomDrawCharPainter *)this)->SetBackgroundImpl();
+}
+
+void WXCustomDrawChar::Painter::SetAccentForeground()
+{
+	((WXCustomDrawCharPainter *)this)->SetAccentForegroundImpl();
+}
+
+void WXCustomDrawChar::Painter::SetForeground()
+{
+	((WXCustomDrawCharPainter *)this)->SetForegroundImpl();
+}
+
+void WXCustomDrawChar::Painter::SetColorEmboss()
+{
+	((WXCustomDrawCharPainter *)this)->SetColorEmbossImpl();
+}
+
+void WXCustomDrawChar::Painter::SetColorSoften()
+{
+	((WXCustomDrawCharPainter *)this)->SetColorSoftenImpl();
+}
+
+void WXCustomDrawChar::Painter::SetColorRed()
+{
+	((WXCustomDrawCharPainter *)this)->SetColorRedImpl();
+}
+
+int WXCustomDrawChar::Painter::GetFontAscent()
+{
+	return ((WXCustomDrawCharPainter *)this)->GetFontAscentImpl();
+}
+
 void WXCustomDrawChar::Painter::FillRectangle(wxCoord left, wxCoord top, wxCoord right, wxCoord bottom)
 {
 	((WXCustomDrawCharPainter *)this)->FillRectangleImpl(left, top, right, bottom);
+}
+
+void WXCustomDrawChar::Painter::FillGradientRectangle(wxCoord left, wxCoord top, wxCoord right, wxCoord bottom)
+{
+	((WXCustomDrawCharPainter *)this)->FillGradientRectangleImpl(left, top, right, bottom);
+}
+
+void WXCustomDrawChar::Painter::DrawEllipticArc(wxCoord left, wxCoord top, wxCoord width, wxCoord height, double start, double end, wxCoord thickness)
+{
+	((WXCustomDrawCharPainter *)this)->DrawEllipticArcImpl(left, top, width, height, start, end, thickness);
 }
 
 void WXCustomDrawChar::Painter::FillPixel(wxCoord left, wxCoord top)
@@ -752,7 +1169,58 @@ void WXCustomDrawChar::Painter::FillPixel(wxCoord left, wxCoord top)
 	((WXCustomDrawCharPainter *)this)->FillRectangleImpl(left, top, left, top);
 }
 
-void ConsolePainter::NextChar(unsigned int cx, DWORD64 attributes, const wchar_t *wcz, unsigned int nx)
+void WXCustomDrawChar::Painter::FillEllipticPie(wxCoord left, wxCoord top, wxCoord width, wxCoord height, double start, double end)
+{
+	((WXCustomDrawCharPainter *)this)->FillEllipticPieImpl(left, top, width, height, start, end);
+}
+
+void WXCustomDrawChar::Painter::DrawLine(wxCoord X1, wxCoord Y1, wxCoord X2, wxCoord Y2, wxCoord thickness) 
+{
+	((WXCustomDrawCharPainter *)this)->DrawLineImpl(X1, Y1, X2, Y2, thickness);
+}
+
+void WXCustomDrawChar::Painter::SaveBrush() {
+	((WXCustomDrawCharPainter *)this)->SaveBrushImpl();
+}
+
+void WXCustomDrawChar::Painter::RestoreBrush() {
+	((WXCustomDrawCharPainter *)this)->RestoreBrushImpl();
+}
+
+bool ConsolePainter::DrawCustomCharImpl(wchar_t cc, WXCustomDrawChar::DrawT custom_draw, DWORD64 attributes, unsigned cx, unsigned nx, bool prev_space) 
+{
+	WinPortRGB clr_back = WxConsoleBackground2RGB(attributes);
+	PrepareBackground(cx, clr_back, nx);
+	const bool underlined = (attributes & COMMON_LVB_UNDERSCORE) != 0;
+	const bool strikeout = (attributes & COMMON_LVB_STRIKEOUT) != 0;
+	WinPortRGB clr_text = WxConsoleForeground2RGB(attributes);
+
+    if (custom_draw) {
+		FlushBackground(cx + nx);
+		WXCustomDrawCharPainter cdp(*this, clr_text, clr_back, prev_space);
+		cdp.wc = cc;
+		custom_draw(cdp, _start_y, cx);
+		/* bold does not affect to custom draws as it are unicode glyphs, borders etc */
+		if (underlined || strikeout) {
+			_start_cx = cx;
+			_prev_underlined = underlined;
+			_prev_strikeout = strikeout;
+			_clr_text = clr_text;
+			FlushDecorations(cx + nx);
+		}
+		_start_cx = (unsigned int)-1;
+		_prev_fit_font_index = 0;
+	}
+	return custom_draw != nullptr;
+}
+
+bool ConsolePainter::DrawCustomChar(wchar_t cc, WXCustomDrawChar::DrawT custom_draw, DWORD64 attributes, unsigned cx, unsigned nx, bool prev_space) {
+	if (custom_draw) 
+		line_custom_chars.push_back(CustomCharPos(cc, custom_draw, attributes, cx, nx, prev_space));
+	return custom_draw != nullptr;
+}
+
+void ConsolePainter::NextChar(unsigned int cx, DWORD64 attributes, const wchar_t *wcz, unsigned int nx, bool prev_space)
 {
 	if (!wcz[0] || !WCHAR_IS_VALID(wcz[0])) {
 		wcz = L" ";
@@ -774,27 +1242,14 @@ void ConsolePainter::NextChar(unsigned int cx, DWORD64 attributes, const wchar_t
 	const bool strikeout = (attributes & COMMON_LVB_STRIKEOUT) != 0;
 	const bool bold = (attributes & COMMON_LVB_BOLD) != 0;
 
-	if (!strikeout && !underlined && wcz[0] == L' ' && !wcz[1]) {
+	if (!strikeout && !underlined && wcz[0] == L' ' && !wcz[1]) { /* bold does not impact on space */
 		return;
 	}
 
 	const WinPortRGB &clr_text = WxConsoleForeground2RGB(attributes);
+	_clr_accent_computed = false;
 
-	if (custom_draw) {
-		FlushBackground(cx + nx);
-		WXCustomDrawCharPainter cdp(*this, clr_text, clr_back);
-		cdp.wc = wcz[0];
-		custom_draw(cdp, _start_y, cx);
-		/* bold does not affect to custom draws as it are unicode glyphs, borders etc */
-		if (underlined || strikeout) {
-			_start_cx = cx;
-			_prev_underlined = underlined;
-			_prev_strikeout = strikeout;
-			_clr_text = clr_text;
-			FlushDecorations(cx + nx);
-		}
-		_start_cx = (unsigned int)-1;
-		_prev_fit_font_index = 0;
+	if (custom_draw && DrawCustomChar(wcz[0], custom_draw, attributes, cx, nx, prev_space)) {
 		return;
 	}
 
@@ -826,3 +1281,1105 @@ void ConsolePainter::NextChar(unsigned int cx, DWORD64 attributes, const wchar_t
 		_context->ApplyFont(_dc);
 	}
 }
+
+#include <Colorspace.h>
+
+static WinPortRGB RGBtoFar(const RGB& rgb) 
+{
+	return WinPortRGB((int)(rgb.r*255), (int)(rgb.g*255), (int)(rgb.b*255));
+}
+
+static WinPortRGB RGBtoFar(const iRGB& rgb) 
+{
+	return WinPortRGB(rgb.r, rgb.g, rgb.b);
+}
+
+static RGB FarToRGB(const WinPortRGB& c) 
+{
+	RGB rgb{c.r/255.0, c.g/255.0, c.b/255.0};
+	return rgb;
+}
+
+WinPortRGB ConsolePainter::GetSoftenColorIf(const WinPortRGB& _clr_text) 
+{
+	WinPortRGB clr{_clr_text.r, _clr_text.g, _clr_text.b};
+	if (WXCustomDrawChar::options && WXCustomDrawChar::options->UseSoftenBevels) {
+		if (IsNearBlack(_clr_text.r, _clr_text.g, _clr_text.b) || IsNearWhite(_clr_text.r, _clr_text.g, _clr_text.b)) {
+			RGB clrR = FarToRGB(clr);
+			iRGB clrT = SoftenBlackish_LAB(clrR);
+			clr = RGBtoFar(clrT);
+		}
+	}
+	return clr;
+}
+
+WinPortRGB ConsolePainter::GetEmbossColor(const WinPortRGB& _clr_text) {
+	WinPortRGB clr_fade;
+	/* near to black / near to white means LAB */
+
+	int blackb = _clr_back.r + _clr_back.g + _clr_back.b;
+	int blackf = _clr_text.r + _clr_text.g + _clr_text.b;
+
+	if (blackb < 0x5f || blackf < 0x5f || blackb > 700 || blackf > 700) 
+		clr_fade = ComputeEmbossColor_LAB(_clr_back, GetSoftenColorIf(_clr_text));
+	else
+		clr_fade = ComputeEmbossColor_HSL(_clr_back, _clr_text);
+	return clr_fade;
+}
+
+struct ColorsCache {
+	WinPortRGB bg;
+	WinPortRGB fg;
+	WinPortRGB rg;
+	int raised;
+};
+
+static ColorsCache _last_colors;
+
+static bool ColorEq(const WinPortRGB& c1, const WinPortRGB& c2)
+{
+	return c1.r == c2.r && c1.g == c2.g && c1.b == c2.b;
+}
+
+WinPortRGB ComputeEmbossColor_HSL(const WinPortRGB& xbg, const WinPortRGB& xline) 
+{
+	if (_last_colors.raised && ColorEq(_last_colors.bg, xbg) && ColorEq(_last_colors.fg, xline)) {
+		return _last_colors.rg;
+	}
+
+	RGB bg = FarToRGB(xbg);
+	RGB fg = FarToRGB(xline);
+	RGB r = ComputeRaiseColor_HSL(bg, fg);
+
+	_last_colors.bg = xbg;
+	_last_colors.fg = xline;
+	_last_colors.rg = RGBtoFar(r);
+	_last_colors.raised = 1;
+
+	return _last_colors.rg;
+}
+
+WinPortRGB ComputeEmbossColor_LAB(const WinPortRGB& xbg, const WinPortRGB& xline) 
+{
+	if (_last_colors.raised && ColorEq(_last_colors.bg, xbg) && ColorEq(_last_colors.fg, xline)) {
+		return _last_colors.rg;
+	}
+
+	RGB bg = FarToRGB(xbg);
+	RGB fg = FarToRGB(xline);
+	RGB r = ComputeRaiseColor_LAB(bg, fg);
+
+	_last_colors.bg = xbg;
+	_last_colors.fg = xline;
+	_last_colors.rg = RGBtoFar(r);
+	_last_colors.raised = 1;
+
+	return _last_colors.rg;
+}
+
+void ConsolePainter::ComputeAccents(bool cache) {
+	// if (cache && _clr_accent_computed) return;
+
+	HoverResult r = ComputeControlAccent(FarToRGB(_clr_text), FarToRGB(_clr_back));
+	_clr_accent_computed = true;
+	_clr_accent_text = RGBtoFar(r.fg_hover);
+	_clr_accent_back = RGBtoFar(r.bg_hover);
+}
+
+void ConsolePainter::ComputeAccents(
+		const WinPortRGB& c_text, const WinPortRGB& c_back,
+		WinPortRGB& c_a_text, WinPortRGB& c_a_back) 
+{
+	HoverResult r = ComputeControlAccent(FarToRGB(c_text), FarToRGB(c_back));
+	c_a_text = RGBtoFar(r.fg_hover);
+	c_a_back = RGBtoFar(r.bg_hover);
+}
+
+WinPortRGB ConsolePainter::GetCursorColor(const WinPortRGB& clr) {
+	// was: WinPortRGB clr_xored(clr.r ^ 0xff, clr.g ^ 0xff, clr.b ^ 0xff);
+
+	if (_clr_for_caret == clr) return _caret_clr;
+	_clr_for_caret = clr;
+
+	// WinPortRGB clr_xored(255 - clr.r, 255 - clr.g, 255 - clr.b);
+	WinPortRGB clr_xored(clr.r ^ 0xff, clr.g ^ 0xff, clr.b ^ 0xff);
+
+	int lum1 = (clr_xored.r * 30 + clr_xored.g * 59 + clr_xored.b * 11) / 100;
+	int lum2 = (clr.r * 30 + clr.g * 59 + clr.b * 11) / 100;
+
+	bool is_bad_for_xor = abs(lum1 - lum2) < 40;
+    
+    if (is_bad_for_xor) {
+        HSL hsl;
+    	RGB rgb = toRGB(clr.r, clr.g, clr.b);
+
+        RGBtoHSL(rgb, hsl.h, hsl.s, hsl.l);
+        hsl.l = 1.0 - hsl.l;
+        if (hsl.l > 0.5)
+            hsl.l = std::min(1.0, hsl.l + 0.15);
+        else
+            hsl.l = std::max(0.0, hsl.l - 0.15);
+        rgb = HSLtoRGB(hsl.h, hsl.s, hsl.l);
+        iRGB r = toIRGB(rgb);
+
+        clr_xored = WinPortRGB(r.r, r.g, r.b);
+    }
+    _caret_clr = clr_xored;
+	return clr_xored;
+}
+
+void ConsolePainter::DrawGradientLine(wxGraphicsContext* gc, 
+	wxCoord X1, wxCoord Y1, wxCoord X2, wxCoord Y2, const WinPortRGB& c1, const WinPortRGB& c2, wxCoord thickness)
+{
+    wxCoord dx = X2 - X1;
+    wxCoord dy = Y2 - Y1;
+    wxCoord length = std::sqrt(dx*dx + dy*dy);
+
+    // Create gradient brush
+    wxGraphicsGradientStops stops(wxColour(c1.r, c1.g, c1.b), wxColour(c2.r, c2.g, c2.b));
+    wxGraphicsBrush brush = gc->CreateLinearGradientBrush(X1, Y1, X2, Y2, stops);
+
+    gc->SetBrush(brush);
+    gc->SetPen(*wxTRANSPARENT_PEN);
+
+    // Draw a thin rectangle along the line
+    gc->PushState();
+    gc->Translate(X1, Y1);
+    gc->Rotate(std::atan2(dy, dx));
+    gc->DrawRectangle(0, - thickness / 2, length, thickness);
+    gc->PopState();
+}
+
+void ConsolePainter::DrawHorizontalGradientLine(wxGraphicsContext* gc, 
+	wxCoord X1, wxCoord Y1, wxCoord length, const WinPortRGB& c1, const WinPortRGB& c2, wxCoord thickness) 
+{
+    wxGraphicsGradientStops stops(wxColour(c1.r, c1.g, c1.b), wxColour(c2.r, c2.g, c2.b));
+    wxGraphicsBrush brush = gc->CreateLinearGradientBrush(X1, Y1, X1 + length, Y1, stops);
+
+    gc->SetBrush(brush);
+    gc->SetPen(*wxTRANSPARENT_PEN);
+
+    gc->DrawRectangle(X1, Y1 - thickness / 2, length, thickness);
+}
+
+void ConsolePainter::DrawHorizontalGradientLine(wxGraphicsContext* gc,
+	wxCoord X1, wxCoord Y1, wxCoord length, const WinPortRGB& c1, const WinPortRGB& c2, const WinPortRGB& c3, wxCoord thickness) 
+{
+    wxGraphicsGradientStops stops;
+    stops.Add(wxColour(c1.r, c1.g, c1.b), 0.0);
+    stops.Add(wxColour(c2.r, c2.g, c2.b), 0.5);
+    stops.Add(wxColour(c3.r, c3.g, c3.b), 1.0);
+    wxGraphicsBrush brush = gc->CreateLinearGradientBrush(X1, Y1, X1 + length, Y1, stops);
+
+    gc->SetBrush(brush);
+    gc->SetPen(*wxTRANSPARENT_PEN);
+
+    gc->DrawRectangle(X1, Y1 - thickness / 2, length, thickness);
+}
+
+void ConsolePainter::DrawVerticalGradientLine(wxGraphicsContext* gc, 
+	wxCoord X1, wxCoord Y1, wxCoord length, const WinPortRGB& c1, const WinPortRGB& c2, wxCoord thickness) 
+{
+    wxGraphicsGradientStops stops(wxColour(c1.r, c1.g, c1.b), wxColour(c2.r, c2.g, c2.b));
+    wxGraphicsBrush brush = gc->CreateLinearGradientBrush(X1, Y1, X1, Y1 + length, stops);
+
+    gc->SetBrush(brush);
+    gc->SetPen(*wxTRANSPARENT_PEN);
+
+    gc->DrawRectangle(X1 - thickness / 2, Y1, thickness, length);
+}
+
+void ConsolePainter::DrawVerticalGradientLine(wxGraphicsContext* gc, 
+	wxCoord X1, wxCoord Y1, wxCoord length, const WinPortRGB& c1, const WinPortRGB& c2, const WinPortRGB& c3, wxCoord thickness) 
+{
+    wxGraphicsGradientStops stops;
+    stops.Add(wxColour(c1.r, c1.g, c1.b), 0.0);
+    stops.Add(wxColour(c2.r, c2.g, c2.b), 0.5);
+    stops.Add(wxColour(c3.r, c3.g, c3.b), 1.0);
+    wxGraphicsBrush brush = gc->CreateLinearGradientBrush(X1, Y1, X1, Y1 + length, stops);
+
+    gc->SetBrush(brush);
+    gc->SetPen(*wxTRANSPARENT_PEN);
+
+    gc->DrawRectangle(X1 - thickness / 2, Y1, thickness, length);
+}
+
+void ConsolePainter::DrawHorizontalDashedGradientLine(
+	wxGraphicsContext* gc,
+	wxCoord X1, wxCoord Y1, wxCoord length, 
+	const WinPortRGB& xc1, const WinPortRGB& xc2,
+	int dashLength, int gapLength, 
+	wxCoord thickness)
+{
+    wxColour c1(xc1.r, xc1.g, xc1.b);
+    wxColour c2(xc2.r, xc2.g, xc2.b);
+
+    int totalLength = length;
+    int patternLength = dashLength + gapLength;
+
+    for (int pos = 0; pos < totalLength; pos += patternLength) {
+        int dashStart = X1 + pos;
+        int dashEnd   = std::min(dashStart + dashLength, X1 + length);
+
+        // Compute gradient factor at the center of the dash
+        double t = double(dashStart + dashLength * 0.5 - X1) / totalLength;
+        t = std::clamp(t, 0.0, 1.0);
+
+        wxColour c(
+            c1.Red()   + t * (c2.Red()   - c1.Red()),
+            c1.Green() + t * (c2.Green() - c1.Green()),
+            c1.Blue()  + t * (c2.Blue()  - c1.Blue())
+        );
+
+        gc->SetBrush(gc->CreateBrush(wxBrush(c)));
+        gc->SetPen(*wxTRANSPARENT_PEN);
+
+        gc->DrawRectangle(dashStart, Y1 - thickness / 2, dashEnd - dashStart, thickness);
+    }
+}
+
+void ConsolePainter::DrawVerticalDashedGradientLine(
+	wxGraphicsContext* gc,
+	wxCoord X1, wxCoord Y1, wxCoord length, 
+	const WinPortRGB& xc1, const WinPortRGB& xc2,
+	int dashLength, int gapLength, 
+	wxCoord thickness)
+{
+    wxColour c1(xc1.r, xc1.g, xc1.b);
+    wxColour c2(xc2.r, xc2.g, xc2.b);
+
+    int totalLength = length;
+    int patternLength = dashLength + gapLength;
+
+    for (int pos = 0; pos < totalLength; pos += patternLength) {
+        int dashStart = Y1 + pos;
+        int dashEnd   = std::min(dashStart + dashLength, Y1 + length);
+
+        // Compute gradient factor at the center of the dash
+        double t = double(dashStart + dashLength * 0.5 - Y1) / totalLength;
+        t = std::clamp(t, 0.0, 1.0);
+
+        wxColour c(
+            c1.Red()   + t * (c2.Red()   - c1.Red()),
+            c1.Green() + t * (c2.Green() - c1.Green()),
+            c1.Blue()  + t * (c2.Blue()  - c1.Blue())
+        );
+
+        gc->SetBrush(gc->CreateBrush(wxBrush(c)));
+        gc->SetPen(*wxTRANSPARENT_PEN);
+
+        gc->DrawRectangle(X1 - thickness / 2, dashStart, thickness, dashEnd - dashStart);
+    }
+}
+
+static void drawVerticalGradientPiece(wxGraphicsContext* gc, const wxRect& rTop, const wxColor& top1, const wxColor& top2) 
+{
+    wxGraphicsGradientStops stops;
+    stops.Add(top1, 0.0);  // start color
+    stops.Add(top2, 1.0);  // end color
+
+    // wxSOUTH = vertical gradient, top → bottom
+    wxGraphicsBrush brush = gc->CreateLinearGradientBrush(
+        rTop.GetX(), rTop.GetY(),                 // start point
+        rTop.GetX(), rTop.GetBottom(),            // end point (south)
+        stops);
+
+    gc->SetBrush(brush);
+    gc->SetPen(*wxTRANSPARENT_PEN);
+    gc->DrawRectangle(rTop.GetX(), rTop.GetY(), rTop.GetWidth(), rTop.GetHeight());
+}
+
+void ConsolePainter::DrawLiquidButtonBackground(
+	wxGraphicsContext* gc,
+	wxCoord X1, wxCoord Y1, wxCoord w, wxCoord h, 
+    const WinPortRGB& r_col)
+{
+
+	LAB base = RGBtoLAB(FarToRGB(r_col));
+	LAB topLab = base;
+	topLab.L = std::min(topLab.L + 15.0, 100.0);
+
+	LAB bottomLab = base;
+	bottomLab.L = std::max(bottomLab.L - 10.0, 0.0);
+
+	RGB f_colTop = LABtoRGB(topLab);
+	RGB f_colBottom = LABtoRGB(bottomLab);
+
+	WinPortRGB r_colTop = RGBtoFar(f_colTop);
+	WinPortRGB r_colBottom = RGBtoFar(f_colBottom);
+
+	wxColour colTop(r_colTop.r, r_colTop.g, r_colTop.b);
+	wxColour colBottom(r_colBottom.r, r_colBottom.g, r_colBottom.b);
+
+    // --- Top glossy highlight (about 35% of height) ---
+    wxRect rTop(X1, Y1, w, h * 0.35 + 1);
+    wxColour top1 = wxColour(
+    	std::min(colTop.Red()   + 40, 255),
+        std::min(colTop.Green() + 40, 255),
+        std::min(colTop.Blue()  + 40, 255)
+    );
+    wxColour top2 = colTop;
+
+    // gc->GradientFillLinear(rTop, top1, top2, wxSOUTH);
+    drawVerticalGradientPiece (gc, rTop, top1, top2);
+
+    // --- Middle body (about 45% of height) ---
+    wxRect rMid(X1, Y1 + h * 0.35, w, h * 0.45 + 1);
+    //gc->GradientFillLinear(rMid, colTop, colBottom, wxSOUTH);
+    drawVerticalGradientPiece (gc, rMid, colTop, colBottom);
+
+    // --- Bottom shadow (about 20% of height) ---
+    wxRect rBot(X1, Y1 + h * 0.80, w, h * 0.20);
+    wxColour bot1 = colBottom;
+    wxColour bot2 = wxColour(
+        std::max(colBottom.Red()   - 30, 0),
+        std::max(colBottom.Green() - 30, 0),
+        std::max(colBottom.Blue()  - 30, 0)
+    );
+
+    //gc->GradientFillLinear(rBot, bot1, bot2, wxSOUTH);
+    drawVerticalGradientPiece (gc, rBot, bot1, bot2);
+}
+
+void ConsolePainter::ConsumeHintAt(const CHAR_INFO& ci, int cx, int nx, int cy, const wchar_t* pwcz) {
+	if (WXCustomDrawChar::options && !WXCustomDrawChar::options->UseModernLook) return;
+
+	if (ci.Extra.Hint.Container != HintDialog) return;
+	if (ci.Extra.Hint.Object == HintObjectNone) return;
+
+    /*
+	if (ci.Extra.Hint.Object == HintButton)
+		fprintf(stderr, "    ...(%d..%d, %d) = %d:%d +`%ls` tag=%d\n", 
+			cx, cx + nx - 1, cy, 
+			ci.Extra.Hint.Container, ci.Extra.Hint.Object, pwcz, 
+			ci.Extra.Hint.Tag);
+    */
+	std::wstring text(pwcz);
+
+	if (line_hints.size() > 0) {
+		for(int i = line_hints.size() - 1; i >= 0; --i) {
+			if (line_hints[i].Hint.Object == ci.Extra.Hint.Object && line_hints[i].tag == ci.Extra.Hint.Tag) {
+				line_hints[i].nx = cx /*+ nx - 1*/; // - line_hints[i].cx;
+				line_hints[i].text += text;
+				return;
+			}
+		}
+	}
+
+	HintPos pos { {
+			ci.Extra.Hint.Container, ci.Extra.Hint.Object, 
+			ci.Extra.Hint.Focus, ci.Extra.Hint.Hover, ci.Extra.Hint.Enabled, 
+			ci.Extra.Hint.Default, ci.Extra.Hint.Beveled, ci.Extra.Hint.Shadow, ci.Extra.Hint.Checked },
+		ci.Extra.Hint.Tag,
+		cx, cx /* + nx - 1*/, // nx 
+		cy, 
+		ci.Attributes, text	};
+
+	line_hints.push_back(pos);
+}
+
+void ConsolePainter::DrawHint(const HintPos& x, unsigned cw, unsigned ch, const SMALL_RECT& area) {
+	WinPortRGB clr_back = WxConsoleBackground2RGB(x.attributes);
+	WinPortRGB clr_text = WxConsoleForeground2RGB(x.attributes);
+
+	int cx_start = x.cx;
+	int cx_end = x.nx;
+	int cy = x.cy;
+
+	if (cy <= 0 || cy < area.Top || cy > area.Bottom || cy + 1 >= (int)ch) return;
+	if (cx_end < 0 || cx_end < area.Left) return;
+	if (cx_start > area.Right || (unsigned)cx_start > cw) return;
+
+    /*
+	if (cx_start < area.Left) cx_start = area.Left;
+	if (cx_start > area.Right) cx_start = area.Right;
+	if (cx_end < area.Left) cx_end = area.Left;
+	if (cx_end > area.Right) cx_end = area.Right;
+    */
+
+	if (cx_end <= cx_start) return;
+
+	switch(x.Hint.Object){
+    case HintEdit:
+    case HintFixEdit:
+    case HintPswEdit:
+    case HintMemoEdit:
+    	break;
+    case HintComboBox:
+    	break;
+    case HintButton:
+    	/*
+    	fprintf(stderr, "...paint: button: %d..%d, %d -> %d..%d, %d `%ls` /..%d/ in %d..%d, %d..%d, tag=%d focus=%c hover=%c type=%d\n", 
+        	x.cx, x.nx, x.cy,
+    		cx_start, cx_end, cy, 
+            x.text.c_str(), (int)(cx_start + x.text.size()),
+            (int)x.area.Left, (int)x.area.Right, (int)x.area.Top, (int)x.area.Bottom,
+    		((int)x.tag) & 0x00FF, x.Hint.Focus ? 'Y': 'N', x.Hint.Hover ? 'Y': 'N', x.Hint.Object);
+        */
+        if (x.Hint.Enabled && !x.Hint.Beveled) {
+	        if(WXCustomDrawChar::options->Use3D) 
+		        DrawButtonDecorationsAsNew(cx_start, cx_end, cy, clr_text, clr_back, x);
+			else
+				DrawButtonDecorations(cx_start, cx_end, cy, clr_text, clr_back, x);
+		}
+    	break;
+    case HintCheckbox:
+    case HintRadioButton:
+        DrawCheckboxDecorations(cx_start, cx_end, cy, clr_text, clr_back, x);
+    	break;
+    case HintScrollBar:
+    	break;
+    case HintListBox:
+    	break;
+    case HintLine:
+    case HintBox:
+    	break;
+    case HintTitle:
+    case HintImage:
+    case HintUserControl:
+    case HintText:
+    case HintVerticalText:
+    default:
+    	break;
+	}
+}
+
+void ConsolePainter::ConsumeBlockHintAt(const CHAR_INFO& ci, int cx, int cy) {
+	if (WXCustomDrawChar::options && !WXCustomDrawChar::options->UseModernLook) return;
+
+	// if (ci.Extra.Hint.Container != HintDialog) return;
+	// if (ci.Extra.Hint.Object == HintObjectNone) return;
+	if (ci.Extra.Hint.Object != HintScrollBar) return;
+
+	std::wstring text;
+	if (UNLIKELY(CI_USING_COMPOSITE_CHAR(ci))) {
+		text =+ WINPORT(CompositeCharLookup)(ci.Char.UnicodeChar);
+	} else {
+		text += ci.Char.UnicodeChar ? wchar_t(ci.Char.UnicodeChar) : L' ';
+	}
+
+	if (block_hints.size() > 0) {
+		for(int i = block_hints.size() - 1; i >= 0; --i) {
+			if (block_hints[i].Container == ci.Extra.Hint.Container 
+					&& block_hints[i].Object == ci.Extra.Hint.Object 
+					/* && block_hints[i].tag == ci.Extra.Hint.Tag */) {
+				block_hints[i].X2 = cx;
+				block_hints[i].Y2 = cy;
+
+                /*
+				for(int j = block_hints[i].parts.size() - 1; j >= 0; --j) {
+					if (block_hints[i].parts[j].attributes == ci.Attributes && block_hints[i].parts[j].ch == text) {
+						block_hints[i].parts[j].X2 = cx;
+						block_hints[i].parts[j].Y2 = cy;
+						return;
+					}
+				}*/
+
+				HintRegion r { cx, cy, cx, cy, ci.Attributes, text,	
+					ci.Extra.Hint.Focus, ci.Extra.Hint.Hover, ci.Extra.Hint.Enabled, ci.Extra.Hint.Checked
+				};
+				block_hints[i].parts.push_back(r);
+
+				return;
+			}
+		}
+	}
+
+	HintBlock b {
+		ci.Extra.Hint.Container, ci.Extra.Hint.Object, 
+		ci.Extra.Hint.Tag,
+		ci.Extra.Hint.Focus, ci.Extra.Hint.Hover, ci.Extra.Hint.Enabled, ci.Extra.Hint.Checked,
+		cx, cy,
+		cx, cy,
+		ci.Attributes };
+
+	HintRegion r { cx, cy, cx, cy, ci.Attributes, text,
+		ci.Extra.Hint.Focus, ci.Extra.Hint.Hover, ci.Extra.Hint.Enabled, ci.Extra.Hint.Checked
+	};
+	b.parts.push_back(r);
+
+	block_hints.push_back(b);
+}
+
+void ConsolePainter::DrawBlockHint(const HintBlock& x, unsigned cw, unsigned ch, const SMALL_RECT& area) 
+{
+	int cx_start = x.X1;
+	int cx_end = x.X2;
+	int cy_start = x.Y1;
+	int cy_end = x.Y2;
+
+	if (cy_end < 0 || cy_end < area.Top || cy_start > area.Bottom || cy_start + 1 >= (int)ch) return;
+	if (cx_end < 0 || cx_end < area.Left) return;
+	if (cx_start > area.Right || (unsigned)cx_start > cw) return;
+
+    /*
+	fprintf(stderr, "...hinted: (%d,%d): %d..%d, %d..%d in %d..%d, %d..%d /%dx%d/, tag=%d hover=%c\n", 
+    	x.Container, x.Object,
+    	x.X1, x.Y1, x.X2, x.Y2,
+        (int)area.Left, (int)area.Right, (int)area.Top, (int)area.Bottom,
+        cw, ch,
+		((int)x.tag) & 0x00FF, x.HintFlags.Hover ? 'Y': 'N');
+	for(int j = 0; j < (int)x.parts.size(); ++j) {
+		fprintf(stderr, "......[%d] `%ls`: %d..%d, %d..%d in %d..%d, %d..%d /%dx%d/\n", 
+    		j, x.parts[j].ch.c_str(),
+    		x.parts[j].X1, x.parts[j].Y1, x.parts[j].X2, x.parts[j].Y2,
+	        (int)area.Left, (int)area.Right, (int)area.Top, (int)area.Bottom,
+    	    cw, ch);
+	}*/
+
+	WinPortRGB clr_back = WxConsoleBackground2RGB(x.attributes);
+	WinPortRGB clr_text = WxConsoleForeground2RGB(x.attributes);
+
+	switch(x.Object){
+    case HintScrollBar:
+    	DrawScrollBarDecorations(cx_start, cy_start, cx_end, cy_end, clr_text, clr_back, x);
+    	break;
+    default:
+    	break;
+    }
+}
+
+static wxColour colorTable[] = {
+	wxColour(0, 0, 0, 255), // HintNone = 0,
+	wxColour(0, 0, 0, 40), // HintConsoleBuffer = 1,
+	wxColour(0, 255, 80, 100), // HintDialog,
+	wxColour(0, 0, 0, 40), // HintMenu,
+	wxColour(0, 0, 0, 40), // HintHMenu,
+	wxColour(0, 0, 0, 40), // HintEditor,
+	wxColour(0, 0, 0, 40), // HintViewer,
+	wxColour(16, 80, 192, 80), // HintPanel,
+	wxColour(0, 0, 0, 40), // HintTree,
+	wxColour(0, 0, 0, 40), // HintQuickView,
+	wxColour(0, 0, 0, 40), // HintScreenSaver,
+	wxColour(0, 0, 0, 40), // HintInfoList,
+	wxColour(0, 0, 0, 40), // HintHelpViewer,
+	wxColour(0, 0, 0, 40), // HintCommandLine,
+	wxColour(255, 0, 0, 40), // HintPanic
+};
+
+#ifdef TAG_DEBUG
+void ConsolePainter::DrawHatch(const std::vector<HintHatch>& hatched) {
+    wxGraphicsContext* dc = wxGraphicsContext::Create(_dc);
+    if (!dc) return;
+
+	auto oldPen   = _dc.GetPen();
+	auto oldBrush = _dc.GetBrush();
+	auto oldText  = _dc.GetTextForeground();
+
+	_dc.SetPen(*wxTRANSPARENT_PEN);
+
+	for(size_t i = 0; i < hatched.size(); ++i) {
+		const HintHatch& x = hatched[i];
+
+		wxCoord Y1 = x.cy * _context->FontHeight();
+		wxCoord Y2 = Y1 + _context->FontHeight() - 1;
+
+		wxCoord X1 = x.cx * _context->FontWidth();
+		wxCoord X2 = X1 + _context->FontWidth() - 1;
+
+		wxColour hatchColor = colorTable[x.Container];  // 80 = semi-transparent
+
+		wxBrush hatchBrush(hatchColor /*, wxBRUSHSTYLE_CROSS_HATCH*/);
+		dc->SetBrush(hatchBrush);
+
+		// wxColour hatchPen = wxColor(hatchColor.Red(), hatchColor.Green(), hatchColor.Blue(), 255);
+		// dc->SetPen(hatchPen);
+
+		dc->DrawRectangle(X1, Y1, X2, Y2);
+	}
+
+	delete dc;
+
+	_dc.SetPen(oldPen);
+	_dc.SetBrush(oldBrush);
+	_dc.SetTextForeground(oldText);
+}
+#endif
+
+void ConsolePainter::DrawCheckboxDecorations(
+	int cx_start, unsigned int cx_end, unsigned int cy, 
+	const WinPortRGB& c_text, const WinPortRGB& c_back, 
+	const HintPos& pos)
+{
+	if (pos.Hint.Focus) {
+		//wxCoord Y1 = cy * _context->FontHeight();
+		wxCoord Y2 = cy * _context->FontHeight() + _context->FontHeight() - 1;
+		wxCoord X1 = (cx_start + 3) * _context->FontWidth();
+		wxCoord X2 = (cx_end + 1) * _context->FontWidth()  - 1;
+		wxCoord W = X2 - X1 + 1;
+		//wxCoord H = Y2 - Y1 + 1;
+
+		WinPortRGB c_a_text, c_a_back;
+		ComputeAccents(c_text, c_back, c_a_text, c_a_back);
+
+		WinPortRGB emboss = GetSoftenColorIf(c_text);
+
+		//DrawHorizontalGradientLine(X1, Y2, W, c_back, c_a_back, 1);
+		DrawHorizontalDashedGradientLine(X1 + 1, Y2, W, c_text, emboss, 6, 2, 2);
+		//DrawHorizontalDashedGradientLine(X1 + 1, Y1, W, c_text, emboss, 6, 2, 2);
+		//DrawVerticalDashedGradientLine(X1 + 1, Y1, H, c_text, emboss, 6, 2, 2);
+		//DrawVerticalDashedGradientLine(X2 - 2, Y2, H, c_text, emboss, 6, 2, 2);
+	}
+}
+
+void ConsolePainter::DrawButtonDecorations(
+	int cx_start, unsigned int cx_end, unsigned int cy, 
+	const WinPortRGB& c_text, const WinPortRGB& c_back,
+	const HintPos& pos) 
+{
+	wxCoord Y1 = cy * _context->FontHeight(), Y2 = cy * _context->FontHeight() + _context->FontHeight() - 1;
+	wxCoord X1 = cx_start * _context->FontWidth(), X2 = cx_end * _context->FontWidth() + _context->FontWidth() - 1;
+	wxCoord W = X2 - X1 + 1, H = Y2 - Y1 + 1;
+
+	WinPortRGB c_a_text, c_a_back;
+	ComputeAccents(c_text, c_back, c_a_text, c_a_back);
+
+	// DrawHorizontalGradientLine(X1, Y1, W, c_a_back, c_back, c_a_back, 0.5);
+	DrawHorizontalGradientLine(X1, Y2, W, c_a_back, c_back, 1);
+	DrawVerticalGradientLine(X1, Y1, H, c_a_back, c_back, c_a_back, 1);
+	DrawVerticalGradientLine(X2, Y1, H, c_a_back, c_back, 1);
+
+	WinPortRGB emboss = GetSoftenColorIf(c_text);
+
+	DrawHorizontalGradientLine(X1 + 1, Y1, W - 2, c_a_text, emboss, c_a_text, 1);
+	DrawHorizontalGradientLine(X1 + 1, Y2 - 1, W - 2, c_a_text, emboss, 1);
+	DrawVerticalGradientLine(X1 + 1, Y1 + 1, H - 2, c_a_text, emboss, c_a_text, 1);
+	DrawVerticalGradientLine(X2 - 1, Y1 + 1, H - 2, c_a_text, emboss, 1);
+
+	if (pos.Hint.Focus)
+		DrawHorizontalGradientLine(X1 + 1, Y2 - 1, W - 2, c_a_text, emboss, 2);
+	else
+		DrawHorizontalGradientLine(X1 + 1, Y2 - 1, W - 2, c_a_text, emboss, 1);
+}
+
+void DrawScrollTrack(wxDC& dc, const wxRect& rect, const wxColour& colLight, const wxColour& colDark, const wxColour& colBorder);
+void DrawScrollThumb(wxDC& dc, const wxRect& rect, const wxColour& colTop, const wxColour& colBottom, bool pressed = false, bool hover = false);
+
+struct TrackFragment {
+	int y1 {-1}, y2{-1};
+};
+
+struct ScrollParticle {                                               \
+	int x {-1};
+	int y1 {-1}, y2 {-1};
+	int thumbY1 {-1}, thumbY2 {-1};
+	DWORD64 attributes {0};
+
+    struct {
+        int Focus: 1;
+	    int Hover: 1;
+    	int Enabled: 1;
+        int Checked: 1;
+	} HintFlags;
+
+	std::vector<int> track;
+	std::vector<TrackFragment> trackY;
+
+	std::vector<int> thumb;
+	std::vector<TrackFragment> thumbY;
+
+	void init() {
+		HintFlags.Focus = HintFlags.Hover = HintFlags.Enabled = HintFlags.Checked = 0;
+	}
+};
+
+ScrollParticle& give(
+	std::vector<ScrollParticle>& scrolls, 
+	int x, int y1 = -1, int y2 = -1, 
+	int ty1 = -1, int ty2 = -1, 
+	DWORD64 attrs = 0, 
+	bool track = false,
+	bool focus = false, bool hover = false) 
+{
+	for(size_t i = 0; i < scrolls.size(); ++i) {
+		if(scrolls[i].x == x) {
+			bool yes = true;
+			if (scrolls[i].y1 > 0) {
+				if (y1 > 0 && (y1 < scrolls[i].y1)) yes = false;
+				if (y2 > 0 && (y2 < scrolls[i].y1)) yes = false;
+				if (ty1 > 0 && (ty1 <= scrolls[i].y1)) yes = false;
+				if (ty2 > 0 && (ty2 <= scrolls[i].y1)) yes = false;
+			} 
+			if (scrolls[i].y2 > 0) {
+				if (y1 > 0 && (y1 > scrolls[i].y2)) yes = false;
+				if (y2 > 0 && (y2 > scrolls[i].y2)) yes = false;
+				if (ty1 > 0 && (ty1 > scrolls[i].y2 - 1)) yes = false;
+				if (ty2 > 0 && (ty2 > scrolls[i].y2 - 1)) yes = false;
+			} 
+			if (yes){ 
+				if(scrolls[i].y1 < 0 && y1 > 0) scrolls[i].y1 = y1;
+				if(scrolls[i].y2 < 0 && y2 > 0) scrolls[i].y2 = y2;
+				if(scrolls[i].thumbY1 < 0 && ty1 > 0) scrolls[i].thumbY1 = ty1;
+				if(scrolls[i].thumbY2 < 0 && ty2 > 0) scrolls[i].thumbY2 = ty2;
+				if(scrolls[i].attributes == 0 && attrs > 0) scrolls[i].attributes = attrs;
+				if (track && y1 > 0) scrolls[i].track.push_back(y1);
+				if (ty1 > 0) scrolls[i].thumb.push_back(ty1);
+				scrolls[i].HintFlags.Focus = focus ? 1 : 0;
+				scrolls[i].HintFlags.Hover = hover ? 1 : 0;
+				return scrolls[i];
+			}
+		}
+	}
+
+	ScrollParticle r { x, y1, y2, ty1, ty2, attrs };
+	r.init();
+	if (track) r.track.push_back(y1);
+	scrolls.push_back(r);
+	return scrolls[scrolls.size() - 1];
+}
+
+static void joinToRegions(std::vector<int>& v, std::vector<TrackFragment>& r) {
+    if (v.empty()) return;
+
+    int start = v.front();
+    int prev  = start;
+
+    for (size_t i = 1; i < v.size(); ++i) {
+        if (v[i] == prev + 1) prev = v[i];
+        else {
+            r.emplace_back(TrackFragment{start, prev});
+            start = prev = v[i];
+        }
+    }
+    r.emplace_back(TrackFragment{start, prev});
+}
+
+static void joinTrackLine(ScrollParticle& p) {
+	joinToRegions(p.track, p.trackY);
+	joinToRegions(p.thumb, p.thumbY);
+}
+
+void ConsolePainter::DrawScrollBarDecorations(int cx_s, int cy_s, int cx_e, int cy_e, 
+	const WinPortRGB& _c_text, const WinPortRGB& _c_back, const HintBlock& block)
+{
+	int j;
+	std::vector<ScrollParticle> scrolls;
+
+	// find scroll bars in captured block
+	for(j = 0; j < (int)block.parts.size(); ++j) {
+		if (block.parts[j].ch == L"▲") {
+			give(scrolls, block.parts[j].X1, block.parts[j].Y1, -1, -1, -1, block.parts[j].attributes, 
+				false, block.parts[j].HintFlags.Focus, block.parts[j].HintFlags.Hover);
+		}
+		else if (block.parts[j].ch == L"▼") {
+			give(scrolls, block.parts[j].X1, -1, block.parts[j].Y1, -1, -1, block.parts[j].attributes, 
+				false, block.parts[j].HintFlags.Focus, block.parts[j].HintFlags.Hover);
+		}
+	}
+
+	// and their thumbs
+	for(j = 0; j < (int)block.parts.size(); ++j) {
+		if (block.parts[j].ch == L"▓") {
+			give(scrolls, block.parts[j].X1, -1, -1, block.parts[j].Y1, block.parts[j].Y2, block.parts[j].attributes, 
+				false, block.parts[j].HintFlags.Focus, block.parts[j].HintFlags.Hover);
+		}
+		else if (block.parts[j].ch == L'░') { 
+			give(scrolls, block.parts[j].X1, block.parts[j].Y1, -1, -1, -1, block.parts[j].attributes,
+				true, block.parts[j].HintFlags.Focus, block.parts[j].HintFlags.Hover);
+		}
+	}
+
+	if (scrolls.size() == 0) return;
+
+	wxCoord X1, Y1, X2, Y2, W, H;
+
+	// then paint waht we have found
+	for(size_t i = 0; i < scrolls.size(); ++i) {
+
+		WinPortRGB c_back = WxConsoleBackground2RGB(scrolls[i].attributes);
+		WinPortRGB c_text = WxConsoleForeground2RGB(scrolls[i].attributes);
+
+		if(!scrolls[i].HintFlags.Focus && !scrolls[i].HintFlags.Hover) {
+		   	RGB bg = FarToRGB(c_back);
+		   	RGB fg = FarToRGB(c_text);
+	    	fg = SoftenToDisabledState_LAB(fg);
+	        c_text = RGBtoFar(fg);
+
+			LAB bgl = RGBtoLAB(bg);
+	    	bgl.L = std::max(0.0, bgl.L - 3.0); // darken to 3%, nothing for black background
+			bg = LABtoRGB(bgl);
+			c_back = RGBtoFar(bg);
+		}
+
+		WinPortRGB c_a_text, c_a_back;
+		ComputeAccents(c_text, c_back, c_a_text, c_a_back);
+
+		if(!scrolls[i].HintFlags.Focus && !scrolls[i].HintFlags.Hover) {
+		   	RGB bg = FarToRGB(c_a_back);
+		   	RGB fg = FarToRGB(c_a_text);
+
+	    	fg = SoftenToDisabledState_LAB(fg);
+	        c_a_text = RGBtoFar(fg);
+
+			LAB bgl = RGBtoLAB(bg);
+	    	bgl.L = std::max(0.0, bgl.L - 3.0); // darken to 3%, nothing for black background
+			bg = LABtoRGB(bgl);
+			c_a_back = RGBtoFar(bg);
+		}
+
+		wxColour c_a(c_a_text.r, c_a_text.g, c_a_text.b);
+		wxColour c_t(c_text.r, c_text.g, c_text.b);
+		wxColour c_d(c_a_back.r, c_a_back.g, c_a_back.b);
+		wxColour c_b(c_back.r, c_back.g, c_back.b);
+
+		joinTrackLine(scrolls[i]);
+		for(size_t j = 0; j < scrolls[i].trackY.size(); ++j) {
+			X1 = scrolls[i].x * _context->FontWidth();
+	        X2 = scrolls[i].x * _context->FontWidth() + _context->FontWidth() - 1;
+			W = X2 - X1 + 1;
+
+			Y1 = (scrolls[i].trackY[j].y1 ) * _context->FontHeight();
+			Y2 = (scrolls[i].trackY[j].y2 + 1 ) * _context->FontHeight() - 1;
+			H = Y2 - Y1 + 1;
+
+			wxRect scrollR(X1, Y1, W, H);
+			if (scrolls[i].HintFlags.Focus || scrolls[i].HintFlags.Hover)
+				DrawScrollTrack(_dc, scrollR, c_a, c_d, c_b);
+			else
+				DrawScrollTrack(_dc, scrollR, c_t, c_a, c_b);
+		}
+
+		for(size_t j = 0; j < scrolls[i].thumbY.size(); ++j) {
+			X1 = scrolls[i].x * _context->FontWidth();
+	        X2 = scrolls[i].x * _context->FontWidth() + _context->FontWidth() - 1;
+			W = X2 - X1 + 1;
+
+			Y1 = (scrolls[i].thumbY[j].y1 ) * _context->FontHeight();
+			Y2 = (scrolls[i].thumbY[j].y2 + 1) * _context->FontHeight() - 1;
+			H = Y2 - Y1 + 1;
+
+			wxRect scrollT(X1 - 2, Y1, W + 4, H);
+			DrawScrollThumb(_dc, scrollT, c_b, c_d, false, block.HintFlags.Hover > 0);
+		}
+	}
+}
+
+void DrawTextBaseline(wxDC& dc, const wchar_t* text, int x, int baselineY)
+{
+    int w, h, descent;
+    dc.GetTextExtent(text, &w, &h, &descent);
+    int y = baselineY - (h - descent);
+    dc.DrawText(text, x, y);
+}
+
+void DrawTextBaseline(wxGraphicsContext* gc, const wchar_t* text, int x, int baselineY)
+{
+    wxDouble w, h, descent;
+    gc->GetTextExtent(text, &w, &h, &descent);
+    int y = baselineY - (h - descent);
+    gc->DrawText(text, x, y);
+}
+
+void ConsolePainter::DrawButtonDecorationsAsNew(
+	int cx_start, unsigned int cx_end, unsigned int cy, 
+	const WinPortRGB& c_text, const WinPortRGB& c_back,
+	const HintPos& pos) 
+{
+	wxCoord _Y1 = cy * _context->FontHeight(), _Y2 = (cy + 1) * _context->FontHeight() - 1;
+	wxCoord _X1 = cx_start * _context->FontWidth(), _X2 = cx_end * _context->FontWidth() + _context->FontWidth() - 1;
+
+	wxCoord W = _X2 - _X1 + 1, H = _Y2 - _Y1 + 1;
+
+// #define OFFSCREEN_BITMAP	1
+#ifdef OFFSCREEN_BITMAP
+	wxCoord X1 = 0, Y1 = 0;
+	wxCoord X2 = W, Y2 = H;
+
+   	wxBitmap bmp = wxBitmap(W + 1, H + 1, 32);
+	{
+    	wxMemoryDC mdc(bmp);
+    	wxCtxHolder h(mdc);
+#else
+	wxCoord X1 = _X1, Y1 = _Y1;
+	wxCoord X2 = _X2, Y2 = _Y2;
+	wxCtxHolder h(_dc);
+#endif
+
+    	wxGraphicsContext* gc = h.gc();
+
+    	DrawLiquidButtonBackground(gc, X1, Y1, W, H, c_back);
+
+    	WinPortRGB c_a_text, c_a_back;
+    	ComputeAccents(c_text, c_back, c_a_text, c_a_back);
+
+    	// DrawHorizontalGradientLine(X1, Y1, W, c_a_back, c_back, c_a_back, 0.5);
+    	DrawHorizontalGradientLine(gc, X1, Y2, W, c_a_back, c_back, 1);
+    	DrawVerticalGradientLine(gc, X1, Y1, H, c_a_back, c_back, c_a_back, 1);
+    	DrawVerticalGradientLine(gc, X2, Y1, H, c_a_back, c_back, 1);
+
+    	WinPortRGB emboss = GetSoftenColorIf(c_text);
+
+    	DrawHorizontalGradientLine(gc, X1 + 1, Y1, W - 2, c_a_text, emboss, c_a_text, 1);
+    	DrawHorizontalGradientLine(gc, X1 + 1, Y2 - 1, W - 2, c_a_text, emboss, 1);
+    	DrawVerticalGradientLine(gc, X1 + 1, Y1 + 1, H - 2, c_a_text, emboss, c_a_text, 1);
+    	DrawVerticalGradientLine(gc, X2 - 1, Y1 + 1, H - 2, c_a_text, emboss, 1);
+
+    	if (pos.Hint.Focus)
+    		DrawHorizontalGradientLine(gc, X1 + 1, Y2 - 1, W - 2, c_a_text, emboss, 2);
+    	else
+    		DrawHorizontalGradientLine(gc, X1 + 1, Y2 - 1, W - 2, c_a_text, emboss, 1);
+
+    	const bool underlined = (pos.attributes & COMMON_LVB_UNDERSCORE) != 0;
+    	const bool strikeout = (pos.attributes & COMMON_LVB_STRIKEOUT) != 0;
+
+    	const bool bold = (pos.attributes & COMMON_LVB_BOLD) != 0;
+
+        int ascent = _context->FontHeight() - _context->FontDescent();
+
+    	// todo: highlight character to be displayed
+    	if (bold) {
+    		if (WXCustomDrawChar::options->UseEmbossAsBold) {
+    			WinPortRGB emboss = GetEmbossColor(c_text);
+    			wxFont normal = _dc.GetFont();
+
+    			gc->SetFont(normal, wxColour(emboss.r, emboss.g, emboss.b));
+    			DrawTextBaseline(gc, pos.text.c_str(), X1 + 1, Y1 + 1 + ascent);
+                gc->SetFont(normal, wxColour(c_text.r, c_text.g, c_text.b));
+    			DrawTextBaseline(gc, pos.text.c_str(), X1, Y1 + ascent);
+    		}
+    		else {
+    			wxFont normal = _dc.GetFont();
+    			wxFont bold = normal;
+    			bold.MakeBold(); 
+    			bold.SetPixelSize(normal.GetPixelSize());
+
+    			gc->SetFont(bold, wxColour(c_text.r, c_text.g, c_text.b));
+    			DrawTextBaseline(gc, pos.text.c_str(), X1, Y1 + ascent);
+    			gc->SetFont(normal, wxColour(c_text.r, c_text.g, c_text.b));
+    		}
+    	}
+    	else {
+			wxFont normal = _dc.GetFont();
+			gc->SetFont(normal, wxColour(c_text.r, c_text.g, c_text.b));
+			DrawTextBaseline(gc, pos.text.c_str(), X1, Y1 + ascent);
+    	}
+
+    	if (underlined || strikeout) {
+	    	gc->SetPen(wxColour(c_text.r, c_text.g, c_text.b));
+    		if (underlined) gc->StrokeLine(X1, Y2 - 3, X2, Y2 - 3);
+    		if (strikeout)  gc->StrokeLine(X1, Y1 + H / 2, X2, Y1 + H / 2);
+        }
+#ifdef OFFSCREEN_BITMAP
+    }
+
+	if (bmp.IsOk()) {
+		_dc.DrawBitmap(bmp, _X1, _Y1, false);
+	}
+#endif
+	_dc.SetPen(_context->GetTransparentPen());
+}
+
+// Draws the scrollbar track (background)
+void DrawScrollTrack(wxDC& dc, const wxRect& rect,  const wxColour& colLight, const wxColour& colDark, const wxColour& colBorder)
+{
+    if(!WXCustomDrawChar::options->Use3D) {
+    	dc.SetBrush(colLight);
+        dc.DrawRectangle(rect);
+
+    	wxRect r2(rect.GetLeft() + 2, rect.GetTop() + 2, rect.GetWidth() - 4, rect.GetHeight() - 4);
+        dc.SetBrush(colBorder);
+        dc.DrawRectangle(r2);
+
+        return;
+    }
+
+    // Subtle vertical gradient
+    dc.GradientFillLinear(rect, colLight, colDark, wxSOUTH);
+
+    // Optional: inner shadow at top
+    dc.SetPen(wxPen(wxColour(0,0,0,40), 1));
+    dc.DrawLine(rect.x, rect.y, rect.x + rect.width, rect.y);
+
+    // Optional: highlight at bottom
+    dc.SetPen(wxPen(wxColour(255,255,255,40), 1));
+    dc.DrawLine(rect.x, rect.y + rect.height - 1,
+                rect.x + rect.width, rect.y + rect.height - 1);
+}
+
+
+// Draws the scrollbar thumb (liquid-metal style)
+void DrawScrollThumb(wxDC& dc, const wxRect& rect, 
+	const wxColour& colTop, const wxColour& colBottom, bool pressed, bool hover)
+{
+    wxRect r = rect;
+
+    // Slight inset for nicer look
+    r.Deflate(1);
+
+    // --- State adjustments ---
+    wxColour top = WXCustomDrawChar::options->Use3D ? colTop : colBottom;
+    wxColour bottom = colBottom;
+
+    if (hover)
+    {
+        // Slight brightness boost
+        top = wxColour(
+            std::min(top.Red() + 20, 255),
+            std::min(top.Green() + 20, 255),
+            std::min(top.Blue() + 20, 255)
+        );
+    }
+
+    if (pressed)
+    {
+        // Darken both ends
+        top = wxColour(
+            std::max(top.Red() - 30, 0),
+            std::max(top.Green() - 30, 0),
+            std::max(top.Blue() - 30, 0)
+        );
+        bottom = wxColour(
+            std::max(bottom.Red() - 30, 0),
+            std::max(bottom.Green() - 30, 0),
+            std::max(bottom.Blue() - 30, 0)
+        );
+    }
+
+    // --- Draw 3-layer gradient for liquid-metal effect ---
+
+    int h = r.height;
+
+    // Top highlight band
+    wxRect rTop(r.x, r.y, r.width, h * 0.35);
+    wxColour top1 = wxColour(
+        std::min(top.Red() + 40, 255),
+        std::min(top.Green() + 40, 255),
+        std::min(top.Blue() + 40, 255)
+    );
+    dc.GradientFillLinear(rTop, top1, top, wxSOUTH);
+
+    // Middle body
+    wxRect rMid(r.x, r.y + h * 0.35, r.width, h * 0.45);
+    dc.GradientFillLinear(rMid, top, bottom, wxSOUTH);
+
+    // Bottom shadow
+    wxRect rBot(r.x, r.y + h * 0.80, r.width, h * 0.20);
+    wxColour bot2 = wxColour(
+        std::max(bottom.Red() - 30, 0),
+        std::max(bottom.Green() - 30, 0),
+        std::max(bottom.Blue() - 30, 0)
+    );
+    dc.GradientFillLinear(rBot, bottom, bot2, wxSOUTH);
+
+    // Border
+    dc.SetPen(wxPen(wxColour(0,0,0,80), 1));
+    dc.SetBrush(*wxTRANSPARENT_BRUSH);
+    dc.DrawRoundedRectangle(r, 3);
+}
+
+/*
+Lab base = RGBtoLAB(120, 120, 120);
+
+Lab topLab = base;    topLab.L += 12;
+Lab botLab = base;    botLab.L -= 10;
+
+wxColour colTop = LABtoRGB(topLab);
+wxColour colBottom = LABtoRGB(botLab);
+
+DrawScrollTrack(dc, trackRect,
+                wxColour(240,240,240),
+                wxColour(220,220,220));
+DrawScrollThumb(dc, thumbRect,
+                colTop, colBottom,
+                isPressed, isHovered);
+*/

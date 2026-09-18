@@ -134,7 +134,7 @@ bool CommandLine::ProcessOSCommands(const wchar_t *CmdLine, bool SeparateWindow,
 BOOL CommandLine::IntChDir(const wchar_t *CmdLine, int ClosePlugin, bool Silent)
 {
 	Panel *SetPanel;
-	SetPanel = CtrlObject->Cp()->ActivePanel;
+	SetPanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 	fprintf(stderr, "CommandLine::IntChDir: %ls\n", CmdLine);
 
 	if (SetPanel->GetType() != FILE_PANEL
