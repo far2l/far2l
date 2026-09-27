@@ -8,7 +8,7 @@
 "OpenWith Error"
 "Selected item must be a file accessible locally via a real path."
 "Failed to save modified settings; the changes will apply to the current session only."
-"No applications found. Detected file types:"
+"There are no common applications detected for your file selection. File types:"
 "The application cannot be executed."
 "OpenWith plugin is not available on this platform."
 

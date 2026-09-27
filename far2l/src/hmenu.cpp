@@ -60,6 +60,7 @@ HMenu::HMenu(HMenuData *Item, int ItemCount)
 void HMenu::DisplayObject()
 {
 	SetScreen(X1, Y1, X2, Y2, L' ', FarColorToReal(COL_HMENUTEXT));
+	Hint(X1, Y1, X2, Y2, HintHMenu, HintObjectNone);
 	SetCursorType(0, 10);
 	ShowMenu();
 }
@@ -76,6 +77,8 @@ void HMenu::ShowMenu()
 			SetFarColor(COL_HMENUSELECTEDTEXT);
 		else
 			SetFarColor(COL_HMENUTEXT);
+
+		// VK: todo: menu: play with colors here
 
 		strTmpStr = L"  ";
 		strTmpStr+= Item[i].Name;
@@ -217,7 +220,7 @@ int HMenu::ProcessKey(FarKey Key)
 
 			/* Кусок для "некрайних" меню - прыжок к меню пассивной панели */
 			if (SelectPos && SelectPos != ItemCount - 1) {
-				if (CtrlObject->Cp()->ActivePanel == CtrlObject->Cp()->RightPanel)
+				if (CtrlObject->Cp()->ActiveTab().ActivePanel == CtrlObject->Cp()->ActiveTab().RightPanel)
 					SelectPos = 0;
 				else
 					SelectPos = ItemCount - 1;

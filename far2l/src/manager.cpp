@@ -50,6 +50,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "message.hpp"
 #include "config.hpp"
 #include "plist.hpp"
+#include "netlist.hpp"
 #include "pathmix.hpp"
 #include "strmix.hpp"
 #include "exitcode.hpp"
@@ -59,6 +60,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "vt/vtshell.h"
 #include "execute.hpp"
 #include "fileview.hpp"
+#include "copy.hpp"
 
 Manager *FrameManager;
 
@@ -360,6 +362,8 @@ static FARString FrameMenuNumTextPrefix(int i)
 	return out;
 }
 
+static constexpr int FrameMenuReload = -2;
+
 /*!
 	\return Возвращает nullptr если нажат "отказ" или если нажат текущий фрейм.
 	Другими словами, если немодальный фрейм не поменялся.
@@ -369,8 +373,16 @@ static FARString FrameMenuNumTextPrefix(int i)
 
 class FramesMenu : public VMenu
 {
+	struct CopyTaskItem
+	{
+		BackgroundFileOperationId id;
+		int menu_index;
+	};
+
 	VTInfos _vts;
 	int _vts_base_index{-1};
+	std::vector<CopyTaskItem> _copy_tasks;
+	bool _reload{false};
 
 public:
 	FramesMenu() : VMenu (Msg::ScreensTitle, nullptr, 0, ScrY - 4)
@@ -380,6 +392,30 @@ public:
 
 	virtual int ProcessKey(FarKey Key)
 	{
+		if (Key == KEY_IDLE || Key == KEY_NONE) {
+			bool updated = false;
+			for (const auto &task : _copy_tasks) {
+				FARString progressText;
+				if (!GetBackgroundFileOperationProgress(task.id, progressText)) {
+					_reload = true;
+					SetExitCode(-1);
+					return TRUE;
+				}
+
+				MenuItemEx *item = GetItemPtr(task.menu_index);
+				if (item && item->strName != progressText) {
+					FarListUpdate update{};
+					update.Index = task.menu_index;
+					update.Item.Flags = item->Flags;
+					update.Item.Text = progressText.CPtr();
+					UpdateItem(&update);
+					updated = true;
+				}
+			}
+			if (updated)
+				FastShow();
+		}
+
 		if (Key == KEY_F3 && _vts_base_index >= 0
 				&& _vts_base_index <= GetSelectPos()
 				&& _vts_base_index + int(_vts.size()) > GetSelectPos() ) {
@@ -391,21 +427,46 @@ public:
 
 	void AddVTSItems(int FramePos)
 	{
-		if (_vts.empty()) {
+		std::vector<BackgroundFileOperationInfo> copy_operations;
+		GetBackgroundFileOperations(copy_operations);
+		const int first_vt_hotkey = GetItemCount();
+		if (_vts.empty() && copy_operations.empty()) {
 			_vts_base_index = -1;
+			_copy_tasks.clear();
 			return;
 		}
-		_vts_base_index = GetItemCount() + 1;
+
 		MenuItemEx mi;
-		mi.Clear();
-		mi.strName = Msg::BackgroundCommands;
-		mi.Flags = LIF_SEPARATOR;
-		AddItem(&mi);
-		for (const auto &vt : _vts) {
+		_copy_tasks.clear();
+		if (!copy_operations.empty()) {
+			mi.Clear();
+			mi.strName = Msg::BackgroundFileOperations;
+			mi.Flags = LIF_SEPARATOR;
+			AddItem(&mi);
+
+			for (const auto &operation : copy_operations) {
+				mi.Clear();
+				mi.strName = operation.text;
+				_copy_tasks.push_back({operation.id, GetItemCount()});
+				AddItem(&mi);
+			}
+		}
+
+		_vts_base_index = -1;
+		if (!_vts.empty()) {
+			mi.Clear();
+			mi.strName = Msg::BackgroundCommands;
+			mi.Flags = LIF_SEPARATOR;
+			AddItem(&mi);
+			_vts_base_index = GetItemCount();
+		}
+
+		for (size_t i = 0; i < _vts.size(); ++i) {
+			const auto &vt = _vts[i];
 			mi.Clear();
 			mi.strName = vt.title;
 			ReplaceStrings(mi.strName, L"&", L"&&", -1);
-			mi.strName.Insert(0, FrameMenuNumTextPrefix(GetItemCount() - 1) );
+			mi.strName.Insert(0, FrameMenuNumTextPrefix(first_vt_hotkey + i));
 			mi.SetSelect(GetItemCount() == FramePos);
 			if (vt.exited)
 				mi.SetCheck(vt.exit_code ? L'!' : L'#');
@@ -417,7 +478,15 @@ public:
 	int Do()
 	{
 		VMenu::Process();
+		if (_reload)
+			return FrameMenuReload;
 		int r = Modal::GetExitCode();
+		for (const auto &task : _copy_tasks) {
+			if (r == task.menu_index) {
+				ShowBackgroundFileOperation(task.id);
+				return -1;
+			}
+		}
 		if (_vts_base_index >= 0 && r >= _vts_base_index && r < GetItemCount()) {
 			CtrlObject->CmdLine->SwitchToBackgroundTerminal(r - _vts_base_index);
 			return -1;
@@ -425,6 +494,28 @@ public:
 		return r;
 	}
 };
+
+void Manager::enumerateWindowsByType(std::vector<std::wstring>& v, int type) 
+{
+	for (int I = 0; I < FrameCount; I++) {
+		if (type != -1 && FrameList[I]->GetType() != type) continue;
+
+		FARString strType, strName;
+		FrameList[I]->GetTypeAndName(strType, strName);
+		v.push_back(strName.CPtr());
+	}
+}
+
+Frame* Manager::getWindowByTypeAndIndex(int type, int indexInType) 
+{
+	int x = 0;
+	for (int I = 0; I < FrameCount; I++) {
+		if (type != -1 && FrameList[I]->GetType() != type) continue;
+		if (x == indexInType) return FrameList[I];
+        ++x;
+	}
+	return 0;
+}
 
 Frame *Manager::FrameMenu()
 {
@@ -438,47 +529,85 @@ Frame *Manager::FrameMenu()
 	if (AlreadyShown)
 		return nullptr;
 
+	std::vector<int> frameIndexes;
+	std::vector<int> subframeIndexes;
+
 	int ExitCode, CheckCanLoseFocus = CurrentFrame->GetCanLoseFocus();
 	{
-		MenuItemEx ModalMenuItem;
-		FramesMenu ModalMenu;
+		do {
+			{
+				MenuItemEx ModalMenuItem;
+				FramesMenu ModalMenu;
 
-		ModalMenu.SetHelp(L"ScrSwitch");
-		ModalMenu.SetFlags(VMENU_WRAPMODE);
-		ModalMenu.SetPosition(-1, -1, 0, 0);
+				ModalMenu.SetHelp(L"ScrSwitch");
+				ModalMenu.SetFlags(VMENU_WRAPMODE);
+				ModalMenu.SetPosition(-1, -1, 0, 0);
 
-		if (!CheckCanLoseFocus)
-			ModalMenuItem.SetDisable(TRUE);
+				if (!CheckCanLoseFocus)
+					ModalMenuItem.SetDisable(TRUE);
 
-		int I = 0;
-		for (; I < FrameCount; I++) {
-			/* "*" если файл изменен */
-			FARString strNumText = FrameMenuNumTextPrefix(I);
-			FARString strType, strName;
-			FrameList[I]->GetTypeAndName(strType, strName);
-			ModalMenuItem.Clear();
+				int I = 0;
+				for (; I < FrameCount; I++) {
+					/* "*" если файл изменен */
+					FARString strNumText = FrameMenuNumTextPrefix(I);
+					FARString strType, strName;
 
-			// TruncPathStr(strName,ScrX-24);
-			ReplaceStrings(strName, L"&", L"&&", -1);
-			ModalMenuItem.strName.Format(L"%ls%-10.10ls %ls", strNumText.CPtr(), strType.CPtr(), strName.CPtr());
-			ModalMenuItem.SetSelect(I == FramePos);
-			if (FrameList[I]->IsFileModified())
-				ModalMenuItem.SetCheck(L'*');
+					int k = FrameList[I]->GetSubpanelCount();
+					if (k > 0) {
+						for(int j = 0; j < k; ++j) {
+							FrameList[I]->GetSubpanelTypeAndName(j, strType, strName);
+							ModalMenuItem.Clear();
 
-			ModalMenu.AddItem(&ModalMenuItem);
-		}
+							// TruncPathStr(strName,ScrX-24);
+							ReplaceStrings(strName, L"&", L"&&", -1);
+							ModalMenuItem.strName.Format(L"%ls%-10.10ls %ls", strNumText.CPtr(), strType.CPtr(), strName.CPtr());
+							ModalMenuItem.SetSelect(j == FrameList[I]->GetSelectedSubpanel() && I == FramePos);
+							if (FrameList[I]->IsFileModified())
+								ModalMenuItem.SetCheck(L'*');
+							ModalMenu.AddItem(&ModalMenuItem);
+							frameIndexes.push_back(I);
+							subframeIndexes.push_back(j);
+						}
+					}
+					else {
+						FrameList[I]->GetTypeAndName(strType, strName);
+						ModalMenuItem.Clear();
 
-		ModalMenu.AddVTSItems(FramePos);
+						// TruncPathStr(strName,ScrX-24);
+						ReplaceStrings(strName, L"&", L"&&", -1);
+						ModalMenuItem.strName.Format(L"%ls%-10.10ls %ls", strNumText.CPtr(), strType.CPtr(), strName.CPtr());
+						ModalMenuItem.SetSelect(I == FramePos);
+						if (FrameList[I]->IsFileModified())
+							ModalMenuItem.SetCheck(L'*');
+						ModalMenu.AddItem(&ModalMenuItem);
+						frameIndexes.push_back(I);
+						subframeIndexes.push_back(-1);
+					}
+				}
 
-		AlreadyShown = TRUE;
-		ExitCode = ModalMenu.Do();
+				ModalMenu.AddVTSItems(FramePos);
+
+				AlreadyShown = TRUE;
+				ExitCode = ModalMenu.Do();
+			}
+
+			if (ExitCode == FrameMenuReload)
+				Commit();
+		} while (ExitCode == FrameMenuReload);
 		AlreadyShown = FALSE;
 //		ExitCode = ModalMenu.Modal::GetExitCode();
 	}
 
 	if (CheckCanLoseFocus) {
-		if (ExitCode >= 0 && ExitCode < FrameCount) {
-			ActivateFrame(ExitCode);
+		if (ExitCode >= 0 && ExitCode < (int)frameIndexes.size()) {
+			int frameI = frameIndexes[ExitCode];
+
+			ActivateFrame(frameI);
+
+			if (FrameList[frameI]->GetSubpanelCount() > 0) {
+				FrameList[frameI]->ActivateSubpanel(subframeIndexes[ExitCode]);
+			}
+
 			return (ActivatedFrame == CurrentFrame || !CurrentFrame->GetCanLoseFocus()
 							? nullptr
 							: CurrentFrame);
@@ -579,7 +708,37 @@ void Manager::DeactivateFrame(Frame *Deactivated, int Direction)
 	_MANAGER(SysLog(L"Deactivated=%p, Direction=%d", Deactivated, Direction));
 
 	if (Direction) {
-		FramePos+= Direction;
+		// earlier it was:
+		// FramePos+= Direction;
+
+		// Now it is more complicated for case some frams has sub-panels
+		int frameId = FramePos;
+		int subpanels = FrameList[frameId]->GetSubpanelCount();
+		if (subpanels > 0) {
+			int oldsub = FrameList[frameId]->GetSelectedSubpanel();
+			int subactive = oldsub + Direction;
+
+			// switch across tabs while it are not edges
+			if(subactive < 0 || subactive >= subpanels) {
+				if (FrameCount > 1) // edges meant to switch to other frame (if applicable)
+					FramePos += Direction;
+				else { // we're alone -> cycle across tabs
+					if (subactive < 0) subactive = subpanels - 1;
+					else if (subactive >= subpanels) subactive = 0;
+
+					if (oldsub == subactive)
+						FramePos += Direction;
+					else
+						FrameList[frameId]->ActivateSubpanel(subactive);
+				}
+			}
+			else {
+				FrameList[frameId]->ActivateSubpanel(subactive);
+			}
+		}
+		else {
+			FramePos += Direction;
+		}
 
 		if (Direction > 0) {
 			if (FramePos >= FrameCount) {
@@ -725,7 +884,7 @@ void Manager::ProcessMainLoop()
 	} else {
 		// Mantis#0000073: Не работает автоскролинг в QView
 		WaitInMainLoop =
-				IsPanelsActive() && ((FilePanels *)CurrentFrame)->ActivePanel->GetType() != QVIEW_PANEL;
+				IsPanelsActive() && ((FilePanels *)CurrentFrame)->ActiveTab().ActivePanel->GetType() != QVIEW_PANEL;
 		// WaitInFastFind++;
 		FarKey Key = GetInputRecord(&LastInputRecord);
 		// WaitInFastFind--;
@@ -738,7 +897,11 @@ void Manager::ProcessMainLoop()
 			// используем копию структуры, т.к. LastInputRecord может внезапно измениться во время выполнения ProcessMouse
 			MOUSE_EVENT_RECORD mer = LastInputRecord.Event.MouseEvent;
 			ProcessMouse(&mer);
-		} else
+		}
+		else if (LastInputRecord.EventType == EXT_DROP_EVENT) {
+			ProcessDrop(&LastInputRecord.Event.DropTarget);
+		} 
+		else
 			ProcessKey(Key);
 	}
 }
@@ -773,6 +936,13 @@ void Manager::ExitMainLoop(int Ask)
 		CloseFARMenu = TRUE;
 	};
 
+	if (HasBackgroundFileOperation()) {
+		if (Message(MSG_WARNING, 2, Msg::Warning,
+				Msg::BackgroundFileOperationExitWarning, Msg::Abort, Msg::Cancel) != 0)
+			return;
+		AbortAndWaitForBackgroundFileOperations();
+	}
+
 
 	size_t vts_cnt = VTShell_Count();
 	if (!Ask || (((!Opt.Confirm.ExitEffective() && !vts_cnt) || ConfirmExit(vts_cnt)) && CtrlObject->Plugins.MayExitFar())) {
@@ -787,8 +957,8 @@ void Manager::ExitMainLoop(int Ask)
 			FilePanels *cp;
 
 			if (!(cp = CtrlObject->Cp())
-					|| (!cp->LeftPanel->ProcessPluginEvent(FE_CLOSE, nullptr)
-							&& !cp->RightPanel->ProcessPluginEvent(FE_CLOSE, nullptr))) {
+					|| (!cp->ActiveTab().LeftPanel->ProcessPluginEvent(FE_CLOSE, nullptr)
+							&& !cp->ActiveTab().RightPanel->ProcessPluginEvent(FE_CLOSE, nullptr))) {
 				EndLoop = TRUE;
 			}
 		} else {
@@ -838,7 +1008,7 @@ int Manager::ProcessKey(DWORD Key)
 					_ALGO(CleverSysLog clv(L"Manager::ProcessKey()"));
 					_ALGO(SysLog(L"Key=%ls", _FARKEY_ToName(Key)));
 
-					if (CtrlObject->Cp()->ActivePanel->SendKeyToPlugin(Key, TRUE))
+					if (CtrlObject->Cp()->ActiveTab().ActivePanel->SendKeyToPlugin(Key, TRUE))
 						return TRUE;
 
 					break;
@@ -885,7 +1055,10 @@ int Manager::ProcessKey(DWORD Key)
 		{
 			switch (Key) {
 				case KEY_CTRLW:
-					ShowProcessList(CtrlObject->Cp()->ActivePanel);
+					ShowProcessList(CtrlObject->Cp()->ActiveTab().ActivePanel);
+					return TRUE;
+				case KEY_CTRLSHIFTW:
+					ShowSocketList(CtrlObject->Cp()->ActiveTab().ActivePanel);
 					return TRUE;
 				case KEY_F11:
 					PluginsMenu();
@@ -951,13 +1124,13 @@ int Manager::ProcessKey(DWORD Key)
 							int isPanelFocus = CurrentFrame->GetType() == MODALTYPE_PANELS;
 
 							if (isPanelFocus) {
-								int LeftVisible = CtrlObject->Cp()->LeftPanel->IsVisible();
-								int RightVisible = CtrlObject->Cp()->RightPanel->IsVisible();
+								int LeftVisible = CtrlObject->Cp()->ActiveTab().LeftPanel->IsVisible();
+								int RightVisible = CtrlObject->Cp()->ActiveTab().RightPanel->IsVisible();
 								int CmdLineVisible = CtrlObject->CmdLine->IsVisible();
 								int KeyBarVisible = CtrlObject->Cp()->MainKeyBar.IsVisible();
 								CtrlObject->CmdLine->ShowBackground();
-								CtrlObject->Cp()->LeftPanel->Hide0();
-								CtrlObject->Cp()->RightPanel->Hide0();
+								CtrlObject->Cp()->ActiveTab().LeftPanel->Hide0();
+								CtrlObject->Cp()->ActiveTab().RightPanel->Hide0();
 
 								switch (Opt.PanelCtrlAltShiftRule) {
 									case 0:
@@ -973,10 +1146,10 @@ int Manager::ProcessKey(DWORD Key)
 												: KEY_RCTRLALTSHIFTRELEASE);
 
 								if (LeftVisible)
-									CtrlObject->Cp()->LeftPanel->Show();
+									CtrlObject->Cp()->ActiveTab().LeftPanel->Show();
 
 								if (RightVisible)
-									CtrlObject->Cp()->RightPanel->Show();
+									CtrlObject->Cp()->ActiveTab().RightPanel->Show();
 
 								if (CmdLineVisible)
 									CtrlObject->CmdLine->Show();
@@ -1001,6 +1174,7 @@ int Manager::ProcessKey(DWORD Key)
 				case KEY_CTRLSHIFTTAB:
 
 					if (CurrentFrame->GetCanLoseFocus()) {
+						// vk: todo: support subpanels when available
 						DeactivateFrame(CurrentFrame, Key == KEY_CTRLTAB ? 1 : -1);
 					}
 
@@ -1014,6 +1188,20 @@ int Manager::ProcessKey(DWORD Key)
 	}
 
 	_MANAGER(SysLog(-1));
+	return ret;
+}
+
+int Manager::ProcessDrop(EXT_DROP_EVENT_DATA* drop) {
+	int ret = FALSE;
+
+	if (CurrentFrame)
+		ret = CurrentFrame->ProcessDrop(drop);
+
+	if(drop->Text) {
+		free(drop->Text);
+		drop->Text = nullptr;
+	}
+
 	return ret;
 }
 
@@ -1051,7 +1239,7 @@ void Manager::PluginsMenu()
 			полноценный вьюер и запускаем с соответствующим параметром плагины
 		*/
 		if (curType == MODALTYPE_PANELS) {
-			int pType = CtrlObject->Cp()->ActivePanel->GetType();
+			int pType = CtrlObject->Cp()->ActiveTab().ActivePanel->GetType();
 
 			if (pType == QVIEW_PANEL || pType == INFO_PANEL) {
 				FARString strType, strCurFileName;
@@ -1401,7 +1589,11 @@ void Manager::InsertCommit()
 
 	if (InsertedFrame) {
 		if (FrameListSize <= FrameCount) {
-			FrameList = (Frame **)realloc(FrameList, sizeof(*FrameList) * (FrameCount + 1));
+			Frame **NewFrameList = (Frame **)realloc(FrameList, sizeof(*FrameList) * (FrameCount + 1));
+			if (!NewFrameList) {
+				return;
+			}
+			FrameList = NewFrameList;
 			FrameListSize++;
 		}
 
@@ -1456,7 +1648,12 @@ void Manager::ExecuteCommit()
 	}
 
 	if (ModalStackCount == ModalStackSize) {
-		ModalStack = (Frame **)realloc(ModalStack, ++ModalStackSize * sizeof(Frame *));
+		Frame **NewModalStack = (Frame **)realloc(ModalStack, (ModalStackSize + 1) * sizeof(Frame *));
+		if (!NewModalStack) {
+			return;
+		}
+		ModalStack = NewModalStack;
+		ModalStackSize++;
 	}
 
 	ModalStack[ModalStackCount++] = ExecutedFrame;

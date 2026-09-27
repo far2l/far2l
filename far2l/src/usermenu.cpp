@@ -416,7 +416,7 @@ void UserMenu::ProcessUserMenu(bool ChoiceMenuType)
 	}
 
 	if (FrameManager->IsPanelsActive() && (ExitCode == EC_COMMAND_SELECTED || MenuModified))
-		ShellUpdatePanels(CtrlObject->Cp()->ActivePanel, FALSE);
+		ShellUpdatePanels(CtrlObject->Cp()->ActiveTab().ActivePanel, FALSE);
 }
 
 // заполнение меню
@@ -497,7 +497,7 @@ int UserMenu::ProcessSingleMenu(const wchar_t *MenuKey, int MenuPos, const wchar
 			FuncPos[I] = -1;
 
 		FARString strName;
-		CtrlObject->Cp()->ActivePanel->GetCurName(strName);
+		CtrlObject->Cp()->ActiveTab().ActivePanel->GetCurName(strName);
 		/* $ 24.07.2000 VVM + При показе главного меню в заголовок добавляет тип - FAR/Registry */
 		FARString strMenuTitle;
 
@@ -758,7 +758,7 @@ int UserMenu::ProcessSingleMenu(const wchar_t *MenuKey, int MenuPos, const wchar
 		CtrlObject->CmdLine->GetSelection(OldCmdLineSelStart, OldCmdLineSelEnd);
 		CtrlObject->CmdLine->LockUpdatePanel(TRUE);
 
-		Panel *ActivePanel = CtrlObject->Cp()->ActivePanel;
+		Panel *ActivePanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 
 		// Цикл исполнения команд меню (CommandX)
 		for (;;) {
@@ -787,12 +787,12 @@ int UserMenu::ProcessSingleMenu(const wchar_t *MenuKey, int MenuPos, const wchar
 					/*
 					if (!PanelsHidden)
 					{
-						LeftVisible=CtrlObject->Cp()->LeftPanel->IsVisible();
-						RightVisible=CtrlObject->Cp()->RightPanel->IsVisible();
-						CtrlObject->Cp()->LeftPanel->Hide();
-						CtrlObject->Cp()->RightPanel->Hide();
-						CtrlObject->Cp()->LeftPanel->SetUpdateMode(FALSE);
-						CtrlObject->Cp()->RightPanel->SetUpdateMode(FALSE);
+						LeftVisible=CtrlObject->Cp()->ActiveTab().LeftPanel->IsVisible();
+						RightVisible=CtrlObject->Cp()->ActiveTab().RightPanel->IsVisible();
+						CtrlObject->Cp()->ActiveTab().LeftPanel->Hide();
+						CtrlObject->Cp()->ActiveTab().RightPanel->Hide();
+						CtrlObject->Cp()->ActiveTab().LeftPanel->SetUpdateMode(FALSE);
+						CtrlObject->Cp()->ActiveTab().RightPanel->SetUpdateMode(FALSE);
 						PanelsHidden=TRUE;
 					}
 					*/
@@ -822,8 +822,8 @@ int UserMenu::ProcessSingleMenu(const wchar_t *MenuKey, int MenuPos, const wchar
 								}
 							} else {
 								SaveScreen SaveScr;
-								CtrlObject->Cp()->LeftPanel->CloseFile();
-								CtrlObject->Cp()->RightPanel->CloseFile();
+								CtrlObject->Cp()->ActiveTab().LeftPanel->CloseFile();
+								CtrlObject->Cp()->ActiveTab().RightPanel->CloseFile();
 								Execute(strCommand, 0, 0, ListFileUsed, true);
 							}
 							//							WaitForClose(strName);
@@ -854,14 +854,14 @@ int UserMenu::ProcessSingleMenu(const wchar_t *MenuKey, int MenuPos, const wchar
 		/*
 		if (PanelsHidden)
 		{
-			CtrlObject->Cp()->LeftPanel->SetUpdateMode(TRUE);
-			CtrlObject->Cp()->RightPanel->SetUpdateMode(TRUE);
-			CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-			CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION);
+			CtrlObject->Cp()->ActiveTab().LeftPanel->SetUpdateMode(TRUE);
+			CtrlObject->Cp()->ActiveTab().RightPanel->SetUpdateMode(TRUE);
+			CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+			CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION);
 			if (RightVisible)
-				CtrlObject->Cp()->RightPanel->Show();
+				CtrlObject->Cp()->ActiveTab().RightPanel->Show();
 			if (LeftVisible)
-				CtrlObject->Cp()->LeftPanel->Show();
+				CtrlObject->Cp()->ActiveTab().LeftPanel->Show();
 		}
 		*/
 		/* $ 14.07.2000 VVM ! Закрыть меню */
@@ -963,10 +963,10 @@ bool UserMenu::EditMenu(const wchar_t *MenuKey, int EditPos, int TotalRecords, b
 				{DI_TEXT,      5, 4, 0, 4, {}, 0, Msg::EditMenuLabel},
 				{DI_EDIT,      5, 5, DLG_X - 6, 5, {}, 0, L""},
 
-				{DI_TEXT,      3, 6, 0, 6, {}, DIF_SEPARATOR | State, L""},
+				{DI_TEXT,      3, 6, 0, 6, {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR) | State, L""},
 				{DI_TEXT,      5, 7, 0, 7, {}, State, Msg::EditMenuCommands},
 				{DI_MEMOEDIT,  5, 8, DLG_X - 6, 17, {}, DIF_EDITPATH | State, L""},
-				{DI_TEXT,   3, (short)(DLG_Y - 4), 0, (short)(DLG_Y - 4), {}, DIF_SEPARATOR, L""},
+				{DI_TEXT,   3, (short)(DLG_Y - 4), 0, (short)(DLG_Y - 4), {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), L""},
 				{DI_BUTTON, 0, (short)(DLG_Y - 3), 0, (short)(DLG_Y - 3), {}, DIF_DEFAULT | DIF_CENTERGROUP, Msg::Ok},
 				{DI_BUTTON, 0, (short)(DLG_Y - 3), 0, (short)(DLG_Y - 3), {}, DIF_CENTERGROUP, Msg::Cancel}
 			};

@@ -1496,7 +1496,7 @@ $ #Menus: commands menu#
                         #Del# to delete and #F4# to edit menu records.
 
    #Edit associations#    Displays the list of ~file associations~@FileAssoc@.
-                        You may press #Ins# to insert, #Del# to delete
+                        You may press #Ins# or #Ctrl+N# to insert, #Del# to delete
                         and #F4# to edit file associations.
 
    #Bookmarks#     Displays current ~Bookmarks~@Bookmarks@.
@@ -2275,8 +2275,8 @@ $ #Task list#
     #i#/#I#                Sort by PID
     #c#/#C#                Sort by CPU
     #m#/#M#                Sort by memory (Resident Set Size, RSS)
-    #Ctrl-Alt-F#         Filter list items
-    #Ctrl-F10#           Go to #/proc/PID# directory in active panel (only in Linux)
+    #Ctrl-Alt-F#         Filter list items (autorefresh paused during filtering)
+    #Enter#              Go to #/proc/PID# directory in active panel (only in Linux)
 
     See also: common ~menu~@MenuCmd@ keyboard commands.
 
@@ -2362,15 +2362,15 @@ desired association from the menu.
 
     The following actions are available in the associations list:
 
-    #Ins#        - ~add~@FileAssocModify@ a new association
+    #Ins# or #Ctrl+N# - ~add~@FileAssocModify@ a new association
 
-    #F4#         - ~edit~@FileAssocModify@ the current association
+    #F4#            - ~edit~@FileAssocModify@ the current association
 
-    #Del#        - delete the current association
+    #Del#           - delete the current association
 
-    #Ctrl-Up#    - move association up
+    #Ctrl-Up#       - move association up
 
-    #Ctrl-Down#  - move association down
+    #Ctrl-Down#     - move association down
 
     If no execute command is associated with file and
 #Use OS registered types# option in ~System settings~@SystemSettings@
@@ -2484,11 +2484,25 @@ enclosed in quotes, you should specify #program "!.!"# and not
      'F' - use full pathnames;
      'A' - use ANSI code page;
      'U' - use UTF-8 code page;
-     'W' - use UTF-16 (Little endian) code page.
+     'W' - use UTF-16 (Little endian) code page;
+     'B' - collect marked files from both panels into a single list.
+
+    ^<wrap>When the #B# modifier is used, the temp file will contain marked
+(selected) files from both the active and passive panels. The command
+is executed once for all selected files rather than once per file.
+This is useful for comparing files from different panels.
 
     For example, the association #!@@AFQ!# means "name of file with the list of
 selected file names, in ANSI encoding, include full pathnames, names with
 spaces will be in quotes".
+
+    The association #!@@BF!# means "name of file with the list of marked files
+from both panels, using full pathnames". Example usage in user menu:
+
+      diff "$(sed -n '1p' "!@@BF!")" "$(sed -n '2p' "!@@BF!")"
+
+    ^<wrap>Mark one file on the left panel and one on the right panel (with #Insert#),
+then run the command to compare them.
 
     3. ^<wrap>When there are multiple associations specified, the meta-characters !@@!
 and !$! are shown in the menu as is. Those characters are translated when the
@@ -3225,6 +3239,7 @@ behavior can be changed in the ~Editor settings~@EditorSettings@ dialog.
    #Ctrl-F3#                 Toggle line numbers display
    #Shift-F4#                Edit ~new file~@FileOpenCreate@
    #F5#                      Toggle whitespace characters displaying
+   #Ctrl-Shift-F5#           Toggle physical line-ending characters displaying
    #Shift-F5#                Change Tab character width
    #Ctrl-F5#                 Toggle Tab-to-spaces expansion
    #Alt-F5#                  ^<wrap>Print file or selected block.
@@ -3304,6 +3319,9 @@ $ #Editor: search/replace#
 and shows the list of all found occurrences with their line and column numbers.
 Pressing #Enter# in that list moves the cursor to the selected occurrence, #Esc#
 leaves the current position unchanged.
+
+    When #Show line endings# is enabled with #Ctrl-Shift-F5#, physical line
+endings are shown as #␍# (CR) and #␊# (LF), so mixed styles can be identified.
 
 
 @FileOpenCreate
@@ -3554,25 +3572,25 @@ $ #Files highlighting and sort groups: control keys#
 perform various operations with the list of the groups. The following key
 combinations are available:
 
-  #Space#        - (De)Activate current group
+  #Space#         - (De)Activate current group
 
-  #Ins#          - Add a new highlighting group
+  #Ins# or #Ctrl+N# - Add a new highlighting group
 
-  #F5#           - Duplicate the current group
+  #F5#            - Duplicate the current group
 
-  #Del#          - Delete the current group
+  #Del#           - Delete the current group
 
-  #Enter# or #F4#  - ~Edit~@HighlightEdit@ the current highlighting group
+  #Enter# or #F4#   - ~Edit~@HighlightEdit@ the current highlighting group
 
-  #F3#           - Show for current item file masks after expand all masks groups
+  #F3#            - Show for current item file masks after expand all masks groups
 
-  #Ctrl-R#       - Restore the default file highlighting groups
+  #Ctrl-R#        - Restore the default file highlighting groups
 
-  #Ctrl-Up#      - Move a group up
+  #Ctrl-Up#       - Move a group up
 
-  #Ctrl-Down#    - Move a group down
+  #Ctrl-Down#     - Move a group down
 
-  #Ctrl-M#       - Toggle attribute column view: short/long
+  #Ctrl-M#        - Toggle attribute column view: short/long
 
     The highlighting groups are checked from top to bottom. If it is detected
 that a file belongs to a group, no further groups are checked,
@@ -3780,9 +3798,25 @@ $ #Settings dialog: editor#
                           editor. This option can also be toggled by
                           pressing #Ctrl-F3# in the editor.
 
+  #Show line endings#       Show physical line endings as #␍# (CR) and #␊# (LF).
+                          This option can also be toggled by pressing
+                          #Ctrl-Shift-F5# in the editor.
+
   #Word wrap#               Word wrap. This option can also be toggled by
                           pressing #F3# in the editor.
 
+  #Copy mouse selection to PRIMARY#    This option is intended to place the selected text into 
+                          special X11 (some compositors like KDE KWin have the same for Wayland) 
+                          buffer named PRIMARY as addition to standard clipboard.                          
+                          
+                          If the option toggled, every time you select text block via mouse,
+                          it is being copied to PRIMARY buffer automatically and become available 
+                          immediately for other applications within the same X11 or Wayland 
+                          session. The standard clipboard works as before and won't be touched.
+
+  #Place content from PRIMARY buffer#        If toggled, the PRIMARY buffer contents will be 
+                          placed by 2nd mouse button click (typically mouse wheel) insterad of 
+                          the standard clipboard. 
 
   #Use .editorconfig#       Processing .editorconfig parameters
   #settings files#          (see ~https://editorconfig.org~@https://editorconfig.org@ for details)
@@ -3922,7 +3956,7 @@ that match those mask in the current panel).
 
     For the #User filters# the following commands are available:
 
-   #Ins#        Create a new filter, an empty ~filter~@Filter@ settings
+   #Ins# or #Ctrl+N# Create a new filter, an empty ~filter~@Filter@ settings
               dialog will open for you to set.
 
    #F4#         Edit an existing ~filter~@Filter@.
@@ -4158,7 +4192,7 @@ belonging to this group files will be higher than those belonging to
 following groups.
 
     The command #Edit sort groups# from the ~Commands menu~@CmdMenu@ is used to
-delete, create and edit sort groups, using #Del#, #Ins# and #F4#. The groups
+delete, create and edit sort groups, using #Del#, #Ins# (#Ctrl+N#) and #F4#. The groups
 above the menu separator are applicable to the file panel start, and included
 files will be placed higher than those not included to any group. The groups
 below the menu separator are applicable to the file panel end, and included
@@ -4241,17 +4275,17 @@ To ~highlight~@Highlight@ all archives except "*.rar" #<arc>|*.rar# should be us
 
  Control keys:
 
- #Ctrl+R#      - ^<wrap>restore the default predefined groups
+ #Ctrl+R#        - ^<wrap>restore the default predefined groups
 
- #Ins#         - ^<wrap>add a new group
+ #Ins# or #Ctrl+N# - ^<wrap>add a new group
 
- #Del#         - ^<wrap>remove the current group
+ #Del#           - ^<wrap>remove the current group
 
- #Enter#/#F4#    - ^<wrap>edit the current group
+ #Enter#/#F4#      - ^<wrap>edit the current group
 
- #F3#          - view the current group with wrap long line of masks
+ #F3#            - view the current group with wrap long line of masks
 
- #F7#          - ^<wrap>find all groups containing the specified mask
+ #F7#            - ^<wrap>find all groups containing the specified mask
 
  Also see ~Options menu~@OptMenu@.
 
@@ -4734,8 +4768,9 @@ The numbers are assigned to the groups in order of opening parentheses
 sequence in regular expression. #$0# means the whole found sequence.
 #$*# is replaced with '*' character.
 
-    Both #\n# and #\r# are interpreted as line breaks, depending on
-the end-of-line style used in the file. They behave the same way.
+    #\r# and #\n# represent literal CR and LF characters. Captured line endings
+are preserved exactly, so #\r\n# can be replaced with #\n#, and either character
+of a CRLF pair can be matched and replaced separately.
 
     #\t# is replaced with tab character (0x09).
 

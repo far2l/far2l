@@ -605,8 +605,8 @@ HANDLE PluginA::OpenPlugin(int OpenFrom, INT_PTR Item)
 			else
 			if ( !g_strDirToSet.IsEmpty() )
 			{
-				CtrlObject->Cp()->ActivePanel->SetCurDir(g_strDirToSet,TRUE);
-				CtrlObject->Cp()->ActivePanel->Redraw();
+				CtrlObject->Cp()->ActiveTab().ActivePanel->SetCurDir(g_strDirToSet,TRUE);
+				CtrlObject->Cp()->ActiveTab().ActivePanel->Redraw();
 			}
 		}
 		*/

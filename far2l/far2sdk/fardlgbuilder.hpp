@@ -25,28 +25,33 @@ class PluginCheckBoxBinding: public DialogAPIBinding
 {
 	BOOL *Value;
 	int Mask;
+    bool* value;
 
 public:
 	PluginCheckBoxBinding(const PluginStartupInfo &aInfo, HANDLE *aHandle, int aID, BOOL *aValue, int aMask)
 		: DialogAPIBinding(aInfo, aHandle, aID),
-		  Value(aValue), Mask(aMask)
-	{
-	}
+		  Value(aValue), Mask(aMask), value(nullptr) { }
+	PluginCheckBoxBinding(const PluginStartupInfo &aInfo, HANDLE *aHandle, int aID, bool *aValue, int aMask)
+		: DialogAPIBinding(aInfo, aHandle, aID),
+		  Value(nullptr), Mask(aMask), value(aValue) { }
 
 	virtual void SaveValue(FarDialogItem *Item, int RadioGroupIndex)
 	{
 		BOOL Selected = static_cast<BOOL>(Info.SendDlgMessage(*DialogHandle, DM_GETCHECK, ID, 0));
-		if (!Mask)
-		{
-			*Value = Selected;
+		if (Value) {
+			if (!Mask) {
+				*Value = Selected;
+			}
+			else {
+				if (Selected)
+					*Value |= Mask;
+				else
+					*Value &= ~Mask;
+			}
 		}
-		else
-		{
-			if (Selected)
-				*Value |= Mask;
-			else
-				*Value &= ~Mask;
-		}
+
+		if (value)
+			*value = Selected > 0;
 	}
 };
 
@@ -233,6 +238,15 @@ class PluginDialogBuilder: public DialogBuilderBase<FarDialogItem>
 #endif
 		}
 
+		virtual DialogItemBinding<FarDialogItem> *CreateCheckBoxBinding(bool *Value, int Mask)
+		{
+#ifdef UNICODE
+			return new PluginCheckBoxBinding(Info, &DialogHandle, DialogItemsCount-1, Value, Mask);
+#else
+			return new CheckBoxBinding<FarDialogItem>(Value, Mask);
+#endif
+		}
+
 		virtual DialogItemBinding<FarDialogItem> *CreateRadioButtonBinding(BOOL *Value)
 		{
 #ifdef UNICODE
@@ -256,10 +270,11 @@ public:
 #endif
 		}
 
-		virtual ItemReference AddIntEditField(int *Value, int Width, int Flags = 0)
+		virtual ItemReference AddIntEditField(int *Value, int Width, int Flags = 0, bool newLine = true)
 		{
 			auto Item = AddDialogItem(DI_FIXEDIT, EMPTY_TEXT);
 			Item->Flags |= DIF_MASKEDIT;
+			Item->Width = Width;
 			PluginIntEditFieldBinding *Binding;
 			Binding = new PluginIntEditFieldBinding(Info, &DialogHandle, DialogItemsCount-1, Value, Width);
 			Item->PtrData = Binding->GetBuffer();
@@ -270,17 +285,17 @@ public:
 #else
 			Item->Mask = Binding->GetMask();
 #endif
-			SetNextY(Item);
-			Item->X2 = Item->X1 + Width - 1;
-			SetLastItemBinding(Binding);
+			Add(Item);
+			if (newLine) AddNL();
+			SetItemBinding(Item, Binding);
 			return Item;
 		}
 
-		ItemReference AddEditField(TCHAR *Value, int MaxSize, int Width, const TCHAR *HistoryID = nullptr)
+		ItemReference AddEditField(TCHAR *Value, int MaxSize, int Width, const TCHAR *HistoryID = nullptr, bool newLine = true)
 		{
 			auto Item = AddDialogItem(DI_EDIT, Value);
-			SetNextY(Item);
-			Item->X2 = Item->X1 + Width;
+			Item->Width = Width;
+
 			if (HistoryID)
 			{
 #ifdef _FAR_NO_NAMELESS_UNIONS
@@ -291,10 +306,13 @@ public:
 				Item->Flags |= DIF_HISTORY;
 			}
 
+			Add(Item);
+			if (newLine) AddNL();
+
 #ifdef UNICODE
-			SetLastItemBinding(new PluginEditFieldBinding(Info, &DialogHandle, DialogItemsCount-1, Value, MaxSize));
+			SetItemBinding(Item, new PluginEditFieldBinding(Info, &DialogHandle, DialogItemsCount-1, Value, MaxSize));
 #else
-			SetLastItemBinding(new PluginEditFieldBinding(Value, MaxSize));
+			SetItemBinding(Item, new PluginEditFieldBinding(Value, MaxSize));
 #endif
 			return Item;
 		}

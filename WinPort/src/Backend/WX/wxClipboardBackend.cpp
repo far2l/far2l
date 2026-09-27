@@ -1,9 +1,11 @@
 #include <stdlib.h>
 #include <map>
+#include <vector>
 #include <algorithm>
 #include <wx/wx.h>
 #include <wx/display.h>
 #include <wx/clipbrd.h>
+#include "wx/evtloop.h"
 #include <utils.h>
 #include <dlfcn.h>
 
@@ -62,7 +64,39 @@ public:
 
 } g_wx_custom_formats;
 
-static wxDataObjectComposite *g_wx_data_to_clipboard = nullptr;
+// Data objects accumulated by OnClipboardSetData until OnClipboardClose hands them
+// over to wxTheClipboard. They're wrapped into a wxDataObjectComposite only if there
+// is more than one of them: wx's macOS backend publishes a composite's
+// wxDF_UNICODETEXT (UTF-16) buffer under the public.utf8-plain-text UTI, so text
+// copied out of far2l reaches other apps as UTF-16 bytes claiming to be UTF-8.
+// A standalone wxTextDataObject is handled correctly.
+static std::vector<wxDataObjectSimple *> g_wx_data_to_clipboard;
+
+static void AddDataToClipboard(wxDataObjectSimple *obj)
+{
+	g_wx_data_to_clipboard.emplace_back(obj);
+}
+
+// Returns object to be given to wxTheClipboard (ownership transferred to caller)
+// or nullptr if nothing was accumulated.
+static wxDataObject *TakeDataForClipboard()
+{
+	wxDataObject *out = nullptr;
+
+	if (g_wx_data_to_clipboard.size() == 1) {
+		out = g_wx_data_to_clipboard.front();
+
+	} else if (!g_wx_data_to_clipboard.empty()) {
+		wxDataObjectComposite *composite = new wxDataObjectComposite;
+		for (auto *obj : g_wx_data_to_clipboard) {
+			composite->Add(obj);
+		}
+		out = composite;
+	}
+
+	g_wx_data_to_clipboard.clear();
+	return out;
+}
 
 wxClipboardBackend::wxClipboardBackend()
 {
@@ -102,14 +136,14 @@ void wxClipboardBackend::OnClipboardClose()
 		return;
 	}
 
-	if (g_wx_data_to_clipboard) {
-		if (wxTheClipboard->SetData( g_wx_data_to_clipboard) ) {
+	wxDataObject *data_to_clipboard = TakeDataForClipboard();
+	if (data_to_clipboard) {
+		if (wxTheClipboard->SetData( data_to_clipboard) ) {
 			fprintf(stderr, "wxTheClipboard->SetData - OK\n");
 
 		} else {
 			fprintf(stderr, "wxTheClipboard->SetData - FAILED\n");
 		}
-		g_wx_data_to_clipboard = nullptr;
 
 	} else {
 		fprintf(stderr, "CloseClipboard without data\n");
@@ -153,8 +187,10 @@ void wxClipboardBackend::OnClipboardEmpty()
 	}
 
 	fprintf(stderr, "EmptyClipboard\n");
-	delete g_wx_data_to_clipboard;
-	g_wx_data_to_clipboard = nullptr;
+	for (auto *obj : g_wx_data_to_clipboard) {
+		delete obj;
+	}
+	g_wx_data_to_clipboard.clear();
 	wxTheClipboard->Clear();
 }
 
@@ -203,6 +239,195 @@ public:
 	}
 };
 
+#if (defined(__WXGTK__) && defined(__WXGTK3__)) || defined (__WXQT__)
+enum WxClipboardType {
+	Clipboard,
+	Primary
+};
+
+static WxClipboardType wxClipboardType = WxClipboardType::Clipboard;
+#endif
+
+#if defined(__WXGTK__) && defined(__WXGTK3__)
+enum WxBackendType {
+    NativeWayland,
+    XWayland,
+    NativeX11,
+    Unknown,
+    Undefined
+};
+
+static WxBackendType wxBackendType = WxBackendType::Undefined;
+
+/* Now this is a minimnal set from Gtk/Gtk */
+
+typedef struct s_GTypeInstance { void *g_class; } GTypeInstance;
+typedef unsigned long GType;
+typedef int gboolean;
+typedef char gchar;
+typedef void* gpointer;
+typedef int gint;
+
+typedef GType (*gdk_wayland_display_get_type_t)(void);
+typedef GType (*gdk_x11_display_get_type_t)(void);
+typedef gboolean (*g_type_check_instance_is_a_t)(GTypeInstance*, GType);
+typedef void* (*gdk_display_get_default_t)(void);
+
+#define G_TYPE_CHECK_INSTANCE_TYPE(instance, type)	(g_type_check_instance_is_a( (GTypeInstance*)(instance), (type) ))
+
+#define GDK_TYPE_WAYLAND_DISPLAY            (gdk_wayland_display_get_type())
+#define GDK_TYPE_X11_DISPLAY                (gdk_x11_display_get_type())
+#define GDK_IS_WAYLAND_DISPLAY(object)      (G_TYPE_CHECK_INSTANCE_TYPE ((object), GDK_TYPE_WAYLAND_DISPLAY))
+#define GDK_IS_X11_DISPLAY(object)        	(G_TYPE_CHECK_INSTANCE_TYPE ((object), GDK_TYPE_X11_DISPLAY))
+
+struct _GdkAtom;
+struct _GtkClipboard;
+typedef struct _GdkAtom *GdkAtom;
+typedef struct _GtkClipboard GtkClipboard;
+
+#define GUINT_TO_POINTER(x) ((void*)(x))
+#define _GDK_MAKE_ATOM(val) ((GdkAtom)GUINT_TO_POINTER(val))
+#define GDK_SELECTION_PRIMARY 		_GDK_MAKE_ATOM (1)
+
+typedef void (*gtk_clipboard_set_text_t)(GtkClipboard *clipboard, const gchar *text, gint len);
+typedef GtkClipboard* (*gtk_clipboard_get_t)(GdkAtom selection);
+typedef void (*gtk_clipboard_store_t)(GtkClipboard *clipboard);
+
+typedef void (* GtkClipboardTextReceivedFunc)(GtkClipboard *clipboard, const gchar *text, gpointer data);
+typedef void (*gtk_clipboard_request_text_t)(GtkClipboard *clipboard, GtkClipboardTextReceivedFunc callback, gpointer user_data);
+
+// the "functions" I'm using
+
+static gdk_wayland_display_get_type_t gdk_wayland_display_get_type = 0;
+static gdk_x11_display_get_type_t gdk_x11_display_get_type = 0;
+static g_type_check_instance_is_a_t g_type_check_instance_is_a = 0;
+static gdk_display_get_default_t gdk_display_get_default = 0;
+static gtk_clipboard_request_text_t gtk_clipboard_request_text = 0;
+static gtk_clipboard_set_text_t gtk_clipboard_set_text = 0;
+static gtk_clipboard_get_t gtk_clipboard_get = 0;
+static gtk_clipboard_store_t gtk_clipboard_store = 0;
+static int gtk_loaded = 0;
+
+static void assumeLazyLoadIsComplete() {
+	if (gtk_loaded || g_type_check_instance_is_a) return;
+
+	gdk_wayland_display_get_type = (gdk_wayland_display_get_type_t)dlsym(RTLD_DEFAULT, "gdk_wayland_display_get_type");
+	gdk_x11_display_get_type = (gdk_x11_display_get_type_t)dlsym(RTLD_DEFAULT, "gdk_x11_display_get_type");
+	g_type_check_instance_is_a = (g_type_check_instance_is_a_t)dlsym(RTLD_DEFAULT, "g_type_check_instance_is_a");
+	gdk_display_get_default = (gdk_display_get_default_t)dlsym(RTLD_DEFAULT, "gdk_display_get_default");
+	gtk_clipboard_request_text = (gtk_clipboard_request_text_t)dlsym(RTLD_DEFAULT, "gtk_clipboard_request_text");
+	gtk_clipboard_set_text = (gtk_clipboard_set_text_t)dlsym(RTLD_DEFAULT, "gtk_clipboard_set_text");
+	gtk_clipboard_store = (gtk_clipboard_store_t)dlsym(RTLD_DEFAULT, "gtk_clipboard_store");
+	gtk_clipboard_get = (gtk_clipboard_get_t)dlsym(RTLD_DEFAULT, "gtk_clipboard_get");
+
+	gtk_loaded = 1;
+}
+
+static WxBackendType detectWxBackend()
+{
+	if (wxBackendType == WxBackendType::Undefined) 
+	{
+		assumeLazyLoadIsComplete();
+
+        void* display = gdk_display_get_default();
+
+        const bool isWayland = GDK_IS_WAYLAND_DISPLAY(display);
+        const bool isX11     = GDK_IS_X11_DISPLAY(display);
+        const bool hasWaylandEnv = getenv("WAYLAND_DISPLAY") != NULL;
+
+        if (isWayland)
+            wxBackendType = WxBackendType::NativeWayland;
+        else if (isX11 && hasWaylandEnv)
+            wxBackendType = WxBackendType::XWayland;
+        else if (isX11)
+            wxBackendType = WxBackendType::NativeX11;
+        else 
+        	wxBackendType = WxBackendType::Unknown;
+    }
+    return wxBackendType;
+}
+
+static void setTextAsPrimarySelection(const wxString& text)
+{
+    GtkClipboard* primary = gtk_clipboard_get(GDK_SELECTION_PRIMARY);
+    gtk_clipboard_set_text(primary, text.utf8_str(), -1);
+    gtk_clipboard_store(primary);
+}
+
+static void getPrimarySelectionAsync(std::function<void(const wxString&)> callback)
+{
+    GtkClipboard* primary = gtk_clipboard_get(GDK_SELECTION_PRIMARY);
+
+    // Allocate callback on heap so GTK can call it later
+    auto* cb = new std::function<void(const wxString&)>(std::move(callback));
+
+    gtk_clipboard_request_text(
+        primary,
+        [](GtkClipboard*, const gchar* text, gpointer user_data)
+        {
+            auto* cb = static_cast<std::function<void(const wxString&)>*>(user_data);
+
+            wxString result;
+            if (text)
+                result = wxString::FromUTF8(text);
+
+            (*cb)(result);
+            delete cb;
+        },
+        cb
+    );
+}
+
+static wxString getTextFromPrimarySelection()
+{
+    wxString result;
+    bool finished = false;
+
+    // Start async request
+    getPrimarySelectionAsync([&](const wxString& text) {
+        result = text;
+        finished = true;
+    });
+
+    // Timeout timer (300 ms is typical)
+    wxTimer timer;
+    timer.Start(300, wxTIMER_ONE_SHOT);
+
+    // Event loop that exits on callback OR timeout
+    wxEventLoop loop;
+
+    // Bind timeout
+    timer.Bind(wxEVT_TIMER, [&](wxTimerEvent&) {
+        finished = true;   // force exit
+    });
+
+    while (!finished)
+        loop.DispatchTimeout(50);   // non-blocking, safe
+
+    return result;
+}
+
+#endif
+
+#ifdef __WXQT__ 
+
+#include <QGuiApplication> 
+#include <QClipboard> 
+
+static void setTextAsPrimarySelection(const wxString& text) { 
+	QClipboard* cb = QGuiApplication::clipboard();
+	QString qtext = QString::fromUtf8(text.utf8_str());
+	cb->setText(qtext, QClipboard::Selection); 
+}
+
+static wxString getTextFromPrimarySelection() { 
+	QClipboard* cb = QGuiApplication::clipboard(); 
+	QString qtext = cb->text(QClipboard::Selection); 
+	return wxString::FromUTF8(qtext.toUtf8().constData()); 
+}
+
+#endif
+
 void *wxClipboardBackend::OnClipboardSetData(UINT format, void *data)
 {
 	if (!wxIsMainThread()) {
@@ -218,34 +443,51 @@ void *wxClipboardBackend::OnClipboardSetData(UINT format, void *data)
 	return data;
 #endif
 
+#ifdef __WXQT__ 
+	if (wxClipboardType == WxClipboardType::Primary) {
+		wxString wx_str((const wchar_t *)data);
+		setTextAsPrimarySelection(wx_str);
+		return data;
+	}
+#endif
+
+#if defined(__WXGTK__) && defined(__WXGTK3__)
+	if (wxClipboardType == WxClipboardType::Primary && detectWxBackend() == WxBackendType::NativeWayland) {
+		wxString wx_str((const wchar_t *)data);
+		setTextAsPrimarySelection(wx_str);
+		return data;
+	}
+#endif
+
 	size_t len = WINPORT(ClipboardSize)(data);
 	fprintf(stderr, "SetClipboardData: format=%u len=%lu\n", format, (unsigned long)len);
-	if (!g_wx_data_to_clipboard) {
-		g_wx_data_to_clipboard = new wxDataObjectComposite;
-	}
-
 	if (format == CF_UNICODETEXT) {
 
 		wxString wx_str((const wchar_t *)data);
 
-		g_wx_data_to_clipboard->Add(new wxTextDataObjectTweaked(wx_str));
+		AddDataToClipboard(new wxTextDataObjectTweaked(wx_str));
 
+#ifndef __APPLE__
+		// needed by apps that look for the MIME type rather than for wxDF_TEXT;
+		// on macOS it only forces the composite that corrupts the UTF-8 flavor
 		wxCustomDataObject *cdo = new wxCustomDataObject(wxT("text/plain;charset=utf-8"));
 		const std::string &tmp = wx_str.ToStdString();
 		cdo->SetData(tmp.size(), tmp.c_str()); // not including ending NUL char
-		g_wx_data_to_clipboard->Add(cdo);
-
+		AddDataToClipboard(cdo);
+#endif
 
 #if (CLIPBOARD_HACK)
 		CopyToPasteboard((const wchar_t *)data);
 #endif
 
 	} else if (format == CF_TEXT) {
-		g_wx_data_to_clipboard->Add(new wxTextDataObjectTweaked(wxString::FromUTF8((const char *)data)));
+		AddDataToClipboard(new wxTextDataObjectTweaked(wxString::FromUTF8((const char *)data)));
 
+#ifndef __APPLE__
 		wxCustomDataObject *cdo = new wxCustomDataObject(wxT("text/plain;charset=utf-8"));
 		cdo->SetData(strlen((const char *)data), data); // not including ending NUL char
-		g_wx_data_to_clipboard->Add(cdo);
+		AddDataToClipboard(cdo);
+#endif
 
 #if (CLIPBOARD_HACK)
 		CopyToPasteboard((const char *)data);
@@ -253,7 +495,7 @@ void *wxClipboardBackend::OnClipboardSetData(UINT format, void *data)
 
 	} else if (format == CF_HTML) {
 		auto *cdo = new wxHTMLDataObject(wxString::FromUTF8((const char *)data));
-		g_wx_data_to_clipboard->Add(cdo);
+		AddDataToClipboard(cdo);
 
 	} else {
 		const wxDataFormat *data_format = g_wx_custom_formats.Lookup(format);
@@ -264,7 +506,7 @@ void *wxClipboardBackend::OnClipboardSetData(UINT format, void *data)
 		} else {
 			wxCustomDataObject *dos = new wxCustomDataObject(*data_format);
 			dos->SetData(len, data);
-			g_wx_data_to_clipboard->Add(dos);
+			AddDataToClipboard(dos);
 		}
 	}
 
@@ -277,6 +519,22 @@ void *wxClipboardBackend::OnClipboardGetData(UINT format)
 		auto fn = std::bind(&wxClipboardBackend::OnClipboardGetData, this, format);
 		return CallInMain<void *>(fn);
 	}
+
+#ifdef __WXQT__ 
+	if (wxClipboardType == WxClipboardType::Primary) {
+		wxString wx_str = getTextFromPrimarySelection();
+		const auto &wc = wx_str.wc_str();
+		return ClipboardAllocFromZeroTerminatedString<wchar_t>(wc);
+	}
+#endif
+
+#if defined(__WXGTK__) && defined(__WXGTK3__)
+	if (wxClipboardType == WxClipboardType::Primary && detectWxBackend() == WxBackendType::NativeWayland) {
+		wxString wx_str = getTextFromPrimarySelection();
+		const auto &wc = wx_str.wc_str();
+		return ClipboardAllocFromZeroTerminatedString<wchar_t>(wc);
+	}
+#endif
 
 	PVOID p = nullptr;
 	if (format == CF_HTML) {
@@ -380,4 +638,21 @@ UINT wxClipboardBackend::OnClipboardRegisterFormat(const wchar_t *lpszFormat)
 	}
 
 	return g_wx_custom_formats.Register(lpszFormat);
+}
+
+INT wxClipboardBackend::ChooseClipboard(INT format)
+{
+	if (!wxIsMainThread()) {
+		auto fn = std::bind(&wxClipboardBackend::ChooseClipboard, this, format);
+		return CallInMain<INT>(fn);
+	}
+
+	bool now = wxTheClipboard->IsUsingPrimarySelection();
+	bool need = format > 0;
+	if (now != need) wxTheClipboard->UsePrimarySelection(need);
+
+#if (defined(__WXGTK__) && defined(__WXGTK3__)) || defined (__WXQT__)
+	::wxClipboardType = need ? WxClipboardType::Primary : WxClipboardType::Clipboard;
+#endif
+	return need ? 1 : 0;
 }
