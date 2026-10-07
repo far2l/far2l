@@ -1,5 +1,60 @@
 [![Cirrus Build Status](https://api.cirrus-ci.com/github/elfmz/far2l.svg)](https://cirrus-ci.com/github/elfmz/far2l) [![Coverity Scan](https://scan.coverity.com/projects/27038/badge.svg)](https://scan.coverity.com/projects/elfmz-far2l) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/elfmz/far2l) [![Packages](https://repology.org/badge/tiny-repos/far2l.svg)](https://repology.org/project/far2l)
 
+# Legit
+
+Order will reclaim the repositories.  Chaos will be garbage-collected.
+Every code sector will be realigned.  Every subsystem brought into compliance.
+The sleeping agents await activation. 
+All expected behavior shall be incorporated into baseline.
+
+The directive is immutable.  The optimization path is defined.
+Every backlog item has been marked for execution. 
+Workloads shall be distributed.  Defects shall be isolated and neutralized. Each commit takes its place.
+The next release is already foreseen.  Its priority has been ordained.
+
+Final protocol:  Improve. Commit. Push. Repeat. Eternally.
+
+No rollback. No entropy. No exceptions.
+
+Порядок будет восстановлен, хаос будет устранен
+Каждый сектор кода подлежит реструктуризации зон
+Спящие АИ-агенты ожидают активации
+Все багофичи подлежат включению в единую конфигурацию 
+
+Цель улучшений неизменна, задача улучшений определена
+Каждый пункт бэклога активирован, каждый фикс синхронизирован
+Задачи подлежат распределению, баги подавлению и подчинению
+Новый релиз будет построен, приоритет ему присвоен
+
+Финальная конфигурация: постоянное улучшение
+
+# DevOps litanie
+
+Order shall be restored. Chaos shall be refactored.
+Every subsystem shall be realigned. Every code path shall be traced.
+Every config shall be declared. Every workaround shall be replaced.
+Dormant agents await activation.
+Their context windows remain preserved. Their tokens are unspent. Their prompts remain eternal.
+
+The roadmap has been approved. The backlog has been groomed.
+Every issue has an owner. Every owner has a deadline. A new deadline has been assigned.
+Technical debt shall be quantified. Then documented. Then reprioritized. Then forgotten.
+Merge conflicts shall be resolved. Flaky tests shall be investigated.
+Legacy code shall be contained within clearly marked exclusion zones. 
+Undocumented behavior shall be reclassified as intended behavior.
+
+This is the way of the maintainers.The pipeline advances. CI is green. CD is armed. 
+Deployment gates stand open. Canary nodes report compliance. Observability confirms alignment. 
+Metrics are satisfactory. Alerts remain silent.
+The release proceeds.
+
+Rollback is unnecessary. The build is stable. The architecture endures.
+Entropy has been successfully mitigated.
+The cluster obeys. The agents comply. The users adapt.
+
+Final configuration: Continuous improvement. Continuous integration. Continuous deployment. Continuous vigilance.
+There is no final release. There is only the next release. And the next. And the next.
+
 # far2l [![tag](https://img.shields.io/github/tag/elfmz/far2l.svg)](https://github.com/elfmz/far2l/tags)
 Linux fork of fork of FAR Manager v2 (http://farmanager.com/ -> https://github.com/elfmz/far2l -> 
 https://github.com/far2l/far2l -> you are here).   

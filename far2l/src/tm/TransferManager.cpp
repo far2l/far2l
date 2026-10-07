@@ -159,11 +159,16 @@ void TransferManager::wait() {
         discovery_thread_.join();
     }
 
-    // Wait until all pending items are processed
+    // Wait until all pending items and folder scan tasks are processed
     {
         std::unique_lock<std::mutex> lock(queue_mutex_);
         cv_all_done_.wait(lock, [this]() {
-            return (pending_items_.empty() && active_transfers_.load() == 0) ||
+            bool hasScan = false;
+            {
+                std::lock_guard<std::mutex> sLock(scan_mutex_);
+                hasScan = !pending_scan_tasks_.empty() || any_scanning_active_.load();
+            }
+            return (pending_items_.empty() && !hasScan && active_transfers_.load() == 0) ||
                    cancelled_.load();
         });
     }
@@ -195,6 +200,16 @@ void TransferManager::cancel() {
     running_.store(false, std::memory_order_release);
     if (buffer_ring_) {
         buffer_ring_->shutdown();
+    }
+    {
+        std::lock_guard<std::mutex> sLock(scan_mutex_);
+        pending_scan_tasks_.clear();
+        for (auto& [_, sp] : folder_scans_) {
+            if (sp.state == ScanState::SCANNING || sp.state == ScanState::QUEUED) {
+                sp.state = ScanState::CANCELLED;
+            }
+        }
+        any_scanning_active_.store(false, std::memory_order_release);
     }
     cv_items_.notify_all();
     cv_sources_.notify_all();
@@ -244,16 +259,28 @@ void TransferManager::discoveryWorker() {
         }
 
         if (!currentJob.source_path.empty()) {
-            scanSource(currentJob.source_path, currentJob.destination_dir);
+            enqueueFolderScan(currentJob.job_id, currentJob.source_path, currentJob.destination_dir);
         }
     }
     discovery_finished_.store(true, std::memory_order_release);
 }
 
 void TransferManager::scanSource(const std::string& srcPath, const std::string& targetBase) {
+    uint64_t jId = next_job_id_++;
+    enqueueFolderScan(jId, srcPath, targetBase);
+}
+
+void TransferManager::enqueueFolderScan(uint64_t jobId, const std::string& srcPath, const std::string& targetBase) {
     FileStat st = fs_->statFile(srcPath, false);
     if (!st.exists) {
         error_count_++;
+        std::lock_guard<std::mutex> sLock(scan_mutex_);
+        FolderScanProgress sp;
+        sp.job_id = jobId;
+        sp.folder_path = srcPath;
+        sp.destination_dir = targetBase;
+        sp.state = ScanState::FAILED;
+        folder_scans_[jobId] = sp;
         return;
     }
 
@@ -271,8 +298,33 @@ void TransferManager::scanSource(const std::string& srcPath, const std::string& 
     std::string destRootItem = (targetBase.back() == '/') ? (targetBase + baseName) : (targetBase + "/" + baseName);
 
     if (st.is_directory && !st.is_symlink) {
-        // Recursive folder scan
+        FolderScanProgress sp;
+        sp.job_id = jobId;
+        sp.folder_path = srcPath;
+        sp.destination_dir = destRootItem;
+        sp.state = ScanState::SCANNING;
+        sp.scanned_folders = 1;
+        sp.current_item = srcPath;
+        sp.is_completed = false;
+
+        {
+            std::lock_guard<std::mutex> sLock(scan_mutex_);
+            folder_scans_[jobId] = sp;
+            active_tasks_per_job_[jobId] = 1;
+            any_scanning_active_.store(true, std::memory_order_release);
+
+            FolderScanTask task;
+            task.job_id = jobId;
+            task.current_src_dir = srcPath;
+            task.current_dst_dir = destRootItem;
+            task.root_src = srcPath;
+            task.root_dst = destRootItem;
+            pending_scan_tasks_.push_back(std::move(task));
+        }
+
+        total_scanned_folders_++;
         total_dirs_++;
+
         TransferItem dirItem;
         dirItem.id = next_item_id_++;
         dirItem.src_path = srcPath;
@@ -287,46 +339,28 @@ void TransferManager::scanSource(const std::string& srcPath, const std::string& 
             std::lock_guard<std::mutex> lock(queue_mutex_);
             pending_items_.push_back(std::move(dirItem));
         }
-        cv_items_.notify_one();
 
-        // Recursively list contents
-        std::deque<std::pair<std::string, std::string>> dirQueue;
-        dirQueue.push_back({srcPath, destRootItem});
-
-        while (!dirQueue.empty() && !cancelled_.load(std::memory_order_relaxed)) {
-            auto [currentSrcDir, currentDstDir] = dirQueue.front();
-            dirQueue.pop_front();
-
-            std::vector<DirEntry> entries = fs_->listDirectory(currentSrcDir);
-            for (const auto& entry : entries) {
-                std::string childDst = currentDstDir + "/" + entry.name;
-                TransferItem childItem;
-                childItem.id = next_item_id_++;
-                childItem.src_path = entry.full_path;
-                childItem.dst_path = childDst;
-                childItem.root_src = srcPath;
-                childItem.root_dst = destRootItem;
-                childItem.is_directory = entry.is_directory && !entry.is_symlink;
-                childItem.is_symlink = entry.is_symlink;
-                childItem.size = entry.size;
-
-                if (childItem.is_directory) {
-                    total_dirs_++;
-                    dirQueue.push_back({entry.full_path, childDst});
-                } else {
-                    total_files_++;
-                    total_bytes_.fetch_add(entry.size, std::memory_order_relaxed);
-                }
-
-                {
-                    std::lock_guard<std::mutex> lock(queue_mutex_);
-                    pending_items_.push_back(std::move(childItem));
-                }
-                cv_items_.notify_one();
-            }
-        }
+        onFolderScanProgress(sp);
+        cv_items_.notify_all();
     } else {
-        // Single file or symlink
+        FolderScanProgress sp;
+        sp.job_id = jobId;
+        sp.folder_path = srcPath;
+        sp.destination_dir = destRootItem;
+        sp.state = ScanState::COMPLETED;
+        sp.scanned_files = 1;
+        sp.scanned_folders = 0;
+        sp.scanned_bytes = st.size;
+        sp.current_item = srcPath;
+        sp.is_completed = true;
+
+        {
+            std::lock_guard<std::mutex> sLock(scan_mutex_);
+            folder_scans_[jobId] = sp;
+        }
+
+        total_scanned_files_++;
+        total_scanned_bytes_.fetch_add(st.size, std::memory_order_relaxed);
         total_files_++;
         total_bytes_.fetch_add(st.size, std::memory_order_relaxed);
 
@@ -344,25 +378,168 @@ void TransferManager::scanSource(const std::string& srcPath, const std::string& 
             std::lock_guard<std::mutex> lock(queue_mutex_);
             pending_items_.push_back(std::move(fileItem));
         }
-        cv_items_.notify_one();
+
+        onFolderScanProgress(sp);
+        cv_items_.notify_all();
     }
+}
+
+bool TransferManager::processScanTask(const FolderScanTask& task) {
+    if (cancelled_.load(std::memory_order_relaxed)) return false;
+
+    std::vector<DirEntry> entries = fs_->listDirectory(task.current_src_dir);
+    uint32_t foundFiles = 0;
+    uint32_t foundDirs = 0;
+    uint64_t foundBytes = 0;
+    std::string lastItem = task.current_src_dir;
+
+    std::vector<TransferItem> newItems;
+    std::vector<FolderScanTask> newSubtasks;
+    newItems.reserve(entries.size());
+
+    for (const auto& entry : entries) {
+        if (cancelled_.load(std::memory_order_relaxed)) break;
+
+        std::string childDst = task.current_dst_dir + "/" + entry.name;
+        TransferItem item;
+        item.id = next_item_id_++;
+        item.src_path = entry.full_path;
+        item.dst_path = childDst;
+        item.root_src = task.root_src;
+        item.root_dst = task.root_dst;
+        item.is_directory = entry.is_directory && !entry.is_symlink;
+        item.is_symlink = entry.is_symlink;
+        item.size = entry.size;
+
+        lastItem = entry.full_path;
+
+        if (item.is_directory) {
+            foundDirs++;
+            total_scanned_folders_++;
+            total_dirs_++;
+
+            FolderScanTask childTask;
+            childTask.job_id = task.job_id;
+            childTask.current_src_dir = entry.full_path;
+            childTask.current_dst_dir = childDst;
+            childTask.root_src = task.root_src;
+            childTask.root_dst = task.root_dst;
+            newSubtasks.push_back(std::move(childTask));
+        } else {
+            foundFiles++;
+            foundBytes += entry.size;
+            total_scanned_files_++;
+            total_scanned_bytes_.fetch_add(entry.size, std::memory_order_relaxed);
+            total_files_++;
+            total_bytes_.fetch_add(entry.size, std::memory_order_relaxed);
+        }
+
+        newItems.push_back(std::move(item));
+    }
+
+    if (!newItems.empty()) {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        for (auto& itm : newItems) {
+            pending_items_.push_back(std::move(itm));
+        }
+    }
+
+    FolderScanProgress currentProgressSnapshot;
+    {
+        std::lock_guard<std::mutex> sLock(scan_mutex_);
+        auto& sp = folder_scans_[task.job_id];
+        sp.scanned_files += foundFiles;
+        sp.scanned_folders += foundDirs;
+        sp.scanned_bytes += foundBytes;
+        sp.current_item = lastItem;
+
+        for (auto& st : newSubtasks) {
+            pending_scan_tasks_.push_back(std::move(st));
+        }
+
+        size_t& activeCount = active_tasks_per_job_[task.job_id];
+        activeCount += newSubtasks.size();
+        if (activeCount > 0) {
+            activeCount--;
+        }
+        if (activeCount == 0) {
+            sp.state = ScanState::COMPLETED;
+            sp.is_completed = true;
+        }
+
+        bool anyLeft = false;
+        for (const auto& [jId, cnt] : active_tasks_per_job_) {
+            if (cnt > 0) { anyLeft = true; break; }
+        }
+        any_scanning_active_.store(anyLeft, std::memory_order_release);
+
+        currentProgressSnapshot = sp;
+    }
+
+    onFolderScanProgress(currentProgressSnapshot);
+    cv_items_.notify_all();
+    return true;
 }
 
 void TransferManager::readerWorker(size_t /*threadIndex*/) {
     while (running_.load(std::memory_order_acquire) && !cancelled_.load(std::memory_order_acquire)) {
+        // Prioritize any pending folder scan task from the unified thread pool
+        bool hasScanTask = false;
+        FolderScanTask scanTask;
+        {
+            std::lock_guard<std::mutex> sLock(scan_mutex_);
+            if (!pending_scan_tasks_.empty()) {
+                scanTask = std::move(pending_scan_tasks_.front());
+                pending_scan_tasks_.pop_front();
+                hasScanTask = true;
+            }
+        }
+
+        if (hasScanTask) {
+            processScanTask(scanTask);
+            continue;
+        }
+
         TransferItem item;
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
             cv_items_.wait(lock, [this]() {
-                return !pending_items_.empty() || !running_.load() || cancelled_.load();
+                bool scanAvailable = false;
+                {
+                    std::lock_guard<std::mutex> sLock(scan_mutex_);
+                    scanAvailable = !pending_scan_tasks_.empty();
+                }
+                return !pending_items_.empty() || scanAvailable || !running_.load() || cancelled_.load();
             });
 
             if (cancelled_.load() || (!running_.load() && pending_items_.empty())) {
+                bool scanAvailable = false;
+                {
+                    std::lock_guard<std::mutex> sLock(scan_mutex_);
+                    scanAvailable = !pending_scan_tasks_.empty();
+                }
+                if (!cancelled_.load() && scanAvailable) {
+                    continue;
+                }
                 break;
             }
 
             if (paused_.load(std::memory_order_relaxed) || io_error_paused_.load(std::memory_order_relaxed)) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                continue;
+            }
+
+            {
+                std::lock_guard<std::mutex> sLock(scan_mutex_);
+                if (!pending_scan_tasks_.empty()) {
+                    scanTask = std::move(pending_scan_tasks_.front());
+                    pending_scan_tasks_.pop_front();
+                    hasScanTask = true;
+                }
+            }
+            if (hasScanTask) {
+                lock.unlock();
+                processScanTask(scanTask);
                 continue;
             }
 
@@ -1207,6 +1384,11 @@ TransferMetrics TransferManager::getMetrics() const {
     if (m.elapsed_seconds > 0.001) {
         m.average_speed_mb_s = (static_cast<double>(m.transferred_bytes) / (1024.0 * 1024.0 * m.elapsed_seconds));
     }
+
+    m.folder_scans = getFolderScanProgresses();
+    m.total_scanned_files = total_scanned_files_.load(std::memory_order_relaxed);
+    m.total_scanned_folders = total_scanned_folders_.load(std::memory_order_relaxed);
+    m.total_scanned_bytes = total_scanned_bytes_.load(std::memory_order_relaxed);
     return m;
 }
 
@@ -1254,7 +1436,33 @@ TransferProgress TransferManager::getProgress() const {
     auto now = std::chrono::steady_clock::now();
     p.elapsed_seconds = std::chrono::duration<double>(now - start_time_).count();
 
+    p.folder_scans = getFolderScanProgresses();
+    p.total_scanned_files = total_scanned_files_.load(std::memory_order_relaxed);
+    p.total_scanned_folders = total_scanned_folders_.load(std::memory_order_relaxed);
+    p.total_scanned_bytes = total_scanned_bytes_.load(std::memory_order_relaxed);
+    p.is_scanning_active = any_scanning_active_.load(std::memory_order_relaxed);
+
     return p;
+}
+
+std::vector<FolderScanProgress> TransferManager::getFolderScanProgresses() const {
+    std::lock_guard<std::mutex> lock(scan_mutex_);
+    std::vector<FolderScanProgress> result;
+    result.reserve(folder_scans_.size());
+    for (const auto& [_, sp] : folder_scans_) {
+        result.push_back(sp);
+    }
+    return result;
+}
+
+bool TransferManager::getFolderScanProgress(uint64_t jobId, FolderScanProgress& outProgress) const {
+    std::lock_guard<std::mutex> lock(scan_mutex_);
+    auto it = folder_scans_.find(jobId);
+    if (it != folder_scans_.end()) {
+        outProgress = it->second;
+        return true;
+    }
+    return false;
 }
 
 std::vector<TransferQuestion> TransferManager::getActiveQuestions() const {
@@ -1270,4 +1478,10 @@ void TransferManager::onProgress(const TransferProgress& /*progress*/) {
 QuestionAnswer TransferManager::onQuestion(const TransferQuestion& /*question*/, bool& /*rememberForType*/) {
     // Default returns PROMPT to allow active question pool collection
     return QuestionAnswer::PROMPT;
+}
+
+void TransferManager::onFolderScanProgress(const FolderScanProgress& scan) {
+    if (scan_progress_cb_) {
+        scan_progress_cb_(scan);
+    }
 }

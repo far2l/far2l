@@ -91,7 +91,7 @@ void ShowSensorList(Panel *ActivePanel)
 
 	for (unsigned int loop_id = 1; !SensorList.Done(); ++loop_id) {
 		const auto now = GetProcessUptimeMSec();
-		if (last_refresh == 0 || (schedule_refresh && (now >= schedule_refresh || now < last_refresh))) {
+		if (last_refresh == 0 || (schedule_refresh && !SensorList.IsFilterEnabled() && (now >= schedule_refresh || now < last_refresh))) {
 			int selected_pos = SensorList.GetSelectPos();
 			SensorList.Hide();
 			SensorList.DeleteItems();

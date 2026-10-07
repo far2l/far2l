@@ -91,7 +91,7 @@ void ShowSocketList(Panel *ActivePanel)
 
 	for (unsigned int loop_id = 1; !NetList.Done(); ++loop_id) {
 		const auto now = GetProcessUptimeMSec();
-		if (last_refresh == 0 || (schedule_refresh && (now >= schedule_refresh || now < last_refresh))) {
+		if (last_refresh == 0 || (schedule_refresh && !NetList.IsFilterEnabled() && (now >= schedule_refresh || now < last_refresh))) {
 			int selected_pos = NetList.GetSelectPos();
 			int selected_pid = selected_pos < (int)entries.size() ? entries[selected_pos].pid : getpid();
 			NetList.Hide();

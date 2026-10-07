@@ -36,6 +36,28 @@ enum class QuestionAnswer {
     CANCEL      // Abort entire transfer session
 };
 
+enum class ScanState {
+    QUEUED,
+    SCANNING,
+    COMPLETED,
+    CANCELLED,
+    FAILED
+};
+
+// Independent progress metrics for a scanned folder in the copy queue
+struct FolderScanProgress {
+    uint64_t job_id = 0;
+    std::string folder_path;
+    std::string destination_dir;
+    ScanState state = ScanState::QUEUED;
+    uint32_t scanned_files = 0;
+    uint32_t scanned_folders = 0;
+    uint64_t scanned_bytes = 0;
+    std::string current_item;
+    double elapsed_ms = 0.0;
+    bool is_completed = false;
+};
+
 struct FileStat {
     off_t size = 0;
     mode_t mode = 0;
@@ -120,6 +142,13 @@ struct TransferProgress {
     bool is_paused_for_io_error = false;
     std::string io_error_reason;
     size_t buffer_ring_size_mb = 64;
+
+    // Per-folder independent scanning progress
+    std::vector<FolderScanProgress> folder_scans;
+    uint32_t total_scanned_files = 0;
+    uint32_t total_scanned_folders = 0;
+    uint64_t total_scanned_bytes = 0;
+    bool is_scanning_active = false;
 };
 
 struct TransferMetrics {
@@ -140,4 +169,10 @@ struct TransferMetrics {
     uint64_t mmap_transferred_bytes = 0;
     bool had_critical_io_error = false;
     size_t buffer_ring_size_mb = 64;
+
+    // Folder scanning statistics
+    std::vector<FolderScanProgress> folder_scans;
+    uint32_t total_scanned_files = 0;
+    uint32_t total_scanned_folders = 0;
+    uint64_t total_scanned_bytes = 0;
 };

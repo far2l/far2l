@@ -197,6 +197,8 @@ src/sensorlist.cpp
 src/tm/BufferRing.cpp
 src/tm/LocalFileSystem.cpp
 src/tm/TransferManager.cpp
+
+src/OsdPanel.cpp
 )
 
 # Option to disable building macro subsystem completely

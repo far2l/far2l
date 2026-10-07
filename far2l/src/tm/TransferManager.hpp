@@ -61,11 +61,19 @@ public:
 
     // Dynamic multi-destination transfers: add files/folders with individual target destinations
     uint64_t addTransferJob(const std::string& sourcePath, const std::string& destinationDir, TransferMode mode = TransferMode::COPY);
+    uint64_t addDynamicJob(const std::string& sourcePath, const std::string& destinationDir, TransferMode mode = TransferMode::COPY) {
+        return addTransferJob(sourcePath, destinationDir, mode);
+    }
     std::vector<uint64_t> addTransferJobs(const std::vector<std::string>& sources, const std::string& destinationDir, TransferMode mode = TransferMode::COPY);
 
     // Dynamic background transfer: add new sources to copy queue while transfer is in progress
     void addSource(const std::string& sourcePath);
     void addSource(const std::string& sourcePath, const std::string& destinationDir);
+
+    void setAnswerForType(QuestionType type, QuestionAnswer answer) {
+        std::lock_guard<std::mutex> lock(question_mutex_);
+        remembered_answers_[type] = answer;
+    }
 
     // Buffer ring configuration (16 MB to 1024 MB)
     void setBufferRingSizeMB(size_t sizeMB, size_t chunkSize = 1024 * 1024);
@@ -95,6 +103,10 @@ public:
     TransferProgress getProgress() const;
     std::vector<TransferQuestion> getActiveQuestions() const;
 
+    // Per-folder independent scan progress inspection
+    std::vector<FolderScanProgress> getFolderScanProgresses() const;
+    bool getFolderScanProgress(uint64_t jobId, FolderScanProgress& outProgress) const;
+
     // Answer an active question from the question pool manually (e.g. from UI or interactive CLI)
     bool answerQuestion(uint64_t questionId, QuestionAnswer answer, bool rememberForType = false);
 
@@ -104,6 +116,9 @@ public:
     }
     void setQuestionCallback(std::function<QuestionAnswer(const TransferQuestion&, bool&)> cb) {
         question_cb_ = std::move(cb);
+    }
+    void setScanProgressCallback(std::function<void(const FolderScanProgress&)> cb) {
+        scan_progress_cb_ = std::move(cb);
     }
 
     // Set custom filesystem abstraction layer (e.g. for sudo proxy escalation)
@@ -118,6 +133,7 @@ protected:
     // Virtual callbacks intended to be overridden in derived classes (e.g. far2l dialogs/TUI)
     virtual void onProgress(const TransferProgress& progress);
     virtual QuestionAnswer onQuestion(const TransferQuestion& question, bool& rememberForType);
+    virtual void onFolderScanProgress(const FolderScanProgress& scan);
 
 private:
     std::shared_ptr<IFileSystem> fs_;
@@ -187,6 +203,7 @@ private:
     // Callbacks
     std::function<void(const TransferProgress&)> progress_cb_;
     std::function<QuestionAnswer(const TransferQuestion&, bool&)> question_cb_;
+    std::function<void(const FolderScanProgress&)> scan_progress_cb_;
 
     // Internal thread routines
     void discoveryWorker();
@@ -224,4 +241,27 @@ private:
                                          const std::string& symlinkSrcPath,
                                          const std::string& symlinkDstPath,
                                          const std::string& rootSrcTree);
+
+    // Multithreaded Folder Scanning via shared reader/worker thread pool
+    struct FolderScanTask {
+        uint64_t job_id = 0;
+        std::string current_src_dir;
+        std::string current_dst_dir;
+        std::string root_src;
+        std::string root_dst;
+    };
+
+    mutable std::mutex scan_mutex_;
+    std::map<uint64_t, FolderScanProgress> folder_scans_;
+    std::deque<FolderScanTask> pending_scan_tasks_;
+    std::map<uint64_t, size_t> active_tasks_per_job_;
+    std::atomic<uint32_t> total_scanned_files_{0};
+    std::atomic<uint32_t> total_scanned_folders_{0};
+    std::atomic<uint64_t> total_scanned_bytes_{0};
+    std::atomic<bool> any_scanning_active_{false};
+
+    void enqueueFolderScan(uint64_t jobId, const std::string& srcPath, const std::string& targetBase);
+    bool processScanTask(const FolderScanTask& task);
+    void updateJobScanProgress(uint64_t jobId, const std::string& currentItem, uint32_t newFiles, uint32_t newFolders, uint64_t newBytes);
+    void completeJobScan(uint64_t jobId);
 };
