@@ -531,17 +531,41 @@ void FilePanels::DeletePanel(DoublePanel& activeTab, Panel *Deleted)
 	delete Deleted;
 }
 
+void FilePanels::ActivateOsdPane() {
+	if (osd.HasActiveLines()) { 
+		Panel* holder = GetAnotherPanel(ActiveTab(), ActiveTab().ActivePanel);
+		if (holder->IsVisible()) {
+			int px1, py1, px2, py2;
+			holder->GetPosition(px1, py1, px2, py2);
+			auto prefSize = osd.GetPreferredSize();
+			int prefW = prefSize.first;
+			int prefH = prefSize.second; 
+			int maxH = py2 - py1 - 4;
+			int maxW = px2 - py1 - 4;
+
+			if(prefH > maxH) prefH = maxH;
+			if(prefW > maxW) prefW = maxW;
+
+			osd.SetPosition(px2 - prefW - 2, py2 - prefH - 2, px2 - 2, py2 -2);
+			osd.SetMaxSize(prefW, prefH);
+			osd.Show();
+		}
+	}
+}
+
 int FilePanels::SetAnotherPanelFocus()
 {
 	int Ret = FALSE;
 
 	if (ActiveTab().ActivePanel == ActiveTab().LeftPanel) {
 		if (ActiveTab().RightPanel->IsVisible()) {
+			osd.Hide();
 			ActiveTab().RightPanel->SetFocus();
 			Ret = TRUE;
 		}
 	} else {
 		if (ActiveTab().LeftPanel->IsVisible()) {
+			osd.Hide();
 			ActiveTab().LeftPanel->SetFocus();
 			Ret = TRUE;
 		}
@@ -549,6 +573,7 @@ int FilePanels::SetAnotherPanelFocus()
 
 	if (Ret) {
 		SetTabNames();
+		if (osd.HasActiveLines()) ActivateOsdPane();
 		TopTabBar.Show();
 	}
 

@@ -107,20 +107,28 @@ void OsdPanel::UpdateLine(int rowNumber, const std::wstring& text) {
     TriggerRedrawIfEnabled();
 }
 
+bool OsdPanel::HasActiveLines() {
+	bool hasSome = false;
+    for(size_t i = 0; i < m_rows.size(); ++i) {
+    	if (m_rows[i].visible){ 
+        	hasSome = true;
+    		break;
+        }
+    }
+    return hasSome;
+}
+
+
 void OsdPanel::CompleteLine(int rowNumber) {
     {
         std::unique_lock<std::shared_mutex> lock(m_mutex);
         if (rowNumber >= 0 && rowNumber < static_cast<int>(m_rows.size())) {
 	        m_rows[rowNumber].visible = false;
 		}
-		bool hasSome = false;
-        for(size_t i = 0; i < m_rows.size(); ++i) {
-        	if (m_rows[i].visible){ 
-            	hasSome = true;
-        		break;
-            }
+        if (!HasActiveLines()) { 
+        	m_rows.clear();
+        	if (IsVisible()) Hide();
         }
-        if (!hasSome) m_rows.clear();
     }
     TriggerRedrawIfEnabled();
 }
@@ -351,6 +359,11 @@ void OsdPanel::RemoveRow(int rowNumber) {
         std::unique_lock<std::shared_mutex> lock(m_mutex);
         if (rowNumber >= 0 && rowNumber < static_cast<int>(m_rows.size())) {
             m_rows.erase(m_rows.begin() + rowNumber);
+        }
+
+        if (!HasActiveLines()) { 
+        	m_rows.clear();
+        	if (IsVisible()) Hide();
         }
     }
     TriggerRedrawIfEnabled();

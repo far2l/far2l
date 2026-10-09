@@ -1391,7 +1391,7 @@ static bool HandleGutterClick(const INPUT_RECORD *ir)
 	if (g_popup_active || g_pending_popup.active)
 		return true;
 
-	const int rel_x = me.dwMousePosition.X - ei.StartX - 2;
+	const int rel_x = me.dwMousePosition.X - ei.WindowX;
 	const int rel_y = me.dwMousePosition.Y - ei.WindowY;
 	if (rel_x < 0 || rel_y < 0)
 		return false;

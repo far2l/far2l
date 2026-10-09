@@ -37,6 +37,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "keybar.hpp"
 #include "menubar.hpp"
 #include "tabbar.hpp"
+#include "OsdPanel.hpp"
 
 class Panel;
 class CommandLine;
@@ -76,6 +77,7 @@ public:
 	KeyBar MainKeyBar;
 	MenuBar TopMenuBar;
 	TabBar TopTabBar;
+	OsdPanel osd;
 
 	int TabHovered {1};
 	int TabActive  {0};
@@ -101,6 +103,7 @@ private:
 	void destroyPanelsGracefully(DoublePanel& tab);
 	void activatePanelsInTab(DoublePanel& tab);
 	void deactivatePanelsInTab(DoublePanel& tab);
+	void ActivateOsdPane();
 
 public:
 	void Init();

@@ -106,6 +106,8 @@ public:
 
     void SetDefaultColors(uint64_t _color);
 
+    bool HasActiveLines();
+
     // --- General Line API (Thread-Safe) ---
 
     int AddLine(const std::wstring& text, uint64_t color = 0);
