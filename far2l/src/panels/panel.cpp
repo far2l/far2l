@@ -324,20 +324,19 @@ static void ConfigureChangeDriveMode()
 	//	ShowSizeFloat->Indent(3);
 	//	Builder.LinkFlags(ShowSize, ShowSizeFloat, DIF_DISABLE);
 
-	auto ShowMountsItem =
-			Builder.AddCheckbox(Msg::ChangeDriveShowMounts, &Opt.ChangeDriveMode, DRIVE_SHOW_MOUNTS);
+	auto ShowMountsItem = Builder.AddCheckbox(Msg::ChangeDriveShowMounts, &Opt.ChangeDriveMode, DRIVE_SHOW_MOUNTS);
 
+	Builder.AddText(Msg::ChangeDriveExceptions, false);
 	auto EditItem = Builder.AddEditField(&Opt.ChangeDriveExceptions, 28);
 	Builder.LinkFlags(ShowMountsItem, EditItem, DIF_DISABLE);
-	Builder.AddTextBefore(EditItem, Msg::ChangeDriveExceptions);
 
+	Builder.AddText(Msg::ChangeDriveColumn2, false);
 	EditItem = Builder.AddEditField(&Opt.ChangeDriveColumn2, 28);
 	Builder.LinkFlags(ShowMountsItem, EditItem, DIF_DISABLE);
-	Builder.AddTextBefore(EditItem, Msg::ChangeDriveColumn2);
 
+	Builder.AddText(Msg::ChangeDriveColumn3, false);
 	EditItem = Builder.AddEditField(&Opt.ChangeDriveColumn3, 28);
 	Builder.LinkFlags(ShowMountsItem, EditItem, DIF_DISABLE);
-	Builder.AddTextBefore(EditItem, Msg::ChangeDriveColumn3);
 
 	Builder.AddCheckbox(Msg::ChangeDriveShowShortcuts, &Opt.ChangeDriveMode, DRIVE_SHOW_BOOKMARKS);
 	Builder.AddCheckbox(Msg::ChangeDriveShowPlugins, &Opt.ChangeDriveMode, DRIVE_SHOW_PLUGINS);
@@ -440,7 +439,7 @@ int Panel::ChangeDiskMenu(int Pos, int FirstCall)
 	public:
 		Guard_Macro_DskShowPosType(Panel *curPanel)
 		{
-			Macro_DskShowPosType = (curPanel == CtrlObject->Cp()->LeftPanel) ? 1 : 2;
+			Macro_DskShowPosType = (curPanel == CtrlObject->Cp()->ActiveTab().LeftPanel) ? 1 : 2;
 		}
 		~Guard_Macro_DskShowPosType() { Macro_DskShowPosType = 0; }
 	};
@@ -464,7 +463,7 @@ int Panel::ChangeDiskMenu(int Pos, int FirstCall)
 		ChDisk.SetBottomTitle(Msg::ChangeDriveMenuFooter);
 		ChDisk.SetFlags(VMENU_NOTCENTER);
 
-		if (this == CtrlObject->Cp()->LeftPanel)
+		if (this == CtrlObject->Cp()->ActiveTab().LeftPanel)
 			ChDisk.SetFlags(VMENU_LEFTMOST);
 
 		ChDisk.SetHelp(L"DriveDlg");
@@ -523,7 +522,7 @@ int Panel::ChangeDiskMenu(int Pos, int FirstCall)
 
 		int X = X1 + 5;
 
-		if ((this == CtrlObject->Cp()->RightPanel) && IsFullScreen() && (X2 - X1 > 40))
+		if ((this == CtrlObject->Cp()->ActiveTab().RightPanel) && IsFullScreen() && (X2 - X1 > 40))
 			X = (X2 - X1 + 1) / 2 + 5;
 
 		int Y = (ScrY + 1 - (ChDisk.GetItemCount() + 5)) / 2;
@@ -786,18 +785,18 @@ void Panel::sUnmountPath(FARString path, bool forced)
 	FARString dir;
 	bool left_notify_closed = false, right_notify_closed = false;
 
-	if (CtrlObject->Cp()->LeftPanel && CtrlObject->Cp()->LeftPanel->PanelMode == NORMAL_PANEL) {
-		CtrlObject->Cp()->LeftPanel->GetCurDirPluginAware(dir);
+	if (CtrlObject->Cp()->ActiveTab().LeftPanel && CtrlObject->Cp()->ActiveTab().LeftPanel->PanelMode == NORMAL_PANEL) {
+		CtrlObject->Cp()->ActiveTab().LeftPanel->GetCurDirPluginAware(dir);
 		if (ArePathesAtSameDevice(path, dir)) {
-			CtrlObject->Cp()->LeftPanel->CloseChangeNotification();
+			CtrlObject->Cp()->ActiveTab().LeftPanel->CloseChangeNotification();
 			left_notify_closed = true;
 		}
 	}
 
-	if (CtrlObject->Cp()->RightPanel && CtrlObject->Cp()->RightPanel->PanelMode == NORMAL_PANEL) {
-		CtrlObject->Cp()->RightPanel->GetCurDirPluginAware(dir);
+	if (CtrlObject->Cp()->ActiveTab().RightPanel && CtrlObject->Cp()->ActiveTab().RightPanel->PanelMode == NORMAL_PANEL) {
+		CtrlObject->Cp()->ActiveTab().RightPanel->GetCurDirPluginAware(dir);
 		if (ArePathesAtSameDevice(path, dir)) {
-			CtrlObject->Cp()->RightPanel->CloseChangeNotification();
+			CtrlObject->Cp()->ActiveTab().RightPanel->CloseChangeNotification();
 			right_notify_closed = true;
 		}
 	}
@@ -813,10 +812,10 @@ void Panel::sUnmountPath(FARString path, bool forced)
 
 	FarChDir(dir);
 	if (left_notify_closed) {
-		CtrlObject->Cp()->LeftPanel->CreateChangeNotification(FALSE);
+		CtrlObject->Cp()->ActiveTab().LeftPanel->CreateChangeNotification(FALSE);
 	}
 	if (right_notify_closed) {
-		CtrlObject->Cp()->RightPanel->CreateChangeNotification(FALSE);
+		CtrlObject->Cp()->ActiveTab().RightPanel->CreateChangeNotification(FALSE);
 	}
 }
 
@@ -976,7 +975,6 @@ static DWORD _CorrectFastFindKbdLayout(INPUT_RECORD *rec, DWORD Key)
 				&& WCHAR(Key & KEY_MASKF) != rec->Event.KeyEvent.uChar.UnicodeChar)		//???
 			Key = (Key & (~KEY_MASKF)) | (rec->Event.KeyEvent.uChar.UnicodeChar & KEY_MASKF);	//???
 
-																						// // _SVS(SysLog(L"_CorrectFastFindKbdLayout<<< %ls | %ls",_FARKEY_ToName(Key),_INPUT_RECORD_Dump(rec)));
 	}
 
 	return Key;
@@ -1152,7 +1150,7 @@ void Panel::FastFind(int FirstKey)
 	Show();
 	CtrlObject->MainKeyBar->Redraw();
 	ScrBuf.Flush();
-	Panel *ActivePanel = CtrlObject->Cp()->ActivePanel;
+	Panel *ActivePanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 
 	if ((KeyToProcess == KEY_ENTER || KeyToProcess == KEY_NUMENTER) && ActivePanel->GetType() == TREE_PANEL)
 		((TreeList *)ActivePanel)->ProcessEnter();
@@ -1175,9 +1173,9 @@ void Panel::FastFindShow(int FindX, int FindY)
 
 void Panel::SetFocus()
 {
-	if (CtrlObject->Cp()->ActivePanel != this) {
-		CtrlObject->Cp()->ActivePanel->KillFocus();
-		CtrlObject->Cp()->ActivePanel = this;
+	if (CtrlObject->Cp()->ActiveTab().ActivePanel != this) {
+		CtrlObject->Cp()->ActiveTab().ActivePanel->KillFocus();
+		CtrlObject->Cp()->ActiveTab().ActivePanel = this;
 	}
 
 	ProcessPluginEvent(FE_GOTFOCUS, nullptr);
@@ -1383,6 +1381,7 @@ BOOL Panel::SetCurDir(const wchar_t *CurDir, int ClosePlugin)
 
 		if (PanelMode != PLUGIN_PANEL)
 			PrepareDiskPath(strCurDir);
+		//CtrlObject->Cp()->UpdateTabBar();
 	}
 
 	return TRUE;
@@ -1526,9 +1525,9 @@ void Panel::Show()
 void Panel::DrawSeparator(int Y)
 {
 	if (Y < Y2) {
-		SetFarColor(COL_PANELBOX);
+		SetFarColorBlacked(COL_PANELBOX, Focus);
 		GotoXY(X1, Y);
-		ShowSeparator(X2 - X1 + 1, 1);
+		ShowSeparator(X2 - X1 + 1, 12 /* strict; was relaxed e.g. was 1 */);
 	}
 }
 
@@ -1760,7 +1759,7 @@ int Panel::SetPluginCommand(int Command, int Param1, LONG_PTR Param2)
 				Flags|= GetCaseSensitiveSort() ? PFLAGS_CASESENSITIVESORT : 0;
 				Flags|= GetExecutablesFirst() ? PFLAGS_EXECUTABLESFIRST : 0;
 
-				if (CtrlObject->Cp()->LeftPanel == this)
+				if (CtrlObject->Cp()->ActiveTab().LeftPanel == this)
 					Flags|= PFLAGS_PANELLEFT;
 
 				Info->Flags = Flags;
@@ -1945,7 +1944,7 @@ int Panel::SetPluginCommand(int Command, int Param1, LONG_PTR Param2)
 			if (Param2) {
 				Result = SetCurDir((const wchar_t *)Param2, TRUE);
 				// restore current directory to active panel path
-				Panel *ActivePanel = CtrlObject->Cp()->ActivePanel;
+				Panel *ActivePanel = CtrlObject->Cp()->ActiveTab().ActivePanel;
 				if (Result && this != ActivePanel) {
 					ActivePanel->SetCurPath();
 				}
@@ -2090,7 +2089,7 @@ bool Panel::ExecShortcutFolder(int Pos)
 
 				SrcPanel->Show();
 			} else {
-				if (CtrlObject->Cp()->ActivePanel->ProcessPluginEvent(FE_CLOSE, nullptr))
+				if (CtrlObject->Cp()->ActiveTab().ActivePanel->ProcessPluginEvent(FE_CLOSE, nullptr))
 					return true;
 
 				for (int I = 0; I < CtrlObject->Plugins.GetPluginsCount(); I++) {

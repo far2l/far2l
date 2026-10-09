@@ -62,6 +62,7 @@
 	WINPORT_DECL_DEF(SetConsoleScrollCallback, VOID, (HANDLE hConsoleOutput, PCONSOLE_SCROLL_CALLBACK pCallback, PVOID pContext))
 	WINPORT_DECL_DEF(BeginConsoleAdhocQuickEdit, BOOL, ())
 	WINPORT_DECL_DEF(SetConsoleTweaks, DWORD64, (DWORD64 tweaks))
+	WINPORT_DECL_DEF(GetConsoleTweaks, DWORD64, ())
 
 	WINPORT_DECL_DEF(SaveConsoleWindowState,VOID,())
 	WINPORT_DECL_DEF(ConsoleChangeFont, VOID, ())
@@ -230,6 +231,7 @@
 	// use Clipboard-Alloc/-Free/-Size to operate data pointers
 	WINPORT_DECL_DEF(GetClipboardData, PVOID, (UINT format))
 	WINPORT_DECL_DEF(SetClipboardData, PVOID, (UINT format, HANDLE mem))
+	WINPORT_DECL_DEF(ChooseClipboard, INT, (INT type))
 
 	// these are simplified analogs for Win32's Global* APIs, that dedicated to reference clipboard data
 	WINPORT_DECL_DEF(ClipboardAlloc, PVOID, (SIZE_T len)) // allocates zero-initialized memory
@@ -252,6 +254,9 @@
 	WINPORT_DECL_DEF(PrintIsPreviewSupported, BOOL, ())
 	WINPORT_DECL_DEF(PrintIsHTMLSupported, BOOL, ())
 	WINPORT_DECL_DEF(PrintIsSettingsDialogSupported, BOOL, ())
+
+	//backend config sharing
+	WINPORT_DECL_DEF(ShareBackendOptions, VOID, (PVOID options))
 
 	//keyboard
 	WINPORT_DECL_DEF(GetKeyboardLayoutList, int, (int nBuff, HKL *lpList))

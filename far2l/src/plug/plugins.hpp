@@ -141,6 +141,16 @@ enum OPENFILEPLUGINTYPE
 	OFP_COMMANDS,
 };
 
+struct PluginMenuItemData {
+	Plugin *pPlugin;
+	int nItem;
+};
+
+struct MenuItemData {
+	std::wstring name;
+	PluginMenuItemData pluginItem;
+};
+
 struct PluginHandle
 {
 	HANDLE hPlugin;
@@ -222,6 +232,8 @@ public:
 	bool GetDiskMenuItem(Plugin *pPlugin, int PluginItem, bool &ItemPresent, wchar_t &PluginHotkey,
 			FARString &strPluginText);
 
+	std::vector<MenuItemData> GetMenuItems(int ModalType, int StartPos = 0, const wchar_t *HistoryName = nullptr);
+
 	int UseFarCommand(HANDLE hPlugin, int CommandType);
 	void ReloadLanguage();
 	void DiscardCache();
@@ -250,8 +262,7 @@ public:
 	void GetOpenPluginInfo(HANDLE hPlugin, OpenPluginInfo *Info);
 	int GetFindData(HANDLE hPlugin, PluginPanelItem **pPanelItem, int *pItemsNumber, int Silent);
 	void FreeFindData(HANDLE hPlugin, PluginPanelItem *PanelItem, int ItemsNumber);
-	int
-	GetVirtualFindData(HANDLE hPlugin, PluginPanelItem **pPanelItem, int *pItemsNumber, const wchar_t *Path);
+	int	GetVirtualFindData(HANDLE hPlugin, PluginPanelItem **pPanelItem, int *pItemsNumber, const wchar_t *Path);
 	void FreeVirtualFindData(HANDLE hPlugin, PluginPanelItem *PanelItem, int ItemsNumber);
 	int SetDirectory(HANDLE hPlugin, const wchar_t *Dir, int OpMode);
 	int GetFile(HANDLE hPlugin, PluginPanelItem *PanelItem, const wchar_t *DestPath, FARString &strResultName,
@@ -265,8 +276,7 @@ public:
 	int ProcessHostFile(HANDLE hPlugin, PluginPanelItem *PanelItem, int ItemsNumber, int OpMode);
 	int ProcessKey(HANDLE hPlugin, int Key, unsigned int ControlState);
 	int ProcessEvent(HANDLE hPlugin, int Event, void *Param);
-	int
-	Compare(HANDLE hPlugin, const PluginPanelItem *Item1, const PluginPanelItem *Item2, unsigned int Mode);
+	int	Compare(HANDLE hPlugin, const PluginPanelItem *Item1, const PluginPanelItem *Item2, unsigned int Mode);
 	int ProcessEditorInput(INPUT_RECORD *Rec);
 	int ProcessEditorEvent(int Event, void *Param);
 	int ProcessViewerEvent(int Event, void *Param);

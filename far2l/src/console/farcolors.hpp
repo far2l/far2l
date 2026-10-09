@@ -76,7 +76,7 @@ public:
 
 	bool Load(KeyFileHelper &kfh) noexcept;
 	bool Save(KeyFileHelper &kfh) noexcept;
-	void ResetToDefaultIndex(uint8_t *indexes = nullptr) noexcept;
+	void ResetToDefaultIndex(uint8_t *indexes = nullptr, size_t length = 0) noexcept;
 	void ResetToDefaultIndexRGB(uint8_t *indexes = nullptr) noexcept;
 	void Reset(bool RGB = false) noexcept;
 
@@ -92,6 +92,8 @@ public:
 
 	static std::vector<std::string> GetKnownUserThemes ();
 	static std::vector<std::string> GetKnownSystemThemes ();
+
+	uint64_t lookupBaseColor(const char* name, uint64_t dfl);
 };
 
 inline uint64_t FarColorToReal(unsigned int FarColor)

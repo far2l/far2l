@@ -34,6 +34,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "headers.hpp"
 
 #include <ctype.h>
+#include "InterThreadCall.hpp"
 #include "keyboard.hpp"
 #include "farqueue.hpp"
 #include "lang.hpp"
@@ -78,6 +79,21 @@ static void StripPastedBOM()
 {
 	if (!GPastedText.IsEmpty() && GPastedText.At(0) == L'\xFEFF')
 		GPastedText.LShift(1);
+}
+
+// Pasted text is accumulated in std::wstring rather than appended to GPastedText
+// char by char, as FARString grows its buffer without reserve, so appending large
+// pasted text to it char by char has quadratic complexity
+static void AppendPastedKeyEvent(std::wstring &pasted, const KEY_EVENT_RECORD &ke)
+{
+	if (ke.bKeyDown) {
+		if (ke.uChar.UnicodeChar)
+			pasted+= ke.uChar.UnicodeChar;
+		else if (ke.wVirtualKeyCode == VK_RETURN)
+			pasted+= L'\n';
+		else if (ke.wVirtualKeyCode == VK_TAB)
+			pasted+= L'\t';
+	}
 }
 
 /* end Глобальные переменные */
@@ -447,7 +463,6 @@ unsigned int WINAPI InputRecordToKey(const INPUT_RECORD *r)
 	return KEY_NONE;
 }
 
-
 DWORD IsMouseButtonPressed()
 {
 	std::vector<INPUT_RECORD> recs;
@@ -462,6 +477,7 @@ DWORD IsMouseButtonPressed()
 			recs.pop_back(); // forget mouse and noop events
 		}
 	}
+
 	// IsMouseButtonPressed used within loops, so lets sleep to avoid CPU hogging in that loops
 	// it would be nicer to sleep inside of that loops instead, but keep to original code for now
 	if (!recs.empty()) {
@@ -527,7 +543,7 @@ static DWORD GetInputRecordInner(INPUT_RECORD *rec, bool ExcludeMacro, bool Proc
 
 	if (LIKELY(FrameManager) && FrameManager->RegularIdleWantersCount()) {
 		clock_t now = GetProcessUptimeMSec();
-		if (now - sLastIdleDelivered >= 1000) {
+		if (now - sLastIdleDelivered >= 250) {
 			LastEventIdle = TRUE;
 			memset(rec, 0, sizeof(*rec));
 			rec->EventType = KEY_EVENT;
@@ -648,16 +664,14 @@ static DWORD GetInputRecordInner(INPUT_RECORD *rec, bool ExcludeMacro, bool Proc
 				continue;
 			}
 			if (rec->EventType == KEY_EVENT && BracketedPasteMode) {
-				Console.ReadInput(*rec);
-				if (rec->Event.KeyEvent.bKeyDown) {
-					WCHAR wc = rec->Event.KeyEvent.uChar.UnicodeChar;
-					if (wc)
-						GPastedText += wc;
-					else if (rec->Event.KeyEvent.wVirtualKeyCode == VK_RETURN)
-						GPastedText += L'\n';
-					else if (rec->Event.KeyEvent.wVirtualKeyCode == VK_TAB)
-						GPastedText += L'\t';
-				}
+				// grab all already arrived pasted chars at once instead of
+				// passing them one by one, each with own paste operation
+				std::wstring pasted;
+				do {
+					Console.ReadInput(*rec);
+					AppendPastedKeyEvent(pasted, rec->Event.KeyEvent);
+				} while (Console.PeekInput(*rec) && rec->EventType == KEY_EVENT);
+				GPastedText.Append(pasted.c_str(), pasted.size());
 				StripPastedBOM();
 				if (!GPastedText.IsEmpty()) {
 					memset(rec, 0, sizeof(*rec));
@@ -715,6 +729,13 @@ static DWORD GetInputRecordInner(INPUT_RECORD *rec, bool ExcludeMacro, bool Proc
 			}
 
 #endif
+			/* vk: revoke
+			if (rec->EventType == NOOP_EVENT) {
+				Console.ReadInput(*rec);
+				DispatchInterThreadCalls();
+				CheckForPendingCtrlHandleEvent();
+				break;
+			}*/
 			break;
 		}
 
@@ -724,7 +745,7 @@ static DWORD GetInputRecordInner(INPUT_RECORD *rec, bool ExcludeMacro, bool Proc
 		ScrBuf.Flush();
 
 		static DWORD sLastIdleWaitConsoleInput = 0;
-		DWORD WaitConsoleInputTmout = (sLastIdleWaitConsoleInput < 5) ? 10 : 160;
+		DWORD WaitConsoleInputTmout = (sLastIdleWaitConsoleInput < 5) ? 10 : 50;
 //		fprintf(stderr, " WaitConsoleInputTmout=%u\n", WaitConsoleInputTmout);
 		if (WINPORT(WaitConsoleInput)(NULL, WaitConsoleInputTmout)) {
 			sLastIdleWaitConsoleInput = 0;
@@ -790,8 +811,8 @@ static DWORD GetInputRecordInner(INPUT_RECORD *rec, bool ExcludeMacro, bool Proc
 
 				if (!UpdateReenter && CurTime - KeyPressedLastTime > 700) {
 					UpdateReenter = TRUE;
-					CtrlObject->Cp()->LeftPanel->UpdateIfChanged(UIC_UPDATE_NORMAL);
-					CtrlObject->Cp()->RightPanel->UpdateIfChanged(UIC_UPDATE_NORMAL);
+					CtrlObject->Cp()->ActiveTab().LeftPanel->UpdateIfChanged(UIC_UPDATE_NORMAL);
+					CtrlObject->Cp()->ActiveTab().RightPanel->UpdateIfChanged(UIC_UPDATE_NORMAL);
 					UpdateReenter = FALSE;
 				}
 			}
@@ -826,6 +847,7 @@ static DWORD GetInputRecordInner(INPUT_RECORD *rec, bool ExcludeMacro, bool Proc
 
 		if (start) {
 			GPastedText.Clear();
+			std::wstring pasted;
 			INPUT_RECORD tmprec;
 			while (true) {
 				// Wait briefly for input to avoid busy looping, but assume stream is fast
@@ -843,21 +865,20 @@ static DWORD GetInputRecordInner(INPUT_RECORD *rec, bool ExcludeMacro, bool Proc
 					}
 				} else if (tmprec.EventType == KEY_EVENT) {
 					Console.ReadInput(tmprec);
-					if (tmprec.Event.KeyEvent.bKeyDown) {
-						WCHAR wc = tmprec.Event.KeyEvent.uChar.UnicodeChar;
-						if (wc)
-							GPastedText += wc;
-						else if (tmprec.Event.KeyEvent.wVirtualKeyCode == VK_RETURN)
-							GPastedText += L'\n';
-						else if (tmprec.Event.KeyEvent.wVirtualKeyCode == VK_TAB)
-							GPastedText += L'\t';
-					}
+					AppendPastedKeyEvent(pasted, tmprec.Event.KeyEvent);
 				} else {
 					Console.ReadInput(tmprec); // Consume other events to avoid blocking
 				}
 			}
 
+			// If the paste-end event was never received (timeout/no input),
+			// reset BracketedPasteMode so subsequent key events aren't swallowed.
+			if (BracketedPasteMode)
+				BracketedPasteMode = false;
+
+			GPastedText.Append(pasted.c_str(), pasted.size());
 			StripPastedBOM();
+
 			if (!GPastedText.IsEmpty()) {
 				memset(rec, 0, sizeof(*rec));
 				rec->EventType = NOOP_EVENT; // Fake key event
