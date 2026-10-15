@@ -424,11 +424,13 @@ void ConsoleOutput::ScrollOutputOnOverflow(SMALL_RECT &area)
 	AffectArea(area, scr_rect);
 }
 
-SHORT ConsoleOutput::ModifySequenceEntityAt(SequenceModifier &sm, COORD pos, SMALL_RECT &area)
+SHORT ConsoleOutput::ModifySequenceEntityAt(SequenceModifier &sm, COORD pos, SMALL_RECT &area, HintContainerType hcc, HintObjectType hco)
 {
 	CHAR_INFO ch;
 	SHORT out = 1;
 	bool needs_trailing_blank = false;
+	ch.Extra.Hint.Container = hcc;
+	ch.Extra.Hint.Object = hco;
 
 	auto readPrevChar = [&](CHAR_INFO &prev_char) -> bool {
 		return _prev_pos.X >= 0 && _buf.Read(prev_char, _prev_pos);
@@ -507,6 +509,9 @@ SHORT ConsoleOutput::ModifySequenceEntityAt(SequenceModifier &sm, COORD pos, SMA
 		} break;
 	}
 
+	if (hcc != HintNone) ch.Extra.Hint.Container = hcc;
+	if (hco != HintObjectNone) ch.Extra.Hint.Object = hco;
+
 	if (_buf.Write(ch, pos) == ConsoleBuffer::WR_MODIFIED) {
 		AffectArea(area, pos.X, pos.Y);
 		if (needs_trailing_blank) {
@@ -521,7 +526,7 @@ SHORT ConsoleOutput::ModifySequenceEntityAt(SequenceModifier &sm, COORD pos, SMA
 	return out;
 }
 
-size_t ConsoleOutput::ModifySequenceAt(SequenceModifier &sm, COORD &pos)
+size_t ConsoleOutput::ModifySequenceAt(SequenceModifier &sm, COORD &pos, HintContainerType hcc, HintObjectType hco)
 {
 	size_t rv = 0;
 	SMALL_RECT areas[3] = {NO_AREA, NO_AREA, NO_AREA}; // pos1, pos2, main
@@ -574,7 +579,7 @@ size_t ConsoleOutput::ModifySequenceAt(SequenceModifier &sm, COORD &pos)
 					ScrollOutputOnOverflow(areas[2]);
 				}
 			} else {
-				pos.X+= ModifySequenceEntityAt(sm, pos, areas[2]);
+				pos.X+= ModifySequenceEntityAt(sm, pos, areas[2], hcc, hco);
 			}
 			if (sm.kind==SequenceModifier::SM_WRITE_STR) {
 				if (*sm.str!=L'\t' || (pos.X%TAB_WIDTH)==0 || (_mode&ENABLE_PROCESSED_OUTPUT)==0) {
@@ -639,27 +644,27 @@ void ConsoleOutput::DenoteExplicitLineWrap(COORD pos)
 	}
 }
 
-size_t ConsoleOutput::WriteString(const WCHAR *data, size_t count)
+size_t ConsoleOutput::WriteString(const WCHAR *data, size_t count, HintContainerType hcc, HintObjectType hco)
 {
 	SequenceModifier sm = {SequenceModifier::SM_WRITE_STR, count };
 	sm.str = data;
-	return ModifySequenceAt(sm, _cursor.pos);
+	return ModifySequenceAt(sm, _cursor.pos, hcc, hco);
 }
 
 
-size_t ConsoleOutput::WriteStringAt(const WCHAR *data, size_t count, COORD &pos)
+size_t ConsoleOutput::WriteStringAt(const WCHAR *data, size_t count, COORD &pos, HintContainerType hcc, HintObjectType hco)
 {
 	SequenceModifier sm = {SequenceModifier::SM_WRITE_STR, count };
 	sm.str = data;
-	return ModifySequenceAt(sm, pos);
+	return ModifySequenceAt(sm, pos, hcc, hco);
 }
 
 
-size_t ConsoleOutput::FillCharacterAt(WCHAR cCharacter, size_t count, COORD &pos)
+size_t ConsoleOutput::FillCharacterAt(WCHAR cCharacter, size_t count, COORD &pos, HintContainerType hcc, HintObjectType hco)
 {
 	SequenceModifier sm = {SequenceModifier::SM_FILL_CHAR, count };
 	sm.chr = cCharacter;
-	return ModifySequenceAt(sm, pos);
+	return ModifySequenceAt(sm, pos, hcc, hco);
 }
 
 
@@ -667,7 +672,7 @@ size_t ConsoleOutput::FillAttributeAt(DWORD64 qAttributes, size_t count, COORD &
 {
 	SequenceModifier sm = {SequenceModifier::SM_FILL_ATTR, count };
 	sm.attr = qAttributes;
-	return ModifySequenceAt(sm, pos);
+	return ModifySequenceAt(sm, pos, HintNone, HintObjectNone);
 }
 
 
@@ -810,6 +815,14 @@ DWORD64 ConsoleOutput::SetConsoleTweaks(DWORD64 tweaks)
 	return _backend->OnConsoleSetTweaks(tweaks);
 }
 
+DWORD64 ConsoleOutput::GetConsoleTweaks()
+{
+	if (!_backend)
+		return 0;
+
+	return _backend->OnConsoleGetTweaks();
+}
+
 void ConsoleOutput::ConsoleChangeFont()
 {
 	if (_backend)
@@ -890,6 +903,7 @@ void ConsoleOutput::RepaintsDeferStart()
 void ConsoleOutput::RepaintsDeferFinish(bool force)
 {
 	std::vector<SMALL_RECT> deferred_repaints;
+	decltype(_deferred_image_visibility) image_visibility;
 	{
 		std::lock_guard<std::mutex> lock(_mutex);
 		if (force) {
@@ -899,9 +913,19 @@ void ConsoleOutput::RepaintsDeferFinish(bool force)
 		}
 		if (_repaint_defer == 0) {
 			deferred_repaints.swap(_deferred_repaints);
+			image_visibility.swap(_deferred_image_visibility);
 		}
 		if (!deferred_repaints.empty()) {
 			LockedChangeIdUpdate();
+		}
+	}
+	// The console cells are complete now. Publish image clipping only here:
+	// an earlier Refresh() would expose the old QuickView text before the dialog.
+	if (_backend) {
+		for (const auto &entry : image_visibility) {
+			const auto &state = entry.second;
+			_backend->OnSetConsoleImageVisibility(entry.first.c_str(), state.visible,
+					state.exclusions.data(), state.exclusions.size());
 		}
 	}
 	if (!deferred_repaints.empty() && _backend) {
@@ -1013,4 +1037,26 @@ bool ConsoleOutput::OnDeleteConsoleImage(const char *id)
 {
 	fprintf(stderr, "OnDeleteConsoleImage: id='%s'\n", id);
 	return _backend ? _backend->OnDeleteConsoleImage(id) : false;
+}
+
+bool ConsoleOutput::OnSetConsoleImageVisibility(const char *id, bool visible, const SMALL_RECT *exclusions, size_t count)
+{
+	if (!id || (count && !exclusions) || !_backend)
+		return false;
+	{
+		std::lock_guard<std::mutex> lock(_mutex);
+		if (_repaint_defer) {
+			auto &state = _deferred_image_visibility[id];
+			state.visible = visible;
+			state.exclusions.clear();
+			if (count)
+				state.exclusions.assign(exclusions, exclusions + count);
+			unsigned int width, height;
+			_buf.GetSize(width, height);
+			if (width && height)
+				_deferred_repaints.Add(SMALL_RECT{0, 0, SHORT(width - 1), SHORT(height - 1)});
+			return true;
+		}
+	}
+	return _backend ? _backend->OnSetConsoleImageVisibility(id, visible, exclusions, count) : false;
 }

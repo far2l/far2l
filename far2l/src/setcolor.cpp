@@ -524,10 +524,10 @@ void SetColors()
 		}
 	}
 	CtrlObject->Cp()->SetScreenPosition();
-	CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-	CtrlObject->Cp()->LeftPanel->Redraw();
-	CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION);
-	CtrlObject->Cp()->RightPanel->Redraw();
+	CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+	CtrlObject->Cp()->ActiveTab().LeftPanel->Redraw();
+	CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION);
+	CtrlObject->Cp()->ActiveTab().RightPanel->Redraw();
 }
 
 static void SetItemColors(MenuDataEx *Items, int *PaletteItems, int Size, int TypeSub)
@@ -589,10 +589,10 @@ void GetColor(int ColorIndex)
 		Opt.IsColorsChanged = true;
 
 		ScrBuf.Lock();	// отменяем всякую прорисовку
-		CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-		CtrlObject->Cp()->LeftPanel->Redraw();
-		CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION);
-		CtrlObject->Cp()->RightPanel->Redraw();
+		CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+		CtrlObject->Cp()->ActiveTab().LeftPanel->Redraw();
+		CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION);
+		CtrlObject->Cp()->ActiveTab().RightPanel->Redraw();
 
 		if (MenuToRedraw3)
 			MenuToRedraw3->Hide();

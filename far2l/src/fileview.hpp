@@ -47,7 +47,7 @@ private:
 	virtual void DisplayObject();
 	SudoClientRegion _sdc_rgn;
 	Viewer View;
-	ViewerMenuBar* MenuBar;
+	ViewerMenuBar* MenuBar {nullptr};
 	int RedrawTitle;
 	KeyBar ViewKeyBar;
 	bool AutoClose;
@@ -131,6 +131,8 @@ public:
 	int IsOptionActive(int hMenu, int vMenu);
 
 	bool SendToPrinter();
+
+	std::vector<ViewerBookmark> GetActiveBookmarks(){ return View.GetActiveBookmarks(); }
 };
 
 void ModalViewFile(const std::string &pathname);

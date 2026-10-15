@@ -287,9 +287,8 @@ int DirInfo::FromFS(const wchar_t *DirName, DWORD Flags, FileFilter *Filter, Dir
 					return 0;
 				default:
 
-					if (Flags & GETDIRINFO_ENHBREAK) {
+					if (Flags & GETDIRINFO_ENHBREAK)
 						return -1;
-					}
 
 					GetInputRecord(&rec);
 					break;

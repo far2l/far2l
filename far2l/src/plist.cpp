@@ -198,7 +198,7 @@ static void enumerateProcesses(std::vector<FarPidInfo>& v)
 			}
 		}
 
-		text.Format(L"%s %lc %8d %lc %-12.12s %lc %-16.16s %lc %ls %lc %8ld Mb", 
+		text.Format(L"%8.8s %lc %8d %lc %-12.12s %lc %-16.16s %lc %ls %lc %8ld Mb", 
 			FormatWallTime(wall_time).c_str(), BoxSymbols[BS_V1], pid, BoxSymbols[BS_V1], uid_name.c_str(), BoxSymbols[BS_V1], 
 			proc_comm.c_str(), BoxSymbols[BS_V1],  CPU_LOAD_PLACEHOLDER, BoxSymbols[BS_V1], rss_kb / 1024);
 		v.push_back({ text, proc_comm, parent, pid, cpu_time, wall_time, rss_kb, -1 });
@@ -245,7 +245,7 @@ static void enumerateProcesses(std::vector<FarPidInfo>& v)
 		printf("----\n");
 		*/
 
-		text.Format(L"%s %lc %8d %lc %-40.40s %lc %ls %lc %8ld Mb",
+		text.Format(L"%8.8s %lc %8d %lc %-40.40s %lc %ls %lc %8ld Mb",
 			FormatWallTime(wall_time).c_str(), BoxSymbols[BS_V1], pid, BoxSymbols[BS_V1], bsd.pbi_name,
 			BoxSymbols[BS_V1], CPU_LOAD_PLACEHOLDER, BoxSymbols[BS_V1], rss_kb / 1024);
 		v.push_back({ text, bsd.pbi_name, parent, pid, cpu_time, wall_time, rss_kb, -1 });
@@ -307,7 +307,7 @@ static void enumerateProcesses(std::vector<FarPidInfo>& v)
 		printf("----\n");
 		*/
 
-		text.Format(L"%s %lc %8d %lc %-40.40s %lc %ls %lc %6ld Mb",
+		text.Format(L"%8.8s %lc %8d %lc %-40.40s %lc %ls %lc %6ld Mb",
 			FormatWallTime(wall_time).c_str(), BoxSymbols[BS_V1], pid, BoxSymbols[BS_V1], name,
 			BoxSymbols[BS_V1], CPU_LOAD_PLACEHOLDER, BoxSymbols[BS_V1], rss_kb / 1024);
 		v.push_back({ text, name, parent, pid, cpu_time, wall_time, rss_kb, -1 });

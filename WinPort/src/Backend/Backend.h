@@ -9,7 +9,7 @@
 ///   Something changed in code below.
 ///   "WinCompat.h" changed in a way affecting code below.
 ///   Behavior of backend's code changed in incompatible way.
-#define FAR2L_BACKEND_ABI_VERSION	0x12
+#define FAR2L_BACKEND_ABI_VERSION	0x13
 
 class IConsoleOutputBackend
 {
@@ -24,6 +24,7 @@ public:
 	virtual COORD OnConsoleGetLargestWindowSize() = 0;
 	virtual void OnConsoleAdhocQuickEdit() = 0;
 	virtual DWORD64 OnConsoleSetTweaks(DWORD64 tweaks) = 0;
+	virtual DWORD64 OnConsoleGetTweaks() = 0;
 	virtual void OnConsoleChangeFont() = 0;
 	virtual void OnConsoleSaveWindowState() = 0;
 	virtual void OnConsoleSetMaximized(bool maximized) = 0;
@@ -44,6 +45,7 @@ public:
 	virtual bool OnSetConsoleImage(const char *id, DWORD64 flags, const SMALL_RECT *area, DWORD width, DWORD height, const void *buffer) = 0;
 	virtual bool OnTransformConsoleImage(const char *id, const SMALL_RECT *area, uint16_t tf) = 0;
 	virtual bool OnDeleteConsoleImage(const char *id) = 0;
+	virtual bool OnSetConsoleImageVisibility(const char *id, bool visible, const SMALL_RECT *exclusions, size_t count) { return false; }
 
 	virtual const char *OnConsoleBackendInfo(int entity) = 0;
 };
@@ -62,6 +64,7 @@ public:
 	virtual void *OnClipboardSetData(UINT format, void *data) = 0;
 	virtual void *OnClipboardGetData(UINT format) = 0;
 	virtual UINT OnClipboardRegisterFormat(const wchar_t *lpszFormat) = 0;
+	virtual INT ChooseClipboard(INT format) = 0;
 };
 
 IClipboardBackend *WinPortClipboard_SetBackend(IClipboardBackend *clipboard_backend);
@@ -192,9 +195,9 @@ public:
 	virtual bool Read(CHAR_INFO &data, COORD screen_pos) = 0;
 	virtual bool Write(const CHAR_INFO &data, COORD screen_pos) = 0;
 
-	virtual size_t WriteString(const WCHAR *data, size_t count) = 0;
-	virtual size_t WriteStringAt(const WCHAR *data, size_t count, COORD &pos) = 0;
-	virtual size_t FillCharacterAt(WCHAR cCharacter, size_t count, COORD &pos) = 0;
+	virtual size_t WriteString(const WCHAR *data, size_t count, HintContainerType, HintObjectType) = 0;
+	virtual size_t WriteStringAt(const WCHAR *data, size_t count, COORD &pos, HintContainerType, HintObjectType) = 0;
+	virtual size_t FillCharacterAt(WCHAR cCharacter, size_t count, COORD &pos, HintContainerType, HintObjectType) = 0;
 	virtual size_t FillAttributeAt(DWORD64 qAttribute, size_t count, COORD &pos) = 0;
 
 	virtual bool Scroll(const SMALL_RECT *lpScrollRectangle, const SMALL_RECT *lpClipRectangle,
@@ -206,6 +209,7 @@ public:
 
 	virtual void AdhocQuickEdit() = 0;
 	virtual DWORD64 SetConsoleTweaks(DWORD64 tweaks) = 0;
+	virtual DWORD64 GetConsoleTweaks() = 0;
 	virtual void ConsoleChangeFont() = 0;
 	virtual void ConsoleSaveWindowState() = 0;
 	virtual bool IsActive() = 0;
@@ -224,6 +228,7 @@ public:
 	virtual bool OnSetConsoleImage(const char *id, DWORD64 flags, const SMALL_RECT *area, DWORD width, DWORD height, const void *buffer) = 0;
 	virtual bool OnTransformConsoleImage(const char *id, const SMALL_RECT *area, uint16_t tf) = 0;
 	virtual bool OnDeleteConsoleImage(const char *id) = 0;
+	virtual bool OnSetConsoleImageVisibility(const char *id, bool visible, const SMALL_RECT *exclusions, size_t count) { return false; }
 
 	virtual const char *BackendInfo(int entity) = 0;
 
@@ -307,7 +312,7 @@ public:
 	virtual void PrintTextFile(const wchar_t* fileName) = 0;
 	virtual void PrintHtmlFile(const wchar_t* fileName) = 0;
 
-	virtual void ShowPreviewForText(const wchar_t*  jobName, const wchar_t* text) = 0;
+	virtual void ShowPreviewForText(const wchar_t* jobName, const wchar_t* text) = 0;
 	virtual void ShowPreviewForReducedHTML(const wchar_t* jobName, const wchar_t* text) = 0;
 	virtual void ShowPreviewForTextFile(const wchar_t* fileName) = 0;
 	virtual void ShowPreviewForHtmlFile(const wchar_t* fileName) = 0;
@@ -349,6 +354,49 @@ public:
 	{
 		if (_is_set) {
 			IPrinterSupport *cb = WinPortPrinterSupport_SetBackend(_prev_cb);
+			if (cb != _prev_cb) {
+				delete cb;
+			}
+		}
+	}
+};
+
+//////////////////////////////////////////////////////////////////////////////////
+
+class IShareBackendOptions {
+public:
+	virtual void ShareBackendOptions(PVOID options) = 0;
+	virtual ~IShareBackendOptions() {};
+};
+
+IShareBackendOptions *WinPortShareBackendOptions_SetBackend(IShareBackendOptions *share_backend);
+
+class ShareBackendOptionsBackendSetter
+{
+	IShareBackendOptions *_prev_cb = nullptr;
+	bool _is_set = false;
+
+public:
+	inline bool IsSet() const { return _is_set; }
+
+	template <class BACKEND_T, typename... ArgsT>
+		inline void Set(ArgsT... args)
+	{
+		IShareBackendOptions *cb = new BACKEND_T(args...);
+		IShareBackendOptions *prev_cb = WinPortShareBackendOptions_SetBackend(cb);
+		if (!_is_set) {
+			_prev_cb = prev_cb;
+			_is_set = true;
+
+		} else {
+			delete prev_cb;
+		}
+	}
+
+	inline ~ShareBackendOptionsBackendSetter()
+	{
+		if (_is_set) {
+			IShareBackendOptions *cb = WinPortShareBackendOptions_SetBackend(_prev_cb);
 			if (cb != _prev_cb) {
 				delete cb;
 			}

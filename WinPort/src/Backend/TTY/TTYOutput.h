@@ -76,7 +76,7 @@ public:
 	void Flush();
 
 	void ChangePalette(const TTYBasePalette &palette);
-	void ChangeCursorHeight(unsigned int height);
+	void ChangeCursorHeight(unsigned int height, unsigned int insert_shape, unsigned int overtype_shape);
 	void ChangeCursorShape(int shape);
 	void ChangeCursor(bool visible, bool force = false);
 	int WeightOfHorizontalMoveCursor(unsigned int y, unsigned int x) const;
@@ -88,7 +88,8 @@ public:
 	void ChangeTitle(std::string title);
 
 	void SendFar2lInteract(const StackSerializer &stk_ser);
-	void SendOSC52ClipSet(const std::string &clip_data);
+	void SendOSC52ClipSet(const std::string &clip_data, bool is_primary_buffer);
+	void SendOSC52ClipRequest(bool is_primary_buffer);
 
 	void RequestCellSize();
 	void RequestStatus();

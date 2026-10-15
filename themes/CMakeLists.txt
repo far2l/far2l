@@ -21,5 +21,6 @@ foreach(dir IN LISTS RESOURCE_DIRS)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/${dir}"
                 "$<TARGET_FILE_DIR:far2l>/themes/${dir}"
+        POST_BUILD
     )
 endforeach()

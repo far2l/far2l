@@ -213,8 +213,8 @@ bool PluginTempFileHolder::UploadTempFile()
 	FarChDir(strSaveDir);
 
 	if (out) {
-		CheckPanelUpdate(CtrlObject->Cp()->LeftPanel);
-		CheckPanelUpdate(CtrlObject->Cp()->RightPanel);
+		CheckPanelUpdate(CtrlObject->Cp()->ActiveTab().LeftPanel);
+		CheckPanelUpdate(CtrlObject->Cp()->ActiveTab().RightPanel);
 	}
 
 	return out;

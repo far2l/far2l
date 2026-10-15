@@ -20,6 +20,7 @@
 #include <wx/debug.h>
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
+#include <wx/dnd.h>
 
 #include "ExclusiveHotkeys.h"
 #include <set>
@@ -160,6 +161,7 @@ class WinPortPanel: public wxPanel, protected IConsoleOutputBackend
 	void OnKillFocus( wxFocusEvent &event );
 	void ResetInputState();
 	COORD TranslateMousePosition( wxMouseEvent &event );
+	COORD TranslateMousePosition( int logicvalX, int logicalY );
 	void DamageAreaBetween(COORD c1, COORD c2);
 	void ResetTimerIdling();
 
@@ -171,6 +173,7 @@ class WinPortPanel: public wxPanel, protected IConsoleOutputBackend
 	virtual void OnConsoleSetMaximized(bool maximized);
 	virtual void OnConsoleAdhocQuickEdit();
 	virtual DWORD64 OnConsoleSetTweaks(DWORD64 tweaks);
+	virtual DWORD64 OnConsoleGetTweaks();
 	virtual void OnConsoleChangeFont();
 	virtual void OnConsoleSaveWindowState();
 	virtual void OnConsoleExit();
@@ -191,6 +194,7 @@ class WinPortPanel: public wxPanel, protected IConsoleOutputBackend
 	virtual bool OnSetConsoleImage(const char *id, DWORD64 flags, const SMALL_RECT *area, DWORD width, DWORD height, const void *buffer);
 	virtual bool OnTransformConsoleImage(const char *id, const SMALL_RECT *area, uint16_t tf);
 	virtual bool OnDeleteConsoleImage(const char *id);
+	virtual bool OnSetConsoleImageVisibility(const char *id, bool visible, const SMALL_RECT *exclusions, size_t count) override;
 
 public:
 	WinPortPanel(WinPortFrame *frame, const wxPoint& pos, const wxSize& size);
@@ -199,6 +203,9 @@ public:
 	void OnChar( wxKeyEvent& event );
 	virtual void OnTouchbarKey(bool alternate, int index);
 	void SetClientCharSize(int cw, int ch);
+
+    void DragDropHandleText(const wxString& text, int x, int y);
+    void DragDropHandleFile(const wxString& file, int x, int y);
 };
 
 ///////////////////////////////////////////
@@ -240,6 +247,7 @@ class WinPortFrame: public wxFrame
 	void OnShow(wxShowEvent &show);
 	void OnClose(wxCloseEvent &show);
 	void OnConsoleSaveWindowStateSync(wxCommandEvent& event);
+	void OnSetFocus( wxFocusEvent &event );
 
 public:
 	WinPortFrame(const wxString& title);
@@ -248,3 +256,14 @@ public:
 	void SetInitialSize();
 	void SaveWindowState();
 };
+
+class StartDragHelper {
+public:
+	StartDragHelper(WinPortPanel* self) { this->self = self; }
+
+	void StartDrag(const wxString& text, const wxString& url, const wxArrayString& files);
+
+private:
+    WinPortPanel* self { nullptr };
+};
+

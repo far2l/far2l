@@ -94,6 +94,9 @@ public:
 			case ConfigOpt::T_STR:
 				return (_opt.def.str == nullptr ? -1
 						: (*_opt.value.str != _opt.def.str));
+			case ConfigOpt::T_WSTRBUF:
+				return (_opt.def.str == nullptr ? -1
+						: ( wcscmp(_opt.value.wstr, _opt.def.str) == 0 ? 0 : 1 ));
 			case ConfigOpt::T_BIN:
 				return (_opt.def.bin == nullptr || _opt.value.bin == nullptr ? -1
 						: ( memcmp(_opt.value.bin, _opt.def.bin, _opt.bin_size) == 0 ? 0 : 1 ));
@@ -131,6 +134,13 @@ public:
 					return 0;
 				*_opt.value.str = _opt.def.str;
 				return 1;
+			case ConfigOpt::T_WSTRBUF:
+				if (_opt.def.str == nullptr)
+					return -1;
+				if (!wcscmp(_opt.value.wstr, _opt.def.str))
+					return 0;
+				wcscpy(_opt.value.wstr, _opt.def.str);
+				return 1;
 			case ConfigOpt::T_BIN:
 				return -1; // can not process binary
 			default:
@@ -167,6 +177,8 @@ public:
 				return L"dword";
 			case ConfigOpt::T_STR:
 				return L"string";
+			case ConfigOpt::T_WSTRBUF:
+				return L"wchr[]";
 			case ConfigOpt::T_BIN:
 				return L"binary";
 			default:
@@ -207,44 +219,52 @@ public:
 		FARString fsn;
 
 		if (align_dot)
-		 fsn.Format(L"%*s.%-*s", len_sections, _opt.section, len_keys, _opt.key);
+		    fsn.Format(L"%*s.%-*s", len_sections, _opt.section, len_keys, _opt.key);
 		else {
 			mi.strName.Format(L"%s.%s", _opt.section, _opt.key);
 			fsn.Format(L"%-*ls", len_sections_keys, mi.strName.CPtr());
 		}
+		const wchar_t* ChangedMark = Opt.Backend.UseModernLook ? L"★" : L"*";
 
 		FormatString out1;
 		FormatString out2;
 		switch (_opt.type)
 		{
 			case ConfigOpt::T_BOOL: {
-				out1 << (*_opt.value.b == _opt.def.b ? L" " : L"*")
+				out1 << (*_opt.value.b == _opt.def.b ? L" " : ChangedMark)
 					<< L' ' << fsn << L' ' << BoxSymbols[BS_V1] << L"  bool";
 				out2 << (*_opt.value.b ? L"[x] true" : L"[ ] false");
 				break;
 			}
 			case ConfigOpt::T_INT: {
-				out1 << (*_opt.value.i == _opt.def.i ? L" " : L"*")
+				out1 << (*_opt.value.i == _opt.def.i ? L" " : ChangedMark)
 					<< L' ' << fsn << L' ' << BoxSymbols[BS_V1] << L"   int";
 				out2 << *_opt.value.i << L" = " << fmt::Hex(static_cast<uint32_t>(*_opt.value.i), 0, true);
 				break;
 			}
 			case ConfigOpt::T_DWORD: {
-				out1 << (*_opt.value.dw == _opt.def.dw ? L" " : L"*")
+				out1 << (*_opt.value.dw == _opt.def.dw ? L" " : ChangedMark)
 					<< L' ' << fsn << L' ' << BoxSymbols[BS_V1] << L" dword";
 				out2 << *_opt.value.dw << L" = " << fmt::Hex(static_cast<uint32_t>(*_opt.value.dw), 0, true);
 				break;
 			}
 			case ConfigOpt::T_STR: {
 				out1 << (_opt.def.str == nullptr ? L"?"
-						: (*_opt.value.str == _opt.def.str ? L" " : L"*"))
+						: (*_opt.value.str == _opt.def.str ? L" " : ChangedMark))
 					<< L' ' << fsn << L' ' << BoxSymbols[BS_V1] << L"string";
 				out2 << _opt.value.str->CPtr();
 				break;
 			}
+			case ConfigOpt::T_WSTRBUF: {
+				out1 << (_opt.def.str == nullptr ? L"?"
+						: (!wcscmp(_opt.value.wstr, _opt.def.str) ? L" " : ChangedMark))
+					<< L' ' << fsn << L' ' << BoxSymbols[BS_V1] << L"wchr[]";
+				out2 << _opt.value.wstr;
+				break;
+			}
 			case ConfigOpt::T_BIN: {
 				out1 << (_opt.def.bin == nullptr || _opt.value.bin == nullptr ? L"?"
-						: (memcmp(_opt.value.bin, _opt.def.bin, _opt.bin_size) == 0 ? L" " : L"*"))
+						: (memcmp(_opt.value.bin, _opt.def.bin, _opt.bin_size) == 0 ? L" " : ChangedMark))
 					<< L' ' << fsn << L' ' << BoxSymbols[BS_V1] << L"binary";
 				out2 << L"(binary has length " << static_cast<unsigned int>(_opt.bin_size) << L" bytes)";
 				break;
@@ -307,6 +327,11 @@ public:
 				type_psz = "string";
 				def_str << (_opt.def.str ? _opt.def.str : L"(null)");
 				val_str << *_opt.value.str;
+				break;
+			case ConfigOpt::T_WSTRBUF:
+				type_psz = "wchr[]";
+				def_str << (_opt.def.str ? _opt.def.str : L"(null)");
+				val_str << _opt.value.wstr;
 				break;
 			case ConfigOpt::T_BIN:
 				type_psz = "binary";
@@ -448,6 +473,14 @@ public:
 				cur_str << *_opt.value.str;
 				new_str << cur_str;
 				break;
+			case ConfigOpt::T_WSTRBUF:
+				type_pwsz = L"wchr[]";
+				is_editable = true;
+				is_def = (bool) _opt.def.str;
+				def_str << ( _opt.def.str ? _opt.def.str : L"" );
+				cur_str << _opt.value.wstr;
+				new_str << cur_str;
+				break;
 			case ConfigOpt::T_BIN:
 				type_pwsz = L"binary";
 				if (_opt.def.bin) {
@@ -544,7 +577,7 @@ public:
 			/*  45 */ {DI_TEXT,		5, note_y1, TEXT_X2, note_y1, {}, DIF_SHOWAMPERSAND, L"      Save the configuration and restart FAR2L"},
 			/*  46 */ {DI_TEXT,		5, note_y2, TEXT_X2, note_y2, {}, DIF_SHOWAMPERSAND, L"      if necessary."},
 			/*  47 */ {DI_TEXT,		5, note_y3, TEXT_X2, note_y3, {}, DIF_SHOWAMPERSAND, L""},
-			/*  48 */ {DI_TEXT,		3, bottom_separator_y, 20, bottom_separator_y, {}, DIF_SEPARATOR, L""},
+			/*  48 */ {DI_TEXT,		3, bottom_separator_y, 20, bottom_separator_y, {}, (Opt.Backend.UseModernLook ? 0 : DIF_SEPARATOR), L""},
 			/*  49 */ {DI_BUTTON,	0, button_y, 0,  button_y, {}, DIF_DEFAULT | DIF_CENTERGROUP | (is_editable ? 0 : DIF_DISABLE), Msg::Change},
 			/*  50 */ {DI_BUTTON,	0, button_y, 0,  button_y, {}, DIF_CENTERGROUP | (is_editable ? 0 : DIF_FOCUS), Msg::Cancel},
 			/*  51 */ {DI_BUTTON,	0, button_y, 0,  button_y, {}, DIF_CENTERGROUP | DIF_BTNNOCLOSE, L"Closest Help &Topic"}
@@ -594,7 +627,7 @@ public:
 				AdvancedConfigDlgData[EDIT_DLG_NEW_DEC_VALUE].Flags |= DIF_MASKEDIT;
 				AdvancedConfigDlgData[EDIT_DLG_NEW_DEC_VALUE].Mask = mask_int;
 			}
-			else { // T_STR & T_BIN
+			else { // T_STR & T_BIN & T_WSTRBUF
 				AdvancedConfigDlgData[EDIT_DLG_DEFAULT_DEC_VALUE].X1 = AdvancedConfigDlgData[EDIT_DLG_CURRENT_DEC_VALUE].X1 = AdvancedConfigDlgData[EDIT_DLG_NEW_DEC_VALUE].X1 = 14;
 				AdvancedConfigDlgData[EDIT_DLG_DEFAULT_DEC_VALUE].X2 = AdvancedConfigDlgData[EDIT_DLG_CURRENT_DEC_VALUE].X2 = AdvancedConfigDlgData[EDIT_DLG_NEW_DEC_VALUE].X2 = TEXT_X2;
 				AdvancedConfigDlgData[EDIT_DLG_DEFAULT_DEC_LABEL].Flags =
@@ -666,6 +699,12 @@ public:
 						return true;
 					}
 					return false;
+				case ConfigOpt::T_WSTRBUF:
+					if (AdvancedConfigDlg[EDIT_DLG_NEW_DEC_VALUE].strData != cur_str) {
+						wcscpy(_opt.value.wstr, AdvancedConfigDlg[EDIT_DLG_NEW_DEC_VALUE].strData.CPtr());
+						return true;
+					}
+					return false;
 				case ConfigOpt::T_BIN: // TODO
 					return false;
 				default:
@@ -681,7 +720,7 @@ static FARString ConfigOptEditTitle(bool hide_unchanged = false)
 	FARString title (Msg::MenuFarConfig);
 	title+= L" - far:config";
 	if (hide_unchanged) {
-		title+= L" *";
+		title+= Opt.Backend.UseModernLook ? L" ★" : L" *";
 	}
 	RemoveChar(title, L'&');
 	return title;

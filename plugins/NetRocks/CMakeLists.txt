@@ -1,5 +1,8 @@
 project(NetRocks)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 set(SOURCES
 src/Erroring.cpp
 src/Globals.cpp
@@ -188,7 +191,10 @@ if (LIBSMBCLIENT_FOUND AND ((NOT DEFINED NR_SMB) OR NR_SMB))
 endif ()
 
 if (LIBNFS_FOUND AND ((NOT DEFINED NR_NFS) OR NR_NFS))
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_NFS")
+    if(NOT DEFINED OLD_NFSLIB)
+        set(OLD_NFSLIB "0")
+    endif()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_NFS -DUSE_OLD_NFSLIB=${OLD_NFSLIB}")
     add_executable (NetRocks-NFS
         ${PROTOCOL_SOURCES}
         src/Protocol/NFS/ProtocolNFS.cpp
@@ -235,6 +241,10 @@ if (LIBNEON_FOUND AND OPENSSL_FOUND AND ((NOT DEFINED NR_AWS) OR NR_AWS))
     )
     target_include_directories(NetRocks-AWS PRIVATE src ${LIBNEON_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIR})
     target_link_libraries(NetRocks-AWS utils ${LIBNEON_LIBRARIES} ${OPENSSL_LIBRARIES})
+    if (APPLE)
+        target_sources(NetRocks-AWS PRIVATE src/Protocol/AWS/S3SystemTrust.cpp)
+        target_link_libraries(NetRocks-AWS "-framework Security" "-framework CoreFoundation")
+    endif ()
 
     set_target_properties(NetRocks-AWS
         PROPERTIES
