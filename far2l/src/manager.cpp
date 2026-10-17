@@ -793,6 +793,20 @@ void Manager::ProcessMainLoop()
 	if (CurrentFrame)
 		CtrlObject->Macro.SetMode(CurrentFrame->GetMacroMode());
 
+	static int s_prev_lock_count = 0;
+	const int lock_count = ScrBuf.GetLockCount();
+	const bool guards_active = ModalStackCount || IsRedrawFramesInProcess
+			|| CtrlObject->Macro.IsExecuting() != MACROMODE_NOMACRO
+			|| CtrlObject->Macro.PeekKey();
+	if (guards_active || lock_count != s_prev_lock_count) {
+		s_prev_lock_count = lock_count;
+		fprintf(stderr, "ProcessMainLoop: clearing leaked screen lock count=%d\n",
+			lock_count);
+		ScrBuf.SetLockCount(0);
+		ScrBuf.Flush();
+		s_prev_lock_count = ScrBuf.GetLockCount();
+	}
+
 	DispatchInterThreadCalls();
 
 	if (CurrentFrame && !CurrentFrame->ProcessEvents()) {
