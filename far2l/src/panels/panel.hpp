@@ -167,8 +167,9 @@ private:
 	int OnFCtlSetLocation(const FarPanelLocation *location);
 	static void sUnmountPath(FARString path, bool forced);
 
-protected:
+public:
 	bool SetLocation_Directory(const wchar_t *path);
+protected:
 	bool SetLocation_Plugin(bool file_plugin, class Plugin *plugin, const wchar_t *path,
 			const wchar_t *host_file, LONG_PTR item);
 
@@ -334,6 +335,8 @@ public:
 	virtual void Show();
 	int SetPluginCommand(int Command, int Param1, LONG_PTR Param2);
 	int PanelProcessMouse(MOUSE_EVENT_RECORD *MouseEvent, int &RetCode);
+	virtual int ProcessDrop(EXT_DROP_EVENT_DATA *DropEvent){ return FALSE; }
+
 	void ChangeDisk();
 	int GetFocus() { return (Focus); };
 	int GetType() { return (Type); };

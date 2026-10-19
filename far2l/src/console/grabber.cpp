@@ -248,6 +248,10 @@ void Grabber::DisplayObject()
 						((char_info[index].Attributes & ~0xff) | new_attrs)
 							& (~(FOREGROUND_TRUECOLOR | BACKGROUND_TRUECOLOR));
 				}
+
+			// VK: TODO: copy fragment to primary
+			// CopyToPrimarySelection
+
 			PutText(area.left, area.top, area.right, area.bottom, char_info.data());
 		}
 

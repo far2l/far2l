@@ -10,6 +10,7 @@ struct RGB { double r, g, b; }; // 0..1
 struct LAB { double L, a, b; }; // L: 0–100, a/b: approx -128..127
 struct iRGB { unsigned char r, g, b; }; // 0..255
 struct HSL { double h, s, l; };
+struct LCH { double L, C, H; };
 
 
 struct HoverResult {  RGB bg_hover, fg_hover; };
@@ -92,3 +93,13 @@ RGB SoftenToPressedState_LAB(const RGB& fg,
 	double C_reduce = 0.40, // reduce chroma by 40%
 	double neutral_tint = 0.20, // tint neutrals toward bg
 	double C_neutral = 15.0);    // threshold for “neutral”
+
+LCH labToLch(const LAB& lab);
+LAB lchToLab(const LCH& lch);
+
+// Compute accent color based on background
+RGB computeAccentColorByDegree(const RGB& bg, double accentHueDeg);
+RGB computeAccentColorBySample(const RGB& bg, const RGB& canonicalAccent);
+
+RGB computeHighlight(const RGB& fg, const RGB& bg);
+RGB computeSelected(const RGB& fg, const RGB& bg);

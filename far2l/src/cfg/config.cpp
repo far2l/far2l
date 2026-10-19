@@ -76,7 +76,7 @@ int &Confirmation::ExitEffective()
 	return WINPORT(ConsoleBackgroundMode)(FALSE) ? ExitOrBknd : Exit;
 }
 
-static DWORD ApplyConsoleTweaks()
+DWORD ApplyConsoleTweaks()
 {
 	DWORD64 tweaks = 0;
 	if (Opt.ExclusiveCtrlLeft)
@@ -97,10 +97,16 @@ static DWORD ApplyConsoleTweaks()
 		tweaks|= CONSOLE_OSC52CLIP_SET;
 	if (Opt.TTYPaletteOverride)
 		tweaks|= CONSOLE_TTY_PALETTE_OVERRIDE;
+	Opt.TTYCursorShapeInsert = std::clamp(Opt.TTYCursorShapeInsert,
+			CONSOLE_TTY_CURSOR_SHAPE_BAR, CONSOLE_TTY_CURSOR_SHAPE_UNDERLINE);
+	Opt.TTYCursorShapeOvertype = std::clamp(Opt.TTYCursorShapeOvertype,
+			CONSOLE_TTY_CURSOR_SHAPE_BAR, CONSOLE_TTY_CURSOR_SHAPE_UNDERLINE);
+	tweaks|= CONSOLE_TTY_CURSOR_SHAPE_INSERT(Opt.TTYCursorShapeInsert);
+	tweaks|= CONSOLE_TTY_CURSOR_SHAPE_OVERTYPE(Opt.TTYCursorShapeOvertype);
 	return WINPORT(SetConsoleTweaks)(tweaks);
 }
 
-static void ApplySudoConfiguration()
+void ApplySudoConfiguration()
 {
 	const std::string &sudo_app = GetHelperPathName("far2l_sudoapp");
 	const std::string &askpass_app = GetHelperPathName("far2l_askpass");
@@ -115,13 +121,13 @@ static void ApplySudoConfiguration()
 			Wide2MB(Msg::SudoConfirm).c_str());
 }
 
-static void AddHistorySettings(DialogBuilder &Builder, FarLangMsg MTitle, int *OptEnabled, int *OptCount)
+void AddHistorySettings(DialogBuilder &Builder, FarLangMsg MTitle, int *OptEnabled, int *OptCount)
 {
 	auto EnabledCheckBox = Builder.AddCheckbox(MTitle, OptEnabled);
+	Builder.Indent(4);
+	auto CountText = Builder.AddText(Msg::ConfigMaxHistoryCount, false);
 	auto CountEdit = Builder.AddIntEditField(OptCount, 6);
-	auto CountText = Builder.AddTextBefore(CountEdit, Msg::ConfigMaxHistoryCount);
-	CountEdit->Indent(4);
-	CountText->Indent(4);
+	
 	Builder.LinkFlags(EnabledCheckBox, CountEdit, DIF_DISABLE);
 	Builder.LinkFlags(EnabledCheckBox, CountText, DIF_DISABLE);
 }
@@ -147,24 +153,19 @@ void SystemSettings()
 	DialogBuilder Builder(Msg::ConfigSystemTitle, L"SystemSettings");
 
 	auto SudoEnabledItem = Builder.AddCheckbox(Msg::ConfigSudoEnabled, &Opt.SudoEnabled);
+	Builder.Indent(4);
+	Builder.AddText(Msg::ConfigSudoPasswordExpiration, false);
 	auto SudoPasswordExpirationEdit = Builder.AddIntEditField(&Opt.SudoPasswordExpiration, 4);
-	auto SudoPasswordExpirationText =
-			Builder.AddTextBefore(SudoPasswordExpirationEdit, Msg::ConfigSudoPasswordExpiration);
 
-	SudoPasswordExpirationText->Indent(4);
-	SudoPasswordExpirationEdit->Indent(4);
-
-	auto SudoConfirmModifyItem =
-			Builder.AddCheckbox(Msg::ConfigSudoConfirmModify, &Opt.SudoConfirmModify);
-	SudoConfirmModifyItem->Indent(4);
+	Builder.Indent(4);
+	auto SudoConfirmModifyItem = Builder.AddCheckbox(Msg::ConfigSudoConfirmModify, &Opt.SudoConfirmModify);
 
 	Builder.LinkFlags(SudoEnabledItem, SudoConfirmModifyItem, DIF_DISABLE);
 	Builder.LinkFlags(SudoEnabledItem, SudoPasswordExpirationEdit, DIF_DISABLE);
 
 	auto DeleteToRecycleBin = Builder.AddCheckbox(Msg::ConfigRecycleBin, &Opt.DeleteToRecycleBin);
-	auto DeleteLinks =
-			Builder.AddCheckbox(Msg::ConfigRecycleBinLink, &Opt.DeleteToRecycleBinKillLink);
-	DeleteLinks->Indent(4);
+	Builder.Indent(4);
+	auto DeleteLinks = Builder.AddCheckbox(Msg::ConfigRecycleBinLink, &Opt.DeleteToRecycleBinKillLink);
 	Builder.LinkFlags(DeleteToRecycleBin, DeleteLinks, DIF_DISABLE);
 
 	//	Builder.AddCheckbox(MSudoParanoic, &Opt.SudoParanoic);
@@ -173,9 +174,9 @@ void SystemSettings()
 	Builder.AddCheckbox(Msg::ConfigOnlyFilesSize, &Opt.OnlyFilesSize);
 
 	auto InactivityExit = Builder.AddCheckbox(Msg::ConfigInactivity, &Opt.InactivityExit);
-	auto InactivityExitTime = Builder.AddIntEditField(&Opt.InactivityExitTime, 2);
-	InactivityExitTime->Indent(4);
-	Builder.AddTextAfter(InactivityExitTime, Msg::ConfigInactivityMinutes);
+	Builder.Indent(4);
+	auto InactivityExitTime = Builder.AddIntEditField(&Opt.InactivityExitTime, 2, 0, false);
+	Builder.AddText(Msg::ConfigInactivityMinutes);
 	Builder.LinkFlags(InactivityExit, InactivityExitTime, DIF_DISABLE);
 
 	DialogBuilderListItem CAListItems[] = {
@@ -183,10 +184,9 @@ void SystemSettings()
 			{Msg::ConfigMakeLinkSuggestSymlinkAlways,  1},
 	};
 	Builder.AddText(Msg::ConfigMakeLinkSuggest);
-	auto MakeLinkSuggest =
-		Builder.AddComboBox((int *)&Opt.MakeLinkSuggestSymlinkAlways, 48, CAListItems, ARRAYSIZE(CAListItems),
+	Builder.Indent(4);
+	Builder.AddComboBox((int *)&Opt.MakeLinkSuggestSymlinkAlways, 48, CAListItems, ARRAYSIZE(CAListItems),
 				DIF_DROPDOWNLIST | DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE);
-	MakeLinkSuggest->Indent(4);
 
 	Builder.AddSeparator();
 	AddHistorySettings(Builder, Msg::ConfigSaveHistory, &Opt.SaveHistory, &Opt.HistoryCount);
@@ -198,17 +198,18 @@ void SystemSettings()
 			{Msg::ConfigHistoryRemoveDupsRuleByName, HISTORY_REMOVE_DUPS_BY_NAME},
 			{Msg::ConfigHistoryRemoveDupsRuleByNameExtra, HISTORY_REMOVE_DUPS_BY_NAME_EXTRA},
 	};
-	auto HistRemove =
-		Builder.AddComboBox((int *)&Opt.HistoryRemoveDupsRule, 20, CAHistRemoveListItems, ARRAYSIZE(CAHistRemoveListItems),
+
+	Builder.AddText(Msg::ConfigHistoryRemoveDupsRule, false);
+	Builder.AddComboBox((int *)&Opt.HistoryRemoveDupsRule, 20, CAHistRemoveListItems, ARRAYSIZE(CAHistRemoveListItems),
 				DIF_DROPDOWNLIST | DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE);
-	Builder.AddTextBefore(HistRemove, Msg::ConfigHistoryRemoveDupsRule);
 
 	Builder.AddCheckbox(Msg::ConfigAutoHighlightHistory, &Opt.AutoHighlightHistory);
 	Builder.AddSeparator();
 
 	auto AutoSaveSetup = Builder.AddCheckbox(Msg::ConfigAutoSave, &Opt.AutoSaveSetup);
+	Builder.Indent(4);
 	auto AutoSavePanels = Builder.AddCheckbox(Msg::ConfigAutoSavePanels, &Opt.AutoSavePanels);
-	AutoSavePanels->Indent(4);
+	
 	Builder.LinkFlags(AutoSaveSetup, AutoSavePanels, DIF_DISABLE, false, false);
 	Builder.AddOKCancel();
 
@@ -224,29 +225,30 @@ void PanelSettings_HighlightMarks()
 	DialogBuilder Builder(Msg::ConfigPanelHighlightMarksTitle, L"PanelSettings");
 
 	auto CbShowFilenameMarks = Builder.AddCheckbox(Msg::ConfigFilenameMarks, &Opt.ShowFilenameMarks);
+	Builder.Indent(1);
 	auto CbFilenameMarksAlign = Builder.AddCheckbox(Msg::ConfigFilenameMarksAlign, &Opt.FilenameMarksAlign);
-	CbFilenameMarksAlign->Indent(1);
 	Builder.LinkFlags(CbShowFilenameMarks, CbFilenameMarksAlign, DIF_DISABLE);
 	auto tShowFilenameMarksHint = Builder.AddText(Msg::ConfigFilenameMarksHint);
 	tShowFilenameMarksHint->Flags = DIF_CENTERGROUP | DIF_DISABLE;
 
 	Builder.AddSeparator();
 
+	Builder.Indent(1);
 	auto CbShowFilenameMarksStatusLine
 		= Builder.AddCheckbox(Msg::ConfigFilenameMarksStatusLine, &Opt.FilenameMarksInStatusBar);
-	CbShowFilenameMarksStatusLine->Indent(1);
 	Builder.LinkFlags(CbShowFilenameMarks, CbShowFilenameMarksStatusLine, DIF_DISABLE);
 	auto tShowFilenameMarksInStatusLineHint = Builder.AddText(Msg::ConfigFilenameMarksStatusLineHint);
 	tShowFilenameMarksInStatusLineHint->Flags = DIF_CENTERGROUP | DIF_DISABLE;
 
 	Builder.AddSeparator();
 
-	auto IndentationMinEdit = Builder.AddIntEditField((int *)&Opt.MinFilenameIndentation, 2);
-	Builder.AddTextAfter(IndentationMinEdit, Msg::ConfigFilenameMinIndentation);
-	IndentationMinEdit->Indent(1);
-	auto IndentationMaxEdit = Builder.AddIntEditField((int *)&Opt.MaxFilenameIndentation, 2);
-	Builder.AddTextAfter(IndentationMaxEdit, Msg::ConfigFilenameMaxIndentation);
-	IndentationMaxEdit->Indent(1);
+	Builder.Indent(1);
+	Builder.AddIntEditField((int *)&Opt.MinFilenameIndentation, 2, 0, false);
+	Builder.AddText(Msg::ConfigFilenameMinIndentation);
+	
+	Builder.Indent(1);
+	Builder.AddIntEditField((int *)&Opt.MaxFilenameIndentation, 2, 0, false);
+	Builder.AddText(Msg::ConfigFilenameMaxIndentation);
 
 	Builder.AddOKCancel();
 
@@ -263,18 +265,20 @@ void PanelSettings()
 		BOOL AutoUpdate = (Opt.AutoUpdateLimit);
 		BOOL TreeScanDepthEnabled = (Opt.Tree.ScanDepthEnabled);
 
+		Builder.AddCheckbox(Msg::CtrlEnterMultipleItems, &Opt.CmdLine.CtrlEnterMultipleItems);
+
 		Builder.AddCheckbox(Msg::ConfigHidden, &Opt.ShowHidden);
 
 		auto CbHighlight = Builder.AddCheckbox(Msg::ConfigHighlight, &Opt.Highlight);
 		int HighlightMarksID = -1;
+		Builder.Indent(2);
 		auto HighlightMarksItem = Builder.AddButton(Msg::ConfigPanelHighlightMarksButton, HighlightMarksID);
-		HighlightMarksItem->Indent(2);
 		Builder.LinkFlags(CbHighlight, HighlightMarksItem, DIF_DISABLE);
 
 		int ChangeSizeColumnStyleID = -1;
-		auto ChangeSizeColumnStyleItem = Builder.AddButton(Msg::DirSettingsTitle, ChangeSizeColumnStyleID);
+		Builder.Indent(1);
+		/*auto ChangeSizeColumnStyleItem = */Builder.AddButton(Msg::DirSettingsTitle, ChangeSizeColumnStyleID);
 		//ChangeSizeColumnStyleItem->Flags = DIF_CENTERGROUP;
-		ChangeSizeColumnStyleItem->Indent(1);
 
 		Builder.AddCheckbox(Msg::ConfigSelectFolders, &Opt.SelectFolders);
 		Builder.AddCheckbox(Msg::ConfigCaseSensitiveCompareSelect, &Opt.PanelCaseSensitiveCompareSelect);
@@ -282,11 +286,12 @@ void PanelSettings()
 		Builder.AddCheckbox(Msg::ConfigReverseSort, &Opt.ReverseSort);
 
 		auto AutoUpdateEnabled = Builder.AddCheckbox(Msg::ConfigAutoUpdateLimit, &AutoUpdate);
+		
+		Builder.Indent(4);
+		Builder.AddText(Msg::ConfigAutoUpdateLimit2, false);
 		auto AutoUpdateLimit = Builder.AddIntEditField((int *)&Opt.AutoUpdateLimit, 6);
 		Builder.LinkFlags(AutoUpdateEnabled, AutoUpdateLimit, DIF_DISABLE, false);
-		auto AutoUpdateText = Builder.AddTextBefore(AutoUpdateLimit, Msg::ConfigAutoUpdateLimit2);
-		AutoUpdateLimit->Indent(4);
-		AutoUpdateText->Indent(4);
+		
 		Builder.AddCheckbox(Msg::ConfigAutoUpdateRemoteDrive, &Opt.AutoUpdateRemoteDrive);
 		Builder.AddCheckbox(Msg::ConfigClassicHotkeyLinkResolving, &Opt.ClassicHotkeyLinkResolving);
 
@@ -319,8 +324,8 @@ void PanelSettings()
 			SanitizeIndentationCounts();
 
 			// FrameManager->RefreshFrame();
-			CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-			CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION);
+			CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+			CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION);
 			CtrlObject->Cp()->Redraw();
 			break;
 		}
@@ -457,8 +462,8 @@ static LONG_PTR WINAPI DirCfgDlgProc(HANDLE hDlg, int Msg, int Param1, LONG_PTR 
 
 			SendDlgMessage(hDlg, DM_SHOWDIALOG, 0, 0);
 			UpdateDefaultColumnTypeWidths( );
-			CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-			CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION);
+			CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+			CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION);
 			CtrlObject->Cp()->Redraw();
 
 			SendDlgMessage(hDlg, DM_SHOWDIALOG, 1, 0);
@@ -549,8 +554,8 @@ void DirectoryNameSettings()
 			Opt.ShowSymlinkSize = 1;
 
 		UpdateDefaultColumnTypeWidths( );
-		CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-		CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION);
+		CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+		CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION);
 		CtrlObject->Cp()->Redraw();
 	}
 }
@@ -575,27 +580,30 @@ void InputSettings()
 	Builder.AddCheckbox(Msg::ConfigMouse, &Opt.Mouse);
 
 	Builder.AddText(Msg::ConfigXLats);
-	auto Item = Builder.AddComboBox(&SelectedXLat, 40, XLatItems.data(), XLatItems.size(),
+	Builder.Indent(4);
+	Builder.AddComboBox(&SelectedXLat, 40, XLatItems.data(), XLatItems.size(),
 			DIF_DROPDOWNLIST | DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE);
-	Item->Indent(4);
 
 	Builder.AddCheckbox(Msg::ConfigXLatFastFileFind, &Opt.XLat.EnableForFastFileFind);
 	Builder.AddCheckbox(Msg::ConfigXLatDialogs, &Opt.XLat.EnableForDialogs);
 
 	if (supported_tweaks & TWEAK_STATUS_SUPPORT_EXCLUSIVE_KEYS) {
 		Builder.AddText(Msg::ConfigExclusiveKeys);
-		Item = Builder.AddCheckbox(Msg::ConfigExclusiveCtrlLeft, &Opt.ExclusiveCtrlLeft);
-		Item->Indent(4);
-		Builder.AddCheckboxAfter(Item, Msg::ConfigExclusiveCtrlRight, &Opt.ExclusiveCtrlRight);
 
-		Item = Builder.AddCheckbox(Msg::ConfigExclusiveAltLeft, &Opt.ExclusiveAltLeft);
-		Item->Indent(4);
-		Builder.AddCheckboxAfter(Item, Msg::ConfigExclusiveAltRight, &Opt.ExclusiveAltRight);
+		Builder.Indent(4);
+		Builder.AddCheckbox(Msg::ConfigExclusiveCtrlLeft, &Opt.ExclusiveCtrlLeft, false);
+		Builder.AddCheckbox(Msg::ConfigExclusiveCtrlRight, &Opt.ExclusiveCtrlRight);
 
-		Item = Builder.AddCheckbox(Msg::ConfigExclusiveWinLeft, &Opt.ExclusiveWinLeft);
-		Item->Indent(4);
-		Builder.AddCheckboxAfter(Item, Msg::ConfigExclusiveWinRight, &Opt.ExclusiveWinRight);
+		Builder.Indent(4);
+		Builder.AddCheckbox(Msg::ConfigExclusiveAltLeft, &Opt.ExclusiveAltLeft, false);
+		Builder.AddCheckbox(Msg::ConfigExclusiveAltRight, &Opt.ExclusiveAltRight);
+
+		Builder.Indent(4);
+		Builder.AddCheckbox(Msg::ConfigExclusiveWinLeft, &Opt.ExclusiveWinLeft, false);
+		Builder.AddCheckbox(Msg::ConfigExclusiveWinRight, &Opt.ExclusiveWinRight);
 	}
+
+	Builder.AddCheckbox(Msg::ConfigUseRightAltAsAltGr, &Opt.UseRightAltAsAltGr);
 
 	Builder.AddOKCancel();
 
@@ -605,6 +613,7 @@ void InputSettings()
 		}
 		ApplyConsoleTweaks();
 		XlatReinit();
+		WinPortSetUseRightAltAsAltGr(Opt.UseRightAltAsAltGr);
 	}
 }
 
@@ -630,11 +639,15 @@ void InterfaceSettings()
 		Builder.AddCheckbox(Msg::ConfigViewerEditorClock, &Opt.ViewerEditorClock);
 		Builder.AddCheckbox(Msg::ConfigKeyBar, &Opt.ShowKeyBar);
 		Builder.AddCheckbox(Msg::ConfigMenuBar, &Opt.ShowMenuBar);
+		Builder.AddCheckbox(Msg::EnforceColorCorrection, &Opt.Dialogs.EnforceColorCorrection);
+		Builder.AddCheckbox(Msg::UseModernLook, &Opt.Backend.UseModernLook);
+		Builder.AddCheckbox(Msg::CopyToPrimarySelection, &Opt.CopyToPrimarySelection);
+		Builder.AddCheckbox(Msg::PasteFromPrimarySelection, &Opt.PasteFromPrimarySelection);
 		auto SaverCheckbox = Builder.AddCheckbox(Msg::ConfigSaver, &Opt.ScreenSaver);
 
-		auto SaverEdit = Builder.AddIntEditField(&Opt.ScreenSaverTime, 2);
-		SaverEdit->Indent(4);
-		Builder.AddTextAfter(SaverEdit, Msg::ConfigSaverMinutes);
+		Builder.Indent(4);
+		auto SaverEdit = Builder.AddIntEditField(&Opt.ScreenSaverTime, 2, 0, false);
+		Builder.AddText(Msg::ConfigSaverMinutes);
 		Builder.LinkFlags(SaverCheckbox, SaverEdit, DIF_DISABLE);
 
 		Builder.AddCheckbox(Msg::ConfigCopyTotal, &Opt.CMOpt.CopyShowTotal);
@@ -660,23 +673,23 @@ void InterfaceSettings()
 		Builder.AddRadioButtonsHorz(&DateFormatIndex, ARRAYSIZE(DateFormatOptions), DateFormatOptions);
 
 		Builder.StartColumns();
-		auto DateSeparatorEdit = Builder.AddEditField(&strDateSeparator, 0);
+		auto DateSeparatorEdit = Builder.AddEditField(&strDateSeparator, 1, 0, 0, false);
 		DateSeparatorEdit->Type = DI_FIXEDIT;
 		DateSeparatorEdit->Flags |= DIF_MASKEDIT;
 		DateSeparatorEdit->strMask = L"X";
-		Builder.AddTextAfter(DateSeparatorEdit, Msg::ConfigDateSeparator);
+		Builder.AddText(Msg::ConfigDateSeparator);
 
-		auto TimeSeparatorEdit = Builder.AddEditField(&strTimeSeparator, 0);
+		auto TimeSeparatorEdit = Builder.AddEditField(&strTimeSeparator, 1, 0, 0, false);
 		TimeSeparatorEdit->Type = DI_FIXEDIT;
 		TimeSeparatorEdit->Flags |= DIF_MASKEDIT;
 		TimeSeparatorEdit->strMask = L"X";
-		Builder.AddTextAfter(TimeSeparatorEdit, Msg::ConfigTimeSeparator);
+		Builder.AddText(Msg::ConfigTimeSeparator);
 
-		auto DecimalSeparatorEdit = Builder.AddEditField(&strDecimalSeparator, 0);
+		auto DecimalSeparatorEdit = Builder.AddEditField(&strDecimalSeparator, 1, 0, 0, false);
 		DecimalSeparatorEdit->Type = DI_FIXEDIT;
 		DecimalSeparatorEdit->Flags |= DIF_MASKEDIT;
 		DecimalSeparatorEdit->strMask = L"X";
-		Builder.AddTextAfter(DecimalSeparatorEdit, Msg::ConfigDecimalSeparator);
+		Builder.AddText(Msg::ConfigDecimalSeparator);
 
 		Builder.ColumnBreak();
 		int DateTimeDefaultID = -1;
@@ -692,22 +705,17 @@ void InterfaceSettings()
 		const DWORD supported_tweaks = ApplyConsoleTweaks();
 		if (supported_tweaks & TWEAK_STATUS_SUPPORT_BLINK_RATE) {
 
-			auto CursorEdit = Builder.AddIntEditField(&Opt.CursorBlinkTime, 3);
-			Builder.AddTextAfter(CursorEdit, Msg::ConfigCursorBlinkInt);
+			Builder.AddIntEditField(&Opt.CursorBlinkTime, 3, 0, false);
+			Builder.AddText(Msg::ConfigCursorBlinkInt);
 		}
 
 		int ChangeFontID = -1;
-		auto ChangeFontItem = Builder.AddNone();
 		if (supported_tweaks & TWEAK_STATUS_SUPPORT_CHANGE_FONT) {
-			ChangeFontItem = Builder.AddButton(Msg::ConfigConsoleChangeFont, ChangeFontID);
-		}
-
-		if (supported_tweaks & TWEAK_STATUS_SUPPORT_PAINT_SHARP) {
-			if (ChangeFontItem)
-				Builder.AddCheckboxAfter(ChangeFontItem, Msg::ConfigConsolePaintSharp,
-						&Opt.ConsolePaintSharp);
-			else
+			Builder.AddButton(Msg::ConfigConsoleChangeFont, ChangeFontID, false);
+			if (supported_tweaks & TWEAK_STATUS_SUPPORT_PAINT_SHARP)
 				Builder.AddCheckbox(Msg::ConfigConsolePaintSharp, &Opt.ConsolePaintSharp);
+			else
+				Builder.AddEmptyLine();
 		}
 
 		if (supported_tweaks & TWEAK_STATUS_SUPPORT_OSC52CLIP_SET) {
@@ -718,7 +726,18 @@ void InterfaceSettings()
 			Builder.AddCheckbox(Msg::ConfigTTYPaletteOverride, &Opt.TTYPaletteOverride);
 		}
 
-		Builder.AddCheckbox(Msg::EnforceColorCorrection, (BOOL *)&Opt.Dialogs.EnforceColorCorrection);
+		if (supported_tweaks & TWEAK_STATUS_SUPPORT_TTY_CURSOR_SHAPE) {
+			static FarLangMsg CursorShapeOptions[] = {Msg::ConfigCursorShapeBar,
+					Msg::ConfigCursorShapeBlock, Msg::ConfigCursorShapeUnderline};
+			Builder.AddText(Msg::ConfigTTYCursorShapeInsert);
+			Builder.AddRadioButtonsHorz(&Opt.TTYCursorShapeInsert,
+					ARRAYSIZE(CursorShapeOptions), CursorShapeOptions);
+			Builder.AddText(Msg::ConfigTTYCursorShapeOvertype);
+			Builder.AddRadioButtonsHorz(&Opt.TTYCursorShapeOvertype,
+					ARRAYSIZE(CursorShapeOptions), CursorShapeOptions);
+		}
+
+		Builder.AddCheckbox(Msg::EnforceColorCorrection, &Opt.Dialogs.EnforceColorCorrection);
 
 		Builder.AddText(Msg::ConfigWindowTitle);
 		Builder.AddEditField(&Opt.strWindowTitle, 47);
@@ -743,8 +762,8 @@ void InterfaceSettings()
 			ConvertDate_ResetInit();
 
 			SetFarConsoleMode();
-			CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-			CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION);
+			CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+			CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION);
 			CtrlObject->Cp()->SetScreenPosition();
 			// $ 10.07.2001 SKV ! надо это делать, иначе если кейбар спрятали, будет полный рамс.
 			CtrlObject->Cp()->Redraw();
@@ -880,9 +899,9 @@ void AutoCompleteSettings()
 	DialogBuilder Builder(Msg::ConfigAutoCompleteTitle, L"AutoCompleteSettings");
 	auto ListCheck =
 			Builder.AddCheckbox(Msg::ConfigAutoCompleteShowList, &Opt.AutoComplete.ShowList);
+			Builder.Indent(4);
 	auto ModalModeCheck =
 			Builder.AddCheckbox(Msg::ConfigAutoCompleteModalList, &Opt.AutoComplete.ModalList);
-	ModalModeCheck->Indent(4);
 	Builder.AddCheckbox(Msg::ConfigAutoCompleteAutoAppend, &Opt.AutoComplete.AppendCompletion);
 	Builder.LinkFlags(ListCheck, ModalModeCheck, DIF_DISABLE);
 
@@ -893,17 +912,17 @@ void AutoCompleteSettings()
 
 	Builder.AddText(Msg::ConfigSaveHistoryOpt);
 	int cmdHist_optAssSys = !(Opt.ExcludeCmdHistory & EXCLUDECMDHISTORY_NOTWINASS);
-	auto CmdHistOptAssSys = Builder.AddCheckbox(Msg::ConfigSaveHistoryOptAssSys, &cmdHist_optAssSys);
-	CmdHistOptAssSys->Indent(4);
+	Builder.Indent(4);
+	Builder.AddCheckbox(Msg::ConfigSaveHistoryOptAssSys, &cmdHist_optAssSys);
 	int cmdHist_optAssFar = !(Opt.ExcludeCmdHistory & EXCLUDECMDHISTORY_NOTFARASS);
-	auto CmdHistOptAssFar = Builder.AddCheckbox(Msg::ConfigSaveHistoryOptAssFar, &cmdHist_optAssFar);
-	CmdHistOptAssFar->Indent(4);
+	Builder.Indent(4);
+	Builder.AddCheckbox(Msg::ConfigSaveHistoryOptAssFar, &cmdHist_optAssFar);
 	int cmdHist_optExecPanel = !(Opt.ExcludeCmdHistory & EXCLUDECMDHISTORY_NOTPANEL);
-	auto CmdHistOptExecPanel = Builder.AddCheckbox(Msg::ConfigSaveHistoryOptExecPanel, &cmdHist_optExecPanel);
-	CmdHistOptExecPanel->Indent(4);
+	Builder.Indent(4);
+	Builder.AddCheckbox(Msg::ConfigSaveHistoryOptExecPanel, &cmdHist_optExecPanel);
 	int cmdHist_optExecCmdLine = !(Opt.ExcludeCmdHistory & EXCLUDECMDHISTORY_NOTCMDLINE);
-	auto CmdHistOptExecCmdLine = Builder.AddCheckbox(Msg::ConfigSaveHistoryOptExecCmdLine, &cmdHist_optExecCmdLine);
-	CmdHistOptExecCmdLine->Indent(4);
+	Builder.Indent(4);
+	Builder.AddCheckbox(Msg::ConfigSaveHistoryOptExecCmdLine, &cmdHist_optExecCmdLine);
 
 	Builder.AddOKCancel();
 	if (Builder.ShowDialog()) {
@@ -934,7 +953,7 @@ void DialogSettings()
 	Builder.AddCheckbox(Msg::ConfigDialogsAutoComplete, &Opt.Dialogs.AutoComplete);
 	Builder.AddCheckbox(Msg::ConfigDialogsEULBsClear, &Opt.Dialogs.EULBsClear);
 	Builder.AddCheckbox(Msg::ConfigDialogsMouseButton, &Opt.Dialogs.MouseButton);
-	Builder.AddCheckbox(Msg::ConfigDialogsShowArrowsInEdit, (BOOL *)&Opt.Dialogs.ShowArrowsInEdit);
+	Builder.AddCheckbox(Msg::ConfigDialogsShowArrowsInEdit, &Opt.Dialogs.ShowArrowsInEdit);
 	Builder.AddOKCancel();
 
 	if (Builder.ShowDialog()) {
@@ -964,7 +983,7 @@ void VMenuSettings()
 	Builder.AddComboBox((int *)&Opt.VMenu.MBtnClick, 40, CAListItems, ARRAYSIZE(CAListItems),
 			DIF_DROPDOWNLIST | DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE);
 
-	Builder.AddCheckbox(Msg::ConfigVMenuStopEdge, (BOOL *)&Opt.VMenu.MenuLoopScroll);
+	Builder.AddCheckbox(Msg::ConfigVMenuStopEdge, &Opt.VMenu.MenuLoopScroll);
 
 	Builder.AddOKCancel();
 	Builder.ShowDialog();
@@ -986,8 +1005,8 @@ void CmdlineSettings()
 	Builder.AddCheckbox(Msg::ConfigCmdlineAutoComplete, &Opt.CmdLine.AutoComplete);
 	Builder.AddCheckbox(Msg::ConfigCmdlineSplitter, &Opt.CmdLine.Splitter);
 
-	auto LimitEdit = Builder.AddIntEditField(&Opt.CmdLine.VTLogLimit, 8);
-	Builder.AddTextBefore(LimitEdit, Msg::ConfigCmdlineVTLogLimit);
+	Builder.AddText(Msg::ConfigCmdlineVTLogLimit, false);
+	Builder.AddIntEditField(&Opt.CmdLine.VTLogLimit, 8);
 
 	Builder.AddText(Msg::ConfigCmdlineWaitKeypress);
 	Builder.AddComboBox((int *)&Opt.CmdLine.WaitKeypress, 40, CMWListItems, ARRAYSIZE(CMWListItems),
@@ -995,12 +1014,12 @@ void CmdlineSettings()
 
 	auto UsePromptFormat =
 			Builder.AddCheckbox(Msg::ConfigCmdlineUsePromptFormat, &Opt.CmdLine.UsePromptFormat);
+	Builder.Indent(4);
 	auto PromptFormat = Builder.AddEditField(&Opt.CmdLine.strPromptFormat, 19);
-	PromptFormat->Indent(4);
 	Builder.LinkFlags(UsePromptFormat, PromptFormat, DIF_DISABLE);
 	auto UseShell = Builder.AddCheckbox(Msg::ConfigCmdlineUseShell, &Opt.CmdLine.UseShell);
+	Builder.Indent(4);
 	auto Shell = Builder.AddEditField(&Opt.CmdLine.strShell, 19);
-	Shell->Indent(4);
 	Builder.LinkFlags(UseShell, Shell, DIF_DISABLE);
 	Builder.AddCheckbox(Msg::ConfigShowStartupBanner, &Opt.ShowStartupBanner);
 	Builder.AddOKCancel();
@@ -1052,12 +1071,10 @@ void PluginsManagerSettings()
 	Builder.AddSeparator(Msg::PluginConfirmationTitle);
 	auto ConfirmOFP = Builder.AddCheckbox(Msg::PluginsManagerOFP, &Opt.PluginConfirm.OpenFilePlugin);
 	ConfirmOFP->Flags|= DIF_3STATE;
-	auto StandardAssoc =
-			Builder.AddCheckbox(Msg::PluginsManagerStdAssoc, &Opt.PluginConfirm.StandardAssociation);
-	auto EvenIfOnlyOne =
-			Builder.AddCheckbox(Msg::PluginsManagerEvenOne, &Opt.PluginConfirm.EvenIfOnlyOnePlugin);
-	StandardAssoc->Indent(2);
-	EvenIfOnlyOne->Indent(4);
+	Builder.Indent(2);
+	Builder.AddCheckbox(Msg::PluginsManagerStdAssoc, &Opt.PluginConfirm.StandardAssociation);
+	Builder.Indent(2);
+	Builder.AddCheckbox(Msg::PluginsManagerEvenOne, &Opt.PluginConfirm.EvenIfOnlyOnePlugin);
 
 	Builder.AddCheckbox(Msg::PluginsManagerSFL, &Opt.PluginConfirm.SetFindList);
 	Builder.AddCheckbox(Msg::PluginsManagerPF, &Opt.PluginConfirm.Prefix);
@@ -1076,8 +1093,8 @@ void SetDizConfig()
 
 	Builder.AddCheckbox(Msg::CfgDizSetHidden, &Opt.Diz.SetHidden);
 	Builder.AddCheckbox(Msg::CfgDizROUpdate, &Opt.Diz.ROUpdate);
-	auto StartPos = Builder.AddIntEditField(&Opt.Diz.StartPos, 2);
-	Builder.AddTextAfter(StartPos, Msg::CfgDizStartPos);
+	Builder.AddIntEditField(&Opt.Diz.StartPos, 2, 0, false);
+	Builder.AddText(Msg::CfgDizStartPos);
 	Builder.AddSeparator();
 
 	static FarLangMsg DizOptions[] = {Msg::CfgDizNotUpdate, Msg::CfgDizUpdateIfDisplayed,
@@ -1105,8 +1122,8 @@ void ViewerConfig(ViewerOptions &ViOpt, bool Local)
 	Builder.StartColumns();
 	Builder.AddCheckbox(Msg::ViewConfigPersistentSelection, &ViOpt.PersistentBlocks);
 	auto SavePos = Builder.AddCheckbox(Msg::ViewConfigSavePos, &Opt.ViOpt.SavePos);
-	auto TabSize = Builder.AddIntEditField(&ViOpt.TabSize, 3);
-	Builder.AddTextAfter(TabSize, Msg::ViewConfigTabSize);
+	Builder.AddIntEditField(&ViOpt.TabSize, 3, 0, false);
+	Builder.AddText(Msg::ViewConfigTabSize);
 	Builder.AddCheckbox(Msg::ViewShowKeyBar, &ViOpt.ShowKeyBar);
 	Builder.ColumnBreak();
 	Builder.AddCheckbox(Msg::ViewConfigArrows, &ViOpt.ShowArrows);
@@ -1155,10 +1172,10 @@ void EditorConfig(EditorOptions &EdOpt, bool Local, int EdCfg_ExpandTabs, int Ed
 	Builder.AddCheckbox(Msg::EditConfigPersistentBlocks, &EdOpt.PersistentBlocks);
 	auto SavePos = Builder.AddCheckbox(Msg::EditConfigSavePos, &EdOpt.SavePos);
 	Builder.AddCheckbox(Msg::EditConfigAutoIndent, &EdOpt.AutoIndent);
-	auto TabSize = Builder.AddIntEditField(&EdOpt.TabSize, 3,
-		(Local && EdCfg_TabSize > 0 ? DIF_DISABLE : 0) );
-	Builder.AddTextAfter(TabSize, Msg::EditConfigTabSize);
+	Builder.AddIntEditField(&EdOpt.TabSize, 3,	(Local && EdCfg_TabSize > 0 ? DIF_DISABLE : 0), false );
+	Builder.AddText(Msg::EditConfigTabSize);
 	Builder.AddCheckbox(Msg::EditShowWhiteSpace, &EdOpt.ShowWhiteSpace);
+	Builder.AddCheckbox(Msg::EditShowEOL, &EdOpt.ShowEOL);
 	Builder.AddCheckbox(Msg::EditShowKeyBar, &EdOpt.ShowKeyBar);
 	Builder.AddCheckbox(Msg::EditShowLineNumbers, &EdOpt.ShowLineNumbers);
 	Builder.ColumnBreak();
@@ -1215,11 +1232,11 @@ void SetFolderInfoFiles()
 				FIB_ENABLEEMPTY | FIB_BUTTONS)) {
 		Opt.InfoPanel.strFolderInfoFiles = strFolderInfoFiles;
 
-		if (CtrlObject->Cp()->LeftPanel->GetType() == INFO_PANEL)
-			CtrlObject->Cp()->LeftPanel->Update(0);
+		if (CtrlObject->Cp()->ActiveTab().LeftPanel->GetType() == INFO_PANEL)
+			CtrlObject->Cp()->ActiveTab().LeftPanel->Update(0);
 
-		if (CtrlObject->Cp()->RightPanel->GetType() == INFO_PANEL)
-			CtrlObject->Cp()->RightPanel->Update(0);
+		if (CtrlObject->Cp()->ActiveTab().RightPanel->GetType() == INFO_PANEL)
+			CtrlObject->Cp()->ActiveTab().RightPanel->Update(0);
 	}
 }
 
@@ -1227,6 +1244,7 @@ void ApplyConfig()
 {
 	ApplySudoConfiguration();
 	ApplyConsoleTweaks();
+	WinPortSetUseRightAltAsAltGr(Opt.UseRightAltAsAltGr);
 }
 
 void LanguageSettings()

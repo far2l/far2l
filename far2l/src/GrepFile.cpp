@@ -13,14 +13,14 @@ FileHolderPtr GrepFile(FileHolderPtr src)
 	static int s_case_sensitive = 0;
 	static int s_whole_words = 0;
 
-	auto pattern_edit = dlg_builder.AddEditField(&s_pattern, 30, L"GrepPattern", DIF_FOCUS | DIF_HISTORY);
-	dlg_builder.AddTextBefore(pattern_edit, Msg::ConfigGrepFilterPattern);
+	dlg_builder.AddText(Msg::ConfigGrepFilterPattern, false);
+	dlg_builder.AddEditField(&s_pattern, 30, L"GrepPattern", DIF_FOCUS | DIF_HISTORY);
 
-	auto exclude_pattern_edit = dlg_builder.AddEditField(&s_exclude_pattern, 30, L"GrepExclPattern", DIF_HISTORY);
-	dlg_builder.AddTextBefore(exclude_pattern_edit, Msg::ConfigGrepFilterExclPattern);
+	dlg_builder.AddText(Msg::ConfigGrepFilterExclPattern, false);
+	dlg_builder.AddEditField(&s_exclude_pattern, 30, L"GrepExclPattern", DIF_HISTORY);
 
-	auto context_edit = dlg_builder.AddIntEditField(&s_context, 3);
-	dlg_builder.AddTextBefore(context_edit, Msg::ConfigGrepFilterContext);
+	dlg_builder.AddText(Msg::ConfigGrepFilterContext, false);
+	dlg_builder.AddIntEditField(&s_context, 3);
 
 	dlg_builder.AddCheckbox(Msg::ConfigGrepFilterCaseSensitive, &s_case_sensitive);
 	dlg_builder.AddCheckbox(Msg::ConfigGrepFilterWholeWords, &s_whole_words);

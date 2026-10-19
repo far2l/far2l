@@ -1276,7 +1276,7 @@ void ShellCopy::Start(const std::shared_ptr<ShellCopy> &self, Panel *SrcPanel,
 		{DI_DOUBLEBOX, 3,  1,  (SHORT)(DLG_WIDTH - 4), (SHORT)(DLG_HEIGHT - 2), {}, 0, Msg::CopyDlgTitle},
 		{DI_TEXT,      5,  2,  0,  2,  {}, 0, (Link ? Msg::CMLTargetIN : Msg::CMLTargetTO)},
 		{DI_EDIT,      5,  3,  70, 3,  {reinterpret_cast<DWORD_PTR>(L"Copy")}, DIF_FOCUS | DIF_HISTORY | DIF_EDITEXPAND | DIF_USELASTHISTORY | DIF_EDITPATH, L""},
-		{DI_TEXT,      3,  4,  0,  4,  {}, DIF_SEPARATOR, L""},
+		{DI_TEXT,      3,  4,  0,  4,  {}, (Opt.Backend.UseModernLook ? 0 : DIF_SEPARATOR), L""},
 		{DI_TEXT,      5,  5,  0,  5,  {}, 0, Msg::CopyIfFileExist},
 		{DI_COMBOBOX,  29, 5,  70, 5,  {}, DIF_DROPDOWNLIST | DIF_LISTNOAMPERSAND | DIF_LISTWRAPMODE, L""},
 		{DI_CHECKBOX,  5,  6,  0,  6,  {}, 0, Msg::CopyMultiActions},
@@ -1288,9 +1288,9 @@ void ShellCopy::Start(const std::shared_ptr<ShellCopy> &self, Panel *SrcPanel,
 		{DI_TEXT,      5,  12, 0,  12, {}, 0, Msg::CopySymLinkText},
 		{DI_COMBOBOX,  29, 12, 70, 12, {}, DIF_DROPDOWNLIST | DIF_LISTNOAMPERSAND | DIF_LISTWRAPMODE, L""},
 		{DI_TEXT,      5,  13, 0,  13, {}, DIF_DISABLE, Move ? Msg::LinkMoveExplainText : Msg::LinkCopyExplainText},
-		{DI_TEXT,      3,  14, 0,  14, {}, DIF_SEPARATOR, L""},
+		{DI_TEXT,      3,  14, 0,  14, {}, (Opt.Backend.UseModernLook ? 0 : DIF_SEPARATOR), L""},
 		{DI_CHECKBOX,  5,  15, 0,  15, {UseFilter ? BSTATE_CHECKED : BSTATE_UNCHECKED}, DIF_AUTOMATION, Msg::CopyUseFilter},
-		{DI_TEXT,      3,  16, 0,  16, {}, DIF_SEPARATOR, L""},
+		{DI_TEXT,      3,  16, 0,  16, {}, (Opt.Backend.UseModernLook ? 0 : DIF_SEPARATOR), L""},
 		{DI_BUTTON,    0,  17, 0,  17, {}, DIF_DEFAULT | DIF_CENTERGROUP, Msg::CopyDlgCopy},
 		{DI_BUTTON,    0,  17, 0,  17, {}, DIF_CENTERGROUP | DIF_BTNNOCLOSE, Msg::CopyDlgTree},
 		{DI_BUTTON,    0,  17, 0,  17, {}, DIF_CENTERGROUP | DIF_BTNNOCLOSE | DIF_AUTOMATION | (UseFilter ? 0 : DIF_DISABLE), Msg::CopySetFilter},
@@ -1733,8 +1733,8 @@ void ShellCopy::Start(const std::shared_ptr<ShellCopy> &self, Panel *SrcPanel,
 	UpdateDiz = (Opt.Diz.UpdateMode == DIZ_UPDATE_IF_DISPLAYED && SrcPanel->IsDizDisplayed())
 			|| Opt.Diz.UpdateMode == DIZ_UPDATE_ALWAYS;
 	if (UpdateDiz) {
-		CtrlObject->Cp()->LeftPanel->ReadDiz();
-		CtrlObject->Cp()->RightPanel->ReadDiz();
+		CtrlObject->Cp()->ActiveTab().LeftPanel->ReadDiz();
+		CtrlObject->Cp()->ActiveTab().RightPanel->ReadDiz();
 	}
 
 	if (!DestPlugin) {
@@ -1801,8 +1801,8 @@ void ShellCopy::Start(const std::shared_ptr<ShellCopy> &self, Panel *SrcPanel,
 					InterThreadCall<int>([self]() {
 						self->ApplyTreeUpdates();
 						if (CtrlObject && CtrlObject->Cp()) {
-							CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-							CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION | UPDATE_SECONDARY);
+							CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+							CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION | UPDATE_SECONDARY);
 						}
 						Message(MSG_WARNING, 1, Msg::Error,
 								Msg::BackgroundFileOperationFailed, Msg::Ok);
@@ -2022,8 +2022,8 @@ void ShellCopy::PerformCopy(int Move, bool AddSlash, int SelCount, bool FolderPr
 		if (Background) {
 			ApplyTreeUpdates();
 			if (CtrlObject && CtrlObject->Cp()) {
-				CtrlObject->Cp()->LeftPanel->Update(UPDATE_KEEP_SELECTION);
-				CtrlObject->Cp()->RightPanel->Update(UPDATE_KEEP_SELECTION | UPDATE_SECONDARY);
+				CtrlObject->Cp()->ActiveTab().LeftPanel->Update(UPDATE_KEEP_SELECTION);
+				CtrlObject->Cp()->ActiveTab().RightPanel->Update(UPDATE_KEEP_SELECTION | UPDATE_SECONDARY);
 			}
 
 			if (Opt.NotifOpt.OnFileOperation)
@@ -3350,8 +3350,9 @@ ShellFileTransfer::ShellFileTransfer(const wchar_t *SrcName, const FAR_FIND_DATA
 				break;
 			}
 			INT64 nPos = (INT64)DstData.nFileSize;
-			if (!_SrcFile.SetPointer(nPos,nullptr,  FILE_BEGIN)) {
+			if (!_SrcFile.SetPointer(nPos, nullptr, FILE_BEGIN)) {
 				_SrcFile.SetPointer(0, &_AppendPos, FILE_BEGIN);
+				nPos = _AppendPos;
 				Resume = false;
 				break;
 			}
@@ -3859,18 +3860,18 @@ int ShellCopy::AskOverwrite(const FAR_FIND_DATA_EX &SrcData, const wchar_t *SrcN
 		{DI_DOUBLEBOX, 3, 1,  WARN_DLG_WIDTH - 4, WARN_DLG_HEIGHT - 2, {}, 0, Msg::Warning},
 		{DI_TEXT,      5, 2,  WARN_DLG_WIDTH - 6, 2,  {}, DIF_CENTERTEXT, Msg::CopyFileExist},
 		{DI_EDIT,      5, 3,  WARN_DLG_WIDTH - 6, 3,  {}, DIF_READONLY, (wchar_t *)DestName},
-		{DI_TEXT,      3, 4,  0,                  4,  {}, DIF_SEPARATOR, L""},
+		{DI_TEXT,      3, 4,  0,                  4,  {}, (Opt.Backend.UseModernLook ? 0 : DIF_SEPARATOR), L""},
 		{DI_BUTTON,    5, 5,  WARN_DLG_WIDTH - 6, 5,  {}, DIF_BTNNOCLOSE | DIF_NOBRACKETS, L""},
 		{DI_BUTTON,    5, 6,  WARN_DLG_WIDTH - 6, 6,  {}, DIF_BTNNOCLOSE | DIF_NOBRACKETS, L""},
-		{DI_TEXT,      3, 7,  0,                  7,  {}, DIF_SEPARATOR, L""},
+		{DI_TEXT,      3, 7,  0,                  7,  {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), L""},
 		{DI_CHECKBOX,  5, 8,  0,                  8,  {}, DIF_FOCUS, Msg::CopyRememberChoice},
-		{DI_TEXT,      3, 9,  0,                  9,  {}, DIF_SEPARATOR, L""},
+		{DI_TEXT,      3, 9,  0,                  9,  {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), L""},
 		{DI_BUTTON,    0, 10, 0,                  10, {}, DIF_DEFAULT | DIF_CENTERGROUP, Msg::CopyOverwrite},
 		{DI_BUTTON,    0, 10, 0,                  10, {}, DIF_CENTERGROUP, Msg::CopySkipOvr},
 		{DI_BUTTON,    0, 10, 0,                  10, {}, DIF_CENTERGROUP, Msg::CopyRename},
 		{DI_BUTTON,    0, 10, 0,                  10, {}, DIF_CENTERGROUP | (AskAppend ? 0 : (DIF_DISABLE | DIF_HIDDEN)), Msg::CopyAppend},
 		{DI_BUTTON,    0, 10, 0,                  10, {}, DIF_CENTERGROUP | (askResume ? 0 : (DIF_DISABLE | DIF_HIDDEN)), Msg::CopyResume},
-		{DI_BUTTON,    0, 10, 0,                  10, {}, DIF_CENTERGROUP,Msg::CopyCancelOvr}
+		{DI_BUTTON,    0, 10, 0,                  10, {}, DIF_CENTERGROUP, Msg::CopyCancelOvr}
 	};
 	FAR_FIND_DATA_EX DestData;
 	DestData.Clear();
@@ -3997,7 +3998,7 @@ int ShellCopy::AskOverwrite(const FAR_FIND_DATA_EX &SrcData, const wchar_t *SrcN
 			Append = true;
 			break;
 		case 10:        // resume
-			OvrMode = 9;
+			OvrMode = 10;
 		case 9:
 			Resume = true;
 			break;

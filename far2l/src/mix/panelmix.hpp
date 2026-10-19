@@ -34,6 +34,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 class Panel;
+struct FileListItem;
 
 void ShellUpdatePanels(Panel *SrcPanel, BOOL NeedSetUpADir = FALSE);
 bool CheckUpdateAnotherPanel(Panel *SrcPanel, const wchar_t *SelName);

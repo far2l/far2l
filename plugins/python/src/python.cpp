@@ -38,6 +38,7 @@ static WINPORTDECL winportvar = {
 
 static void python_log(const char *function, unsigned int line, const char *format, ...)
 {
+#ifdef _DEBUG
     va_list args;
     auto str_size = strlen(format) + strlen(function) + 64;
     char *xformat = (char *)alloca(str_size);
@@ -47,6 +48,7 @@ static void python_log(const char *function, unsigned int line, const char *form
     va_start(args, format);
     vfprintf(stderr, xformat, args);
     va_end(args);
+#endif
 }
 
 #define PYTHON_LOG(args...)  python_log(__FUNCTION__, __LINE__, args)
@@ -128,12 +130,13 @@ PYTHON_LOG("status exception\n"); \
 
 static bool init_python()
 {
+#if PY_MINOR_VERSION >= 8
     PyStatus status;
 
     PyConfig config;
     PyConfig_InitIsolatedConfig(&config);
 
-    //config.utf8_mode = 1;
+    // config.utf8_mode = 1;
     config.user_site_directory = 1;
     config.install_signal_handlers = 1;
 
@@ -157,6 +160,15 @@ static bool init_python()
 done:
     PyConfig_Clear(&config);
     return false;
+
+#else
+    PyImport_AppendInittab("far2lc", PyInit_far2lc);
+    //Py_SetProgramName((wchar_t *)program_name.c_str());
+
+    Py_Initialize();
+
+    return true;
+#endif
 }
 
 #ifdef PYPLUGIN_THREADED
@@ -178,8 +190,14 @@ protected:
         std::string syspath = "import sys";
         syspath += "\nsys.path.insert(1, '" + pluginPath + "')";
 
-PYTHON_LOG("initial sys.path=%s\n", syspath.c_str());
+        PYTHON_LOG("initial sys.path=%s\n", syspath.c_str());
         PyRun_SimpleString(syspath.c_str());
+
+        TranslateInstallPath_Lib2Share(pluginPath);
+
+        syspath += "\nsys.path.insert(1, '" + pluginPath + "')";
+        syspath += "\nsys.path.insert(1, '" + pluginPath + "/plugins')";
+        PYTHON_LOG("pluginpath: %s\n", pluginPath.c_str());
 
         PyObject *pName;
         pName = PyUnicode_DecodeFSDefault("far2l");

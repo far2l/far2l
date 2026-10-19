@@ -76,6 +76,14 @@ private:
 	int m_multilineExtraLines;
 	int m_multilineActiveLine;
 
+	// yank-last-arg (Alt+.) cycling state:
+	// YankLastArgDepth == -1 means not cycling, otherwise it is the depth in
+	// commands history of the currently inserted argument, and
+	// YankLastArgPos/YankLastArgLen describe its region in the command line.
+	int YankLastArgDepth = -1;
+	int YankLastArgPos = 0;
+	int YankLastArgLen = 0;
+
 private:
 	virtual void DisplayObject();
 	int CmdExecute(const wchar_t *CmdLine, bool SeparateWindow, bool DirectRun, bool WaitForIdle = false,
@@ -89,6 +97,7 @@ private:
 	void CheckForKeyPressAfterCmd(int r);
 
 	void ProcessKey_ClearTerminalHistory();
+	void ProcessKey_YankLastArg();
 	void ProcessKey_ShowFolderTree();
 	void ProcessKey_ShowFolderHistory();
 	void ProcessKey_ShowCommandsHistory();
@@ -120,6 +129,7 @@ public:
 public:
 	virtual int ProcessKey(FarKey Key);
 	virtual int ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent);
+	virtual int ProcessDrop(EXT_DROP_EVENT_DATA *DropEvent);
 	virtual int64_t VMProcess(MacroOpcode OpCode, void *vParam = nullptr, int64_t iParam = 0);
 	virtual void ResizeConsole();
 

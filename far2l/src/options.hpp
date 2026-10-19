@@ -35,4 +35,41 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <WinCompat.h>
 
+#include <vector>
+
+#include "hmenu.hpp"
+#include "vmenu.hpp"
+
+enum enumWindowMenu {
+	MENU_PANELWINDOWNEWPANEL,
+	MENU_PANELWINDOWNEWEDITOR,
+	MENU_PANELWINDOWDROPPANEL,
+	MENU_PANELWINDOW_SEPARATOR1,
+	MENU_PANELWINDOWARRANGEFULL,
+	MENU_PANELWINDOWARRANGETILE,
+	MENU_PANELWINDOWARRANGECASCADE,
+	MENU_PANELWINDOW_SEPARATOR2
+};
+
+struct WindowMenuContext {
+
+	MenuDataEx WindowMenu[128] = {
+		{Msg::PanelWindowNewPanel,	0,	0  },
+		{Msg::PanelWindowNewEditor,	0,	KEY_SHIFTF4  },
+		{Msg::PanelWindowDropPanel,	0,	0  },
+		{L"",	LIF_SEPARATOR,	0  },
+		{Msg::PanelWindowArrangeFull,	0,	0  },
+		{Msg::PanelWindowArrangeTile,	0,	0  },
+		{Msg::PanelWindowArrangeCascade,	0,	0  },
+		{L"",	LIF_SEPARATOR,	0  },
+	};
+
+	int WindowMenuCount { MENU_PANELWINDOW_SEPARATOR2 + 1 };
+	std::vector<int> frameIndexes;
+	std::vector<int> subframeIndexes;
+	std::vector<std::wstring> windowNames;
+};
+
 void ShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent);
+void initializeWindowMenuContext(WindowMenuContext& ctx);
+void applyMenu(WindowMenuContext& ctx, int VItem);
