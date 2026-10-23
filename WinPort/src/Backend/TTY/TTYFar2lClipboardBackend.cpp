@@ -335,8 +335,14 @@ TTYFar2lClipboardBackend::SetDataThread::SetDataThread(TTYFar2lClipboardBackend 
 	: _backend(backend), _format(format)
 {
 	if (_format == CF_UNICODETEXT) { // CF_UNICODETEXT -> CF_TEXT to reduce traffic
-		const size_t wchar_cnt = wcsnlen((const wchar_t *)data, len / sizeof(wchar_t));
-		UtfConverter<wchar_t, unsigned char>((const wchar_t *)data, wchar_cnt).CopyToVector(_data);
+		size_t wchar_cnt = len / sizeof(wchar_t);
+		if (wchar_cnt && ((const wchar_t *)data)[wchar_cnt - 1] == 0) {
+			--wchar_cnt;	// drop exactly one terminating NUL, embedded NULs are significant
+		}
+
+		// no automatic terminator: it would merge with a trailing payload NUL
+		UtfConverter<wchar_t, unsigned char, false>((const wchar_t *)data, wchar_cnt).CopyToVector(_data);
+		_data.emplace_back(0);	// explicit terminator
 		_format = CF_TEXT;
 
 	} else {
@@ -419,8 +425,14 @@ void *TTYFar2lClipboardBackend::OnClipboardGetData(UINT format)
 	if (format == CF_UNICODETEXT) { // use UTF8 instead of UTF32 to reduce traffic
 		void *data = InnerClipboardGetData(CF_TEXT, len);
 		if (data) {
-			const size_t chars_cnt = strnlen((const char *)data, len);
-			UtfConverter<char, wchar_t> cvt((const char *)data, chars_cnt);
+			size_t chars_cnt = len;
+			if (chars_cnt && ((const char *)data)[chars_cnt - 1] == 0) {
+				--chars_cnt;	// drop exactly one terminating NUL, embedded NULs are significant
+			}
+
+			// no automatic terminator: it would merge with a trailing payload NUL
+			UtfConverter<char, wchar_t, false> cvt((const char *)data, chars_cnt);
+			cvt.emplace_back(0);	// explicit terminator
 			WINPORT(ClipboardFree)(data);
 			return ClipboardAllocFromVector(cvt);
 		}

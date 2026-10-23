@@ -1276,7 +1276,7 @@ int Edit::ProcessKey(FarKey Key)
 			}
 
 			FARString strPastedText;
-			if (!GPastedText.IsEmpty()) {
+			if (GPastedText.GetLength()) {	// GetLength, not IsEmpty: NUL-first paste is not empty
 				strPastedText = GPastedText;
 				GPastedText.Clear();
 			} else {
@@ -1284,11 +1284,23 @@ int Edit::ProcessKey(FarKey Key)
 			}
 
 			// For single-line edit controls, replace EOL sequences with spaces.
-			ReplaceStrings(strPastedText, L"\r\n", L" ");
-			ReplaceStrings(strPastedText, L"\r", L" ");
-			ReplaceStrings(strPastedText, L"\n", L" ");
+			// Counted, not ReplaceStrings: embedded NULs are significant.
+			size_t PasteLen = strPastedText.GetLength();
+			wchar_t *PasteBuf = strPastedText.GetBuffer();
+			for (size_t i = 0; i < PasteLen; ++i) {
+				if (PasteBuf[i] == L'\r') {
+					if (i + 1 < PasteLen && PasteBuf[i + 1] == L'\n') {
+						wmemmove(&PasteBuf[i], &PasteBuf[i + 1], PasteLen - i - 1);
+						--PasteLen;
+					}
+					PasteBuf[i] = L' ';
+				} else if (PasteBuf[i] == L'\n') {
+					PasteBuf[i] = L' ';
+				}
+			}
+			strPastedText.ReleaseBuffer(PasteLen);
 
-			InsertString(strPastedText);
+			InsertBinaryString(strPastedText.CPtr(), (int)strPastedText.GetLength());
 
 			Show();
 			return TRUE;
@@ -1538,10 +1550,23 @@ int Edit::ProcessKey(FarKey Key)
 		}
 		case KEY_SHIFTINS:
 		case KEY_SHIFTNUMPAD0: {
-			wchar_t *ClipText = PasteFromClipboardEx(GetMaxLength());
-
-			if (!ClipText)
-				return TRUE;
+			FARString strClip;
+			if (GPastedText.GetLength()) {	// GetLength, not IsEmpty: NUL-first paste is not empty
+				strClip = GPastedText;
+				GPastedText.Clear();
+			} else {
+				// PasteText, not PasteFromClipboardEx: embedded NULs are significant
+				Clipboard clip;
+				if (!clip.Open())
+					return TRUE;
+				std::wstring Text;
+				bool IsVertical;
+				bool Pasted = clip.PasteText(Text, IsVertical, GetMaxLength());
+				clip.Close();
+				if (!Pasted)
+					return TRUE;
+				strClip.Copy(Text.c_str(), Text.size());
+			}
 
 			if (!Flags.Check(FEDITLINE_PERSISTENTBLOCKS)) {
 				PauseEditListener pel(*this);
@@ -1551,28 +1576,31 @@ int Edit::ProcessKey(FarKey Key)
 			for (int i = StrLength(Str.CPtr()) - 1; i >= 0 && IsEol(Str[i]); i--)
 				Str[i] = 0;
 
-			for (int i = 0; ClipText[i]; i++) {
+			size_t ClipLen = strClip.GetLength();
+			wchar_t *ClipText = strClip.GetBuffer();
+			for (size_t i = 0; i < ClipLen; i++) {
 				if (IsEol(ClipText[i])) {
-					if (IsEol(ClipText[i + 1]))
-						wmemmove(&ClipText[i], &ClipText[i + 1], StrLength(&ClipText[i + 1]) + 1);
+					if (i + 1 < ClipLen && IsEol(ClipText[i + 1])) {
+						wmemmove(&ClipText[i], &ClipText[i + 1], ClipLen - i - 1);
+						ClipLen--;
+					}
 
-					if (!ClipText[i + 1])
-						ClipText[i] = 0;
+					if (i + 1 >= ClipLen)
+						ClipLen = i;
 					else
 						ClipText[i] = L' ';
 				}
 			}
 
+			strClip.ReleaseBuffer(ClipLen);
+
 			if (Flags.Check(FEDITLINE_CLEARFLAG)) {
 				my->LeftPos = 0;
 				Flags.Clear(FEDITLINE_CLEARFLAG);
-				SetString(ClipText);
+				SetString(strClip.CPtr(), (int)strClip.GetLength());
 			} else {
-				InsertString(ClipText);
+				InsertBinaryString(strClip.CPtr(), (int)strClip.GetLength());
 			}
-
-			if (ClipText)
-				free(ClipText);
 
 			Show();
 			return TRUE;
@@ -2156,6 +2184,23 @@ int Edit::GetSelString(FARString &strStr)
 
 	strStr.Copy(this->Str.CPtr() + my->SelStart, my->SelEnd - my->SelStart + 1);
 	return TRUE;
+}
+
+bool Edit::GetSelString(std::wstring &Out)
+{
+	MyEcoLazy::Use my(fields);
+	if (my->SelStart == -1 || (my->SelEnd != -1 && my->SelEnd <= my->SelStart) || my->SelStart >= Str.Size()) {
+		Out.clear();
+		return false;
+	}
+
+	// length-aware selection copy: embedded NULs must survive
+	// SelEnd is exclusive; clamp to available length, mirroring GetSelection() normalization
+	const int SelEnd = (my->SelEnd == -1) ? Str.Size() : std::min(my->SelEnd, Str.Size());
+	const int Length = std::max(SelEnd - my->SelStart, 0);
+	Out.resize(Length);
+	Str.CopyTo(Out.data(), my->SelStart, Length);
+	return true;
 }
 
 void Edit::InsertString(const wchar_t *Str)
