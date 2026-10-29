@@ -575,7 +575,7 @@ void FilePanels::UpdateOsdPane() {
 		Redraw();
 	}
 	else if (!osd.IsVisible() && has) {
-		osd.Show();
+		ActivateOsdPane();
 	}
 	else if (osd.IsVisible() && has) {
 		osd.Redraw();
