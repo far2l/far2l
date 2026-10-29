@@ -236,6 +236,7 @@ public:
 		int DialogItemsAllocated {0};
 		int OKButtonID;
 		BOOL UseModernLook {0};
+		DWORD dialogFlags {0};
 
 		struct StackedPlace {
 			int NextX {5};
@@ -763,6 +764,9 @@ public:
 		ItemReference AddNone()	{
 			return ItemReference(*this);
 		}
+
+		void SetDialogFlags(DWORD flags) { dialogFlags = flags; }
+		DWORD GetDialogFlags() const { return dialogFlags; };
 
 		bool ShowDialog(int *id = nullptr) {
 			UpdateBorderSize();

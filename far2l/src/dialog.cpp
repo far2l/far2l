@@ -2183,11 +2183,10 @@ void Dialog::ShowDialog(unsigned ID)
                 int cx1 = CX1, cx2 = CX2;
                 int cy1 = CY1, cy2 = CY2;
                 if (CX1 < 0) cx1 = X2 - X1 + 1;
-                if(CY1 < 0) cy1 = Y2 - Y1 + 1;
                 
-                if (cy2 - cy1 + 1 > 1) { /* auto multiline if CY2 - CY1 + 1 > 1 */
-
-                    if (LenText > cx2 - cx1 + 1) { // center-to means we already computed real width
+                if (CY1 != -1 && cy2 - cy1 > 1) { /* auto multiline if CY2 - CY1 + 1 > 1 */
+                    fprintf(stderr, "text %d,%d..%d,%d, %d,%d..%d,%d, len=%d\n", CX1, CY1, CX2, CY2, cx1, cy1, cx2, cy2, LenText);
+                    if (LenText > cx2 - cx1 + 1) {
                     	// text is big and we need to split it
                         FARString textToSplit = CurItem->strData;
                         std::vector<FARString> lines;

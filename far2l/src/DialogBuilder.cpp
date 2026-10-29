@@ -528,6 +528,7 @@ int DialogBuilder::DoShowDialog()
 	Dlg.SetHelp(HelpTopic);
 	Dlg.SetPosition(-1, -1, DialogItems[0].X2 + 4, DialogItems[0].Y2 + 2);
 	Dlg.SetResizable(true);
+	if(GetDialogFlags()) Dlg.SetDialogMode(GetDialogFlags());
 	Dlg.Process();
 	return Dlg.GetExitCode();
 }
