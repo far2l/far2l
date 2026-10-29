@@ -121,6 +121,7 @@ struct DialogItemEx
 	int Hover;
 	int Pressed;
 	int Width {-1};
+	int Height {-1};
 
 	union
 	{
@@ -216,6 +217,8 @@ struct DialogItemEx
 		UCData = Other.UCData;
 		SelStart = Other.SelStart;
 		SelEnd = Other.SelEnd;
+		Width = Other.Width;
+		Height = Other.Height;
 		return *this;
 	}
 

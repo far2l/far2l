@@ -2011,10 +2011,6 @@ void Dialog::ShowDialog(unsigned ID)
 		if (CY2 > MaxY2 - Y1)
 			CY2 = MaxY2 - Y1;
 
-		/*if (IsOkCancelButtons(I)) {
-			CY1 = CY2 = BorderY2;
-		}*/
-
 		CtlColorDlgItem(I, CurItem, ItemColor);
 
 		for (size_t g = 0; g < DLG_ITEM_MAX_CUST_COLORS; g++)
@@ -2182,7 +2178,54 @@ void Dialog::ShowDialog(unsigned ID)
 			/* ***************************************************************** */
 			case DI_TEXT: {
 				strStr = CurItem->strData;
-				LenText = LenStrItem(I, strStr);
+               	LenText = LenStrItem(I, strStr);
+
+                int cx1 = CX1, cx2 = CX2;
+                int cy1 = CY1, cy2 = CY2;
+                if (CX1 < 0) cx1 = X2 - X1 + 1;
+                if(CY1 < 0) cy1 = Y2 - Y1 + 1;
+                
+                if (cy2 - cy1 + 1 > 1) { /* auto multiline if CY2 - CY1 + 1 > 1 */
+
+                    if (LenText > cx2 - cx1 + 1) { // center-to means we already computed real width
+                    	// text is big and we need to split it
+                        FARString textToSplit = CurItem->strData;
+                        std::vector<FARString> lines;
+                        int maxWidth = cx2 - cx1 + 1;
+                        int realWidth = LenText;
+
+                        while(realWidth >= maxWidth) {
+                            FARString part = textToSplit.SubStr(0, maxWidth);
+                            size_t nPos = maxWidth;
+                            if(part.RPos(nPos, ' ')) {
+                            	// first right space, adjust
+                                part = textToSplit.SubStr(0, nPos);
+                            }
+                            textToSplit = textToSplit.SubStr(part.GetLength());
+                        }
+                        if (textToSplit.CellsCount() > 0) lines.push_back(textToSplit);
+
+                    	if (lines.size() > 1) {
+                            // multui-line, draw it!
+                            Y = (CY1 == -1) ? (Y2 - Y1 + 1 - lines.size()) / 2 : CY1;
+                            for(size_t jk = 0; jk < lines.size(); ++jk) {
+                            	if (Y < Y1 || Y > Y2) continue; // trim lines that ain't fit in the box
+                            	X = (CX1 == -1 || (CurItem->Flags & DIF_CENTERTEXT)) 
+                            		? (X2 - X1 + 1 - lines[jk].CellsCount()) / 2 
+                            		: CX1;
+                                // no separators etc, just text
+								SetColor(ItemColor[0]);
+								GotoXY(X1 + X, Y1 + Y + CScrollY);
+								if (CurItem->Flags & DIF_SHOWAMPERSAND) 
+									Text(lines[jk]);
+								else
+									HiText(lines[jk], ItemColor[1]);
+								HintAt(HintDialog, HintText, false, false, (CurItem->Flags & DIF_DISABLE) != 0);
+                            }
+                        	break;
+                    	}
+                    }
+                }
 
 				if (!(CurItem->Flags & (DIF_SEPARATORUSER | DIF_SEPARATOR | DIF_SEPARATOR2))
 						&& (CurItem->Flags & DIF_CENTERTEXT) && CX1 != -1)

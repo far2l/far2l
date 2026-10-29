@@ -565,7 +565,7 @@ struct FarDialogItem
 
 	const wchar_t *PtrData;
 	size_t MaxLen; // terminate 0 not included (if == 0 string size is unlimited)
-	int Width; // width to override
+	int Width, Height; // width to override
 };
 
 struct FarDialogItemData

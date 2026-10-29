@@ -10,6 +10,8 @@
 
 #include "farplug-wide.h"
 
+#include <functional>
+
 // Элемент выпадающего списка в диалоге.
 struct DialogBuilderListItem
 {
@@ -35,18 +37,24 @@ struct DialogItemBinding
 	int BeforeLabelID;
 	int AfterLabelID;
 
-	DialogItemBinding()
-		: BeforeLabelID(-1), AfterLabelID(-1)
-	{
+	int buttonID;
+	std::function<void(const int buttonID, void* ctx)> cb;
+	void* ctx;
+
+	DialogItemBinding()	: BeforeLabelID(-1), AfterLabelID(-1), buttonID (-1), ctx(nullptr) {}
+	DialogItemBinding(int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+		: BeforeLabelID(-1), AfterLabelID(-1), buttonID(buttonID_), cb(_cb), ctx(_ctx) {}
+
+	virtual ~DialogItemBinding() {}
+	virtual void SaveValue(T *Item, int RadioGroupIndex) {}
+	virtual void TrySaveValue(T *Item, int RadioGroupIndex) {
+		if (buttonID >= 0){ 
+			this->SaveValue(Item, RadioGroupIndex);
+			cb(buttonID, ctx);
+		}
 	}
 
-	virtual ~DialogItemBinding()
-	{
-	}
-
-	virtual void SaveValue(T *Item, int RadioGroupIndex)
-	{
-	}
+	virtual bool supportsTrySave(){ return buttonID >= 0; }
 };
 
 template<class T>
@@ -60,6 +68,13 @@ struct CheckBoxBinding: public DialogItemBinding<T>
 	public:
 		CheckBoxBinding(BOOL *aValue, int aMask) : BValue(aValue), Mask(aMask), bvalue(nullptr) { }
 		CheckBoxBinding(bool *aValue, int aMask) : BValue(nullptr), Mask(aMask), bvalue(aValue) { }
+
+		CheckBoxBinding(BOOL *aValue, int aMask, 
+			int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+			: DialogItemBinding<T>(buttonID_, _cb, _ctx), BValue(aValue), Mask(aMask), bvalue(nullptr) { }
+		CheckBoxBinding(bool *aValue, int aMask, 
+			int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+			: DialogItemBinding<T>(buttonID_, _cb, _ctx), BValue(nullptr), Mask(aMask), bvalue(aValue) { }
 
 		virtual void SaveValue(T *Item, int RadioGroupIndex)
 		{
@@ -113,6 +128,9 @@ struct RadioButtonBinding: public DialogItemBinding<T>
 
 	public:
 		RadioButtonBinding(int *aValue) : Value(aValue) { }
+		RadioButtonBinding(int *aValue,
+			int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+			: DialogItemBinding<T>(buttonID_, _cb, _ctx), Value(aValue) { }
 
 		virtual void SaveValue(T *Item, int RadioGroupIndex)
 		{
@@ -127,12 +145,12 @@ struct ComboBoxBinding: public DialogItemBinding<T>
 	int *Value;
 	FarList *List;
 
-	ComboBoxBinding(int *aValue, FarList *aList)
-		: Value(aValue), List(aList)
-	{
-	}
+	ComboBoxBinding(int *aValue, FarList *aList,
+		int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+		: DialogItemBinding<T>(buttonID_, _cb, _ctx), Value(aValue), List(aList) { }
+	ComboBoxBinding(int *aValue, FarList *aList) : Value(aValue), List(aList) {	}
 
-	~ComboBoxBinding()
+	~ComboBoxBinding() 
 	{
 		delete [] List->Items;
 		delete List;
@@ -143,6 +161,14 @@ struct ComboBoxBinding: public DialogItemBinding<T>
 		FarListItem &ListItem = List->Items[Item->ListPos];
 		*Value = ListItem.Reserved[0];
 	}
+};
+
+template<class T>
+struct PushButtonBinding: public DialogItemBinding<T>
+{
+	PushButtonBinding(int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+		: DialogItemBinding<T>(buttonID_, _cb, _ctx) {}
+	~PushButtonBinding() {}
 };
 
 /*
@@ -232,16 +258,25 @@ public:
 			current.MaxX = std::max(current.MaxX, current.NextX);
 		}
 
+		int lastItem() const { return DialogItemsCount - 1; }
+
 	public:
 		// New API
 		void Add(ItemReference item) {
-			item->Y1 = item->Y2 = current.NextY;
+			item->Y1 = current.NextY;
+			item->Y2 = item->Y1 + ItemHeight(item);
 			item->X1 = current.NextX;
 			current.NextX += item->Width > 0 ? item->Width : ItemWidth(*item);
 			item->X2 = current.NextX++;
 
 			UpdateNewSizes();
 			current.NextX++; // add gap between elements
+		}
+
+		void AddNLBy(ItemReference item) {
+			current.NextY += ItemHeight(item) + 1; // for most cases it is zero but for list boxes it will be real size
+			UpdateNewSizes();
+			current.NextX = current.ColumnX;
 		}
 
 		void AddNL() {
@@ -351,19 +386,35 @@ public:
 			return 0;
 		}
 
+		int ItemHeight(ItemReference Item) {
+			if (Item->Height > 0) return Item->Height;
+
+			switch(Item->Type) {
+			case DI_TEXT:
+			case DI_DOUBLEBOX:
+			case DI_CHECKBOX:
+			case DI_RADIOBUTTON:
+			case DI_BUTTON:
+			case DI_EDIT:
+			case DI_FIXEDIT:
+			case DI_COMBOBOX:
+			default:
+				return 0;
+			}
+			return 0;
+		}
+
         /* border is a special case and it is going first, out of placement rules */
 		void AddBorder(const TCHAR *TitleText) {
 			T *Title = AddDialogItem(DI_DOUBLEBOX, TitleText);
 			Title->X1 = 3;
 			Title->Y1 = 1;
-
-			// if (UseModernLook) AddEmptyLine();
 		}
 
 		void UpdateBorderSize() {
 			T *Title = &DialogItems[0];
 			Title->X2 = Title->X1 + MaxTextWidth() + 3;
-			Title->Y2 = DialogItems [DialogItemsCount-1].Y2 + 1;
+			Title->Y2 = DialogItems [lastItem()].Y2 + 1;
 		}
 
 		int MaxTextWidth() {
@@ -417,6 +468,11 @@ public:
 		virtual DialogItemBinding<T> *CreateCheckBoxBinding(bool *Value, int Mask){	return nullptr;	}
 		virtual DialogItemBinding<T> *CreateRadioButtonBinding(int *Value){	return nullptr;	}
 
+		virtual DialogItemBinding<T> *CreateButtonBinding(int ID, std::function<void(const int buttonID, void* ctx)> cb, void* ctx){ return nullptr;	}
+		virtual DialogItemBinding<T> *CreateCheckBoxBinding(BOOL *Value, int Mask, int ID, std::function<void(const int buttonID, void* ctx)> cb, void* ctx){	return nullptr;	}
+		virtual DialogItemBinding<T> *CreateCheckBoxBinding(bool *Value, int Mask, int ID, std::function<void(const int buttonID, void* ctx)> cb, void* ctx){	return nullptr;	}
+		virtual DialogItemBinding<T> *CreateRadioButtonBinding(int *Value, int ID, std::function<void(const int buttonID, void* ctx)> cb, void* ctx){	return nullptr;	}
+
 		DialogBuilderBase(){}
 
 		~DialogBuilderBase() {
@@ -439,7 +495,16 @@ public:
 			return Item;
 		}
 
+		virtual ItemReference AddMultiLineText(FarLangMsg LabelId, int height = 1) {
+			auto Item = AddDialogItem(DI_TEXT, GetLangString(LabelId));
+			Item->Height = (height > 0 ? height : 1) - 1; /* one-line is added automatically */
+			Add(Item);
+			AddNLBy(Item);
+			return Item;
+		}
+
 		// Добавляет чекбокс.
+		// BOOL*, bool*, + the same with instant callbacks
 		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, BOOL *Value, bool newLine) {
 			return this->AddCheckbox(TextMessageId, Value, 0, newLine);
 		}
@@ -474,6 +539,45 @@ public:
 			return Item;
 		}
 
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, BOOL *Value, bool newLine, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) {
+			return this->AddCheckbox(TextMessageId, Value, 0, newLine, cb, ctx);
+		}
+
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, BOOL *Value, int Mask, bool newLine, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
+		{
+			auto Item = AddDialogItem(DI_CHECKBOX, GetLangString(TextMessageId));
+			if (!Mask)
+				Item->Selected = *Value;
+			else
+				Item->Selected = (*Value & Mask) ;
+
+			Add(Item);
+			if (newLine) AddNL();
+			SetItemBinding(Item, CreateCheckBoxBinding(Value, Mask, lastItem(), cb, ctx));
+			return Item;
+		}
+
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, bool *Value, bool newLine, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) {
+			return this->AddCheckbox(TextMessageId, Value, 0, newLine, cb, ctx);
+		}
+
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, bool *Value, int Mask, bool newLine, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
+		{
+			auto Item = AddDialogItem(DI_CHECKBOX, GetLangString(TextMessageId));
+			if (!Mask)
+				Item->Selected = *Value;
+			else
+				Item->Selected = (*Value & Mask) ;
+
+			Add(Item);
+			if (newLine) AddNL();
+			SetItemBinding(Item, CreateCheckBoxBinding(Value, Mask, lastItem(), cb, ctx));
+			return Item;
+		}
 
 		// Добавляет группу радиокнопок vertically
 		virtual void AddRadioButtons(int *Value, int OptionCount, FarLangMsg MessageIDs[]) {
@@ -502,6 +606,36 @@ public:
 			AddNL();
 		}
 
+		// Добавляет группу радиокнопок vertically
+		virtual void AddRadioButtons(int *Value, int OptionCount, FarLangMsg MessageIDs[],
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
+		{
+			for(int i=0; i < OptionCount; i++) {
+				auto Item = AddDialogItem(DI_RADIOBUTTON, GetLangString(MessageIDs[i]));
+				Add(Item);
+				AddNL();
+				if (!i)
+					Item->Flags |= DIF_GROUP;
+				if (*Value == i)
+					Item->Selected = TRUE;
+				SetItemBinding(Item, CreateRadioButtonBinding(Value, lastItem(), cb, ctx));
+			}
+		}
+
+		// Добавляет горизонтальную группу радиокнопок.
+		virtual void AddRadioButtonsHorz(int *Value, int OptionCount, FarLangMsg MessageIDs[],
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx)	
+		{
+			for(int i=0; i < OptionCount; i++) {
+				auto Item = AddDialogItem(DI_RADIOBUTTON, GetLangString(MessageIDs[i]));
+				Add(Item);
+				if (!i) Item->Flags |= DIF_GROUP;
+				if (*Value == i) Item->Selected = TRUE;
+				SetItemBinding(Item, CreateRadioButtonBinding(Value, lastItem(), cb, ctx));
+			}
+			AddNL();
+		}
+
 		virtual ItemReference AddIntEditField(int *Value, int Width, int Flags = 0, bool newLine = true) {
 			return ItemReference(*this);
 		}
@@ -521,6 +655,47 @@ public:
 			return edit;
 		}
 
+		virtual ItemReference AddEditField(TCHAR *Value, int Width, const wchar_t *HistoryID = nullptr, int Flags = 0, bool newLine = true) {
+			return ItemReference(*this);
+		}
+
+		virtual ItemReference AddEditField(TCHAR *Value, int Width, 
+			std::function<void(const int buttonID, void* ctx)> cb, void* ctx,
+			const wchar_t *HistoryID = nullptr, int Flags = 0, bool newLine = true)
+		{
+			return ItemReference(*this);
+		}
+
+		virtual ItemReference AddIntEditField(int *Value, int Width, int Flags, bool newLine,
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
+		{
+			return ItemReference(*this);
+		}
+
+		virtual ItemReference AddDoubleEditField(double *Value, int Width, int Flags, bool newLine,
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
+		{
+			return ItemReference(*this);
+		}
+
+		virtual ItemReference AddComboBox(int *Value, int Width, DialogBuilderListItem *Items, int ItemCount, DWORD Flags = DIF_NONE, bool newLine = true) { 
+			return ItemReference(*this); 
+		}
+		
+		virtual ItemReference AddComboBox(int *Value, int Width, DialogBuilderListItemWide *Items, int ItemCount, DWORD Flags = DIF_NONE, bool newLine = true) { 
+			return ItemReference(*this); 
+		}
+
+		virtual ItemReference AddComboBox(int *Value, int Width, DialogBuilderListItem *Items, int ItemCount, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx, DWORD Flags = DIF_NONE, bool newLine = true) { 
+			return ItemReference(*this); 
+		}
+		
+		virtual ItemReference AddComboBox(int *Value, int Width, DialogBuilderListItemWide *Items, int ItemCount, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx, DWORD Flags = DIF_NONE, bool newLine = true) { 
+			return ItemReference(*this); 
+		}
+
 		// Начинает располагать поля диалога в две колонки.
 		void StartColumns()	{ AddColumnView(); }
 		void ColumnBreak() { AddNewColumn(); }
@@ -534,7 +709,20 @@ public:
 			auto Button = AddDialogItem(DI_BUTTON, GetLangString(MessageId));
 			Add(Button);
 			if (newLine) AddNL();
-			id = DialogItemsCount - 1;
+			id = lastItem();
+			return Button;
+		}
+
+		ItemReference AddButton(FarLangMsg MessageId, int& id, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx, bool newLine = true) {
+			auto Button = AddDialogItem(DI_BUTTON, GetLangString(MessageId));
+			Add(Button);
+			if (newLine) AddNL();
+			id = lastItem();
+
+			SetItemBinding(Button, CreateButtonBinding(id, cb, ctx));
+			Button->Flags |= DIF_BTNNOCLOSE;
+
 			return Button;
 		}
 
@@ -561,13 +749,13 @@ public:
 			OKButton->Flags = DIF_CENTERGROUP;
 			OKButton->DefaultButton = TRUE;
 			Add(OKButton);
-			OKButtonID = DialogItemsCount - 1;
+			OKButtonID = lastItem();
 			if (ok) *ok = OKButtonID;
 
 			auto CancelButton = AddDialogItem(DI_BUTTON, GetLangString(CancelMessageId));
 			CancelButton->Flags = DIF_CENTERGROUP;
 			Add(CancelButton);
-			if (cancel) *cancel = DialogItemsCount - 1;
+			if (cancel) *cancel = lastItem();
 
 			AddNL();
 		}
@@ -585,6 +773,11 @@ public:
 				return true;
 			}
 			return false;
+		}
+
+		void TrySaveValueImmediate(int id) {
+			if (Bindings [id] && Bindings [id]->supportsTrySave() )
+				Bindings [id]->TrySaveValue(&DialogItems [id], 0);
 		}
 };
 #endif // __FAR2SDK_FARDLGBUILDERBASE_H__
