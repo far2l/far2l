@@ -1757,10 +1757,15 @@ static LONG_PTR WINAPI FindDlgProc(HANDLE hDlg, int Msg, int Param1, LONG_PTR Pa
 			PCOORD pCoord = reinterpret_cast<PCOORD>(Param2);
 			SMALL_RECT DlgRect;
 			SendDlgMessage(hDlg, DM_GETDLGRECT, 0, reinterpret_cast<LONG_PTR>(&DlgRect));
+
+			// vk: above I see
+			// 	int DlgWidth = ScrX + 1 - 2;
+			//	int DlgHeight = ScrY + 1 - 2 - 2;
+
 			int DlgWidth = DlgRect.Right - DlgRect.Left + 1;
-			int DlgHeight = DlgRect.Bottom - DlgRect.Top /* + 1 */;
+			int DlgHeight = DlgRect.Bottom - DlgRect.Top + 1;
 			int IncX = pCoord->X - DlgWidth - 2;
-			int IncY = pCoord->Y - DlgHeight - 2;
+			int IncY = pCoord->Y - DlgHeight - 2 - 2;
 			SendDlgMessage(hDlg, DM_ENABLEREDRAW, FALSE, 0);
 
 			for (int i = 0; i <= FD_BUTTON_STOP; i++) {
@@ -2740,7 +2745,7 @@ FindFiles::FindFiles()
 			{DI_CHECKBOX,  40, 12, 0,  12, {}, 0, Msg::FindFolders},
 			{DI_CHECKBOX,  40, 13, 0,  13, {}, 0, Msg::FindSymLinks},
 			{DI_TEXT,      3,  14, 0,  14, {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), L""},
-			{DI_VTEXT,     38, 9,  0,   9, {}, DIF_BOXCOLOR, VSeparator},
+			{DI_VTEXT,     38, 9,  0,   9, {}, (Opt.Backend.UseModernLook ?  0 : DIF_BOXCOLOR), (Opt.Backend.UseModernLook ?  L"" : VSeparator) },
 			{DI_TEXT,      5,  15, 37, 15, {}, 0, Msg::SearchWhere},
 			{DI_COMBOBOX,  38, 15, 72, 15, {}, DIF_DROPDOWNLIST | DIF_LISTNOAMPERSAND, L""},
 			{DI_TEXT,      3,  16, 0,  16, {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), L""},
