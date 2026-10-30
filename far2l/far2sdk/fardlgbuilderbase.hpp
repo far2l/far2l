@@ -226,6 +226,8 @@ public:
 		{
 			return (Index >= 0 && Index < Builder.DialogItemsCount) ? &Builder.DialogItems[Index] : nullptr;
 		}
+
+		const int ID() const { return Index; }
 	};
 
 	protected:
@@ -737,6 +739,26 @@ public:
 			Separator->X1 -= 2;
 
 			if (UseModernLook) AddEmptyLine();
+		}
+
+		std::vector<ItemReference> AddButtonsLine(FarLangMsg buttons[], int buttonsCount, int defaultIdx = 0) {
+			std::vector<ItemReference> v;
+			v.reserve(buttonsCount);
+
+			if (UseModernLook) 
+				AddNL();
+			else
+				AddSeparator();
+
+			for(int i = 0; i < buttonsCount; ++i) {
+				auto button = AddDialogItem(DI_BUTTON, GetLangString(buttons[i]));
+				button->Flags = DIF_CENTERGROUP;
+				if(i == defaultIdx) button->DefaultButton = TRUE;
+				Add(button);
+				v.push_back(button);
+			}
+			AddNL();
+			return v;
 		}
 
 		// Добавляет сепаратор, кнопки OK и Cancel.
