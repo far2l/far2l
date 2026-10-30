@@ -1307,9 +1307,9 @@ static void ShowHunkPopup(const EditorState &st, int line, bool center_on_hunk)
 			const int fr_left = static_cast<int>(fr.Left);
 			const int fr_top = static_cast<int>(fr.Top);
 			const int fr_right = static_cast<int>(fr.Right);
-			const int fr_bottom = static_cast<int>(fr.Bottom);
+			const int fr_bottom = static_cast<int>(fr.Bottom) - 1;  /* vk: do not move to key bar */
 			const int max_x = std::max(fr_left, fr_right - dlg_w + 1);
-			const int max_y = std::max(fr_top, fr_bottom - dlg_h + 1);
+			const int max_y = std::min(std::max(fr_top, fr_bottom - dlg_h + 1), fr_bottom);
 			dlg_x1 = std::min(std::max(fr_left, local_anchor_x + 1), max_x);
 			dlg_y1 = std::min(std::max(fr_top, local_anchor_y - 1), max_y);
 			dlg_x2 = dlg_x1 + dlg_w - 1;
