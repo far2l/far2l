@@ -2191,7 +2191,7 @@ void Dialog::ShowDialog(unsigned ID)
                         FARString textToSplit = CurItem->strData;
                         std::vector<FARString> lines;
                         int maxWidth = cx2 - cx1 + 1;
-                        int realWidth = LenText;
+                        int realWidth = textToSplit.CellsCount();
 
                         while(realWidth >= maxWidth) {
                             FARString part = textToSplit.SubStr(0, maxWidth);
@@ -2201,6 +2201,8 @@ void Dialog::ShowDialog(unsigned ID)
                                 part = textToSplit.SubStr(0, nPos);
                             }
                             textToSplit = textToSplit.SubStr(part.GetLength());
+                            realWidth = textToSplit.CellsCount();
+                            lines.push_back(textToSplit);
                         }
                         if (textToSplit.CellsCount() > 0) lines.push_back(textToSplit);
 
