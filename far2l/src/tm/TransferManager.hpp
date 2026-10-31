@@ -62,7 +62,7 @@ public:
     void stopService();
 
     // Dynamic multi-destination transfers: add files/folders with individual target destinations
-    uint64_t addTransferJob(const std::wstring& sourcePath, const std::wstring& destinationDir, TransferMode mode = TransferMode::COPY);
+    virtual uint64_t addTransferJob(const std::wstring& sourcePath, const std::wstring& destinationDir, TransferMode mode = TransferMode::COPY);
     uint64_t addDynamicJob(const std::wstring& sourcePath, const std::wstring& destinationDir, TransferMode mode = TransferMode::COPY) {
         return addTransferJob(sourcePath, destinationDir, mode);
     }

@@ -14,6 +14,7 @@
 
 #include "scrobj.hpp"
 #include "farosdpanel.hpp"
+#include "formats.hpp"
 
 /**
  * @brief Dynamic OSD (On-Screen Display) text UI widget for Far2l.
@@ -182,23 +183,12 @@ public:
     // --- String & Path Algorithm Helpers (Static & Pure) ---
 
     /**
-     * @brief Intelligent path middle-truncation preserving head (root) and tail (filename).
-     * @param fullPath Path string to truncate.
-     * @param maxLen Maximum character width allowed.
-     */
-    static std::wstring TruncatePathMiddle(const std::wstring& fullPath, size_t maxLen);
-
-    /**
      * @brief Formats a progress bar string using block characters.
      */
     static std::wstring BuildProgressBarString(int64_t current, int64_t minVal, int64_t total,
                                               size_t barWidth, bool showPercentage,
                                               const std::wstring& fill = L"█",
                                               const std::wstring& empty = L"░");
-
-    static std::wstring BuildPercentString(double v, size_t maxLen);
-    static std::wstring BuildSizeString(int64_t v, size_t maxLen);
-    static std::wstring BuildRealString(double v, size_t maxLen);
 
 private:
     std::wstring FormatRowString(const RowItem& item, size_t availableWidth) const;

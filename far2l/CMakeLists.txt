@@ -199,6 +199,8 @@ src/tm/LocalFileSystem.cpp
 src/tm/TransferManager.cpp
 
 src/OsdPanel.cpp
+src/mix/formats.cpp
+src/tm/UITransferManager.cpp
 )
 
 # Option to disable building macro subsystem completely

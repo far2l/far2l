@@ -1006,6 +1006,9 @@ QuestionAnswer TransferManager::resolveQuestion(TransferItem& item, QuestionType
     q.target_size = dstSt.size;
     q.source_mtime = srcSt.mtime_sec;
     q.target_mtime = dstSt.mtime_sec;
+    q.target_is_read_only = dstSt.is_read_only;
+    q.source_is_newer = (srcSt.mtime_sec > dstSt.mtime_sec) ||
+                        (srcSt.mtime_sec == dstSt.mtime_sec && srcSt.mtime_nsec > dstSt.mtime_nsec);
 
     // Check callback or virtual method first
     bool rememberForType = false;
@@ -1131,9 +1134,17 @@ bool TransferManager::transferFile(TransferItem& item) {
         if (dstExists && !isRealDir) {
             FileStat dstStatFollow = fs_->statFile(item.dst_path, true);
             std::wstring fileTypeStr = dstLStat.is_symlink ? L"symlink" : L"file";
-            QuestionAnswer answer = resolveQuestion(
-                item, QuestionType::OVERWRITE_EXISTING,
-                L"Destination file already exists (" + fileTypeStr + L"): " + item.dst_path);
+
+            // Check if destination is read-only
+            bool isReadOnlyTarget = dstStatFollow.is_read_only || dstLStat.is_read_only;
+            QuestionType qType = isReadOnlyTarget ? QuestionType::OVERWRITE_READ_ONLY_TARGET
+                                                  : QuestionType::OVERWRITE_EXISTING;
+
+            std::wstring msg = isReadOnlyTarget
+                ? (L"Destination " + fileTypeStr + L" is read-only: " + item.dst_path + L". Overwrite read-only target?")
+                : (L"Destination " + fileTypeStr + L" already exists: " + item.dst_path);
+
+            QuestionAnswer answer = resolveQuestion(item, qType, msg);
 
             if (answer == QuestionAnswer::CANCEL) {
                 cancel();
@@ -1143,19 +1154,43 @@ bool TransferManager::transferFile(TransferItem& item) {
                 // simply move to the next item
                 return true;
             }
-            if (answer == QuestionAnswer::RENAME) {
+            if (answer == QuestionAnswer::OVERWRITE_IF_NEWER) {
+                // Compare timestamps: source must be strictly newer than destination
+                bool isSourceNewer = (srcSt.mtime_sec > dstStatFollow.mtime_sec) ||
+                                     (srcSt.mtime_sec == dstStatFollow.mtime_sec && srcSt.mtime_nsec > dstStatFollow.mtime_nsec);
+                if (!isSourceNewer) {
+                    // Destination is newer or equal age -> skip without error
+                    return true;
+                }
+                // Source is newer -> proceed with overwrite
+                if (isReadOnlyTarget) {
+                    mode_t newMode = dstStatFollow.mode ? (dstStatFollow.mode | S_IWUSR) : 0644;
+                    fs_->setPermissions(item.dst_path, newMode);
+                }
+                dstFlags = O_WRONLY | O_CREAT | O_TRUNC;
+                startOffset = 0;
+                srcOffset = 0;
+            } else if (answer == QuestionAnswer::RENAME) {
                 // Rename source copy destination, keeping original destination file intact
                 item.dst_path = generateUniqueRenamedPath(fs_.get(), item.dst_path);
                 dstFlags = O_WRONLY | O_CREAT | O_TRUNC;
                 startOffset = 0;
                 srcOffset = 0;
             } else if (answer == QuestionAnswer::APPEND) {
+                if (isReadOnlyTarget) {
+                    mode_t newMode = dstStatFollow.mode ? (dstStatFollow.mode | S_IWUSR) : 0644;
+                    fs_->setPermissions(item.dst_path, newMode);
+                }
                 // Open destination file for writing, set pointer to end of file
                 dstFlags = O_WRONLY | O_CREAT;
                 startOffset = dstStatFollow.exists ? dstStatFollow.size : 0;
                 srcOffset = 0;
                 item.is_append = true;
             } else if (answer == QuestionAnswer::RESUME) {
+                if (isReadOnlyTarget) {
+                    mode_t newMode = dstStatFollow.mode ? (dstStatFollow.mode | S_IWUSR) : 0644;
+                    fs_->setPermissions(item.dst_path, newMode);
+                }
                 // Open destination at end, open source at destination size
                 off_t resumePos = dstStatFollow.exists ? dstStatFollow.size : 0;
                 if (resumePos >= srcSt.size) {
@@ -1169,7 +1204,12 @@ bool TransferManager::transferFile(TransferItem& item) {
                 bytes_transferred_.fetch_add(resumePos, std::memory_order_relaxed);
                 recordJobBytesTransferred(item.job_id, resumePos);
             } else {
-                // OVERWRITE: do not delete destination/file, open and truncate prior to writes
+                // OVERWRITE:
+                if (isReadOnlyTarget) {
+                    mode_t newMode = dstStatFollow.mode ? (dstStatFollow.mode | S_IWUSR) : 0644;
+                    fs_->setPermissions(item.dst_path, newMode);
+                }
+                // do not delete destination/file, open and truncate prior to writes
                 // If destination is a link, this updates the referred file without breaking the link
                 dstFlags = O_WRONLY | O_CREAT | O_TRUNC;
                 startOffset = 0;

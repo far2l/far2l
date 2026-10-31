@@ -38,6 +38,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "menubar.hpp"
 #include "tabbar.hpp"
 #include "OsdPanel.hpp"
+#include "UITransferManager.hpp"
 
 class Panel;
 class CommandLine;
@@ -78,6 +79,7 @@ public:
 	MenuBar TopMenuBar;
 	TabBar TopTabBar;
 	OsdPanel osd;
+	UITransferManager* t_engine { nullptr };
 
 	int TabHovered {1};
 	int TabActive  {0};
@@ -163,4 +165,5 @@ public:
 	void GetActiveTabPaths(FARString& leftFolderList, FARString& rightFolderList, int& activeTab);
 
 	OsdPanelInterface* GetOsdPanel(){ return &osd; }
+	UITransferManager* GetTransferEngine(){ return t_engine; };
 };

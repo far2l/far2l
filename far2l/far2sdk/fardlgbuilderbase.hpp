@@ -11,6 +11,7 @@
 #include "farplug-wide.h"
 
 #include <functional>
+#include <ctype.h>
 
 // Элемент выпадающего списка в диалоге.
 struct DialogBuilderListItem
@@ -227,7 +228,7 @@ public:
 			return (Index >= 0 && Index < Builder.DialogItemsCount) ? &Builder.DialogItems[Index] : nullptr;
 		}
 
-		const int ID() const { return Index; }
+		int ID() const { return Index; }
 	};
 
 	protected:
@@ -496,6 +497,52 @@ public:
 			Add(Item);
 			if (newLine) AddNL();
 			return Item;
+		}
+
+		virtual ItemReference AddText(const TCHAR* text, bool newLine = true) {
+			auto Item = AddDialogItem(DI_TEXT, text);
+			Add(Item);
+			if (newLine) AddNL();
+			return Item;
+		}
+
+		virtual std::vector<ItemReference> AddWrappedText(FarLangMsg LabelId, int width) {
+			return AddWrappedText((TCHAR*)GetLangString(LabelId), width);
+		}
+
+		virtual std::vector<ItemReference> AddWrappedText(const TCHAR* text, int width) {
+			return AddWrappedText((TCHAR*)text, width);
+		}
+
+		virtual std::vector<ItemReference> AddWrappedText(TCHAR* text, int width) {
+			TCHAR* s = text, *w = text, *q;
+			int remaining = 0;
+			for(;*s; ++s, ++remaining); // remaining = wcslen(text);
+			std::vector<ItemReference> v;
+			while(remaining > 0) {
+				int part = width > remaining ? remaining : width;
+				q = w + part;
+				while(q > w && !isspace(*q)) --q;
+				if (q > w) {
+					*q = 0;
+					auto item = AddText(w);
+					remaining -= q - w;
+					w = q + 1;
+                    *q = (TCHAR)' ';
+                    v.push_back(item);
+				}
+				else {
+					q = w + part;
+					TCHAR saved = q[1];
+					q[1] = 0;
+					auto item = AddText(w);
+					w = q + 1;
+					q[1] = saved;
+					remaining -= part; 
+					v.push_back(item);
+				}
+			}
+			return v;
 		}
 
 		virtual ItemReference AddMultiLineText(FarLangMsg LabelId, int height = 1) {
@@ -794,7 +841,11 @@ public:
 			UpdateBorderSize();
 			int Result = DoShowDialog();
 			if (id)	*id = Result;
-			if (Result == OKButtonID) {
+			if (OKButtonID > 0 && Result == OKButtonID) {
+				SaveValues();
+				return true;
+			}
+			else if (Result > 0) {
 				SaveValues();
 				return true;
 			}

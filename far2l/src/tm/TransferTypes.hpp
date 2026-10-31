@@ -14,6 +14,7 @@ enum class TransferMode {
 
 enum class QuestionType {
     OVERWRITE_EXISTING,         // Destination file already exists (regular file or link)
+    OVERWRITE_READ_ONLY_TARGET, // Source is file, target is file, and target is read-only
     LINK_DESTINATION_EXISTS,    // Source is symlink, destination exists
     FOLDER_DESTINATION_IS_FILE, // Source is folder, destination exists as a file
     FILE_DESTINATION_IS_FOLDER, // Source is file, destination exists as a folder
@@ -25,15 +26,16 @@ enum class QuestionType {
 };
 
 enum class QuestionAnswer {
-    PROMPT,     // Needs user interaction
-    OVERWRITE,  // Overwrite destination file (or truncate/update symlink target in-place)
-    APPEND,     // Append source to destination
-    RESUME,     // Resume copying from destination file size
-    SKIP,       // Skip current file / item (or skip folder tree if folder skipped)
-    RENAME,     // Rename destination file (folder case) or rename source output target (file case) preserving extension
-    PLACE_INTO, // Place file inside existing destination folder as destination/folder/file
-    RETRY,      // Retry the failed operation
-    CANCEL      // Abort entire transfer session
+    PROMPT,             // Needs user interaction
+    OVERWRITE,          // Overwrite destination file (or truncate/update symlink target in-place)
+    OVERWRITE_IF_NEWER, // Overwrite only if source is newer than destination, otherwise skip
+    APPEND,             // Append source to destination
+    RESUME,             // Resume copying from destination file size
+    SKIP,               // Skip current file / item (or skip folder tree if folder skipped)
+    RENAME,             // Rename destination file (folder case) or rename source output target (file case) preserving extension
+    PLACE_INTO,         // Place file inside existing destination folder as destination/folder/file
+    RETRY,              // Retry the failed operation
+    CANCEL              // Abort entire transfer session
 };
 
 enum class ScanState {
@@ -103,6 +105,8 @@ struct TransferQuestion {
     int64_t target_mtime = 0;
     int error_code = 0;
     std::wstring details;
+    bool target_is_read_only = false;
+    bool source_is_newer = false;
 };
 
 struct TransferOptions {

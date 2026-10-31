@@ -57,6 +57,9 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "interf.hpp"
 #include "scrbuf.hpp"
 
+#include "LocalFileSystem.hpp"
+#include "WideUtils.hpp"
+
 FilePanels::FilePanels()
 {
 	_OT(SysLog(L"[%p] FilePanels::FilePanels()", this));
@@ -70,6 +73,18 @@ FilePanels::FilePanels()
 
 	// SetKeyBar(&MainKeyBar);
 	//_D(SysLog(L"MainKeyBar=0x%p",&MainKeyBar));
+
+    TransferOptions opts;
+    opts.num_readers = 4;
+    opts.num_writers = 4;
+    opts.buffer_ring_size_mb = 64; // Configurable ring size: 64MB
+    opts.enable_cow = true;
+    opts.enable_sparse = true;
+    opts.small_file_mmap_threshold = 2 * 1024 * 1024;
+
+    auto fsImpl = std::make_shared<LocalFileSystem>();
+    t_engine = new UITransferManager(&osd, fsImpl, opts);
+    t_engine->startService();
 }
 
 static void PrepareOptFolder(FARString &strSrc)
@@ -298,6 +313,12 @@ FilePanels::~FilePanels()
 	for(size_t i = 0; i < tabs.size(); ++i) {
 		DoublePanel& activeTab = tabs[i];
 		destroyPanelsGracefully(activeTab);
+	}
+
+	if(t_engine) {
+		t_engine->stopService();
+		delete t_engine;
+		t_engine = nullptr;
 	}
 }
 
