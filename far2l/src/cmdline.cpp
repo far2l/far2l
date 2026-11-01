@@ -691,6 +691,7 @@ void CommandLine::SetMultilineExtraLines(int extra_lines)
 	if (CtrlObject && CtrlObject->Cp()) {
 		auto *cp = CtrlObject->Cp();
 		cp->SetPanelPositions(cp->ActiveTab().LeftPanel->IsFullScreen(), cp->ActiveTab().RightPanel->IsFullScreen(), Opt.PanelsDisposition);
+		cp->Redraw();
 	}
 }
 
