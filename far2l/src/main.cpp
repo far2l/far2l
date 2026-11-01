@@ -70,6 +70,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fcntl.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include <MountProbe.hpp>
 #include "InterThreadCall.hpp"
 #include "SafeMMap.hpp"
 #include "ConfigRW.hpp"
@@ -162,6 +163,14 @@ static void UpdatePathOptions(const FARString &strDestName, bool IsActivePanel)
 		Opt.RightPanel.Visible = TRUE;
 		outFolder = &Opt.strRightFolder;
 		outCurFile = &Opt.strRightCurFile;
+	}
+
+	// refuse a stalled mount; Message() before the manager starts would self-deadlock the core thread
+	const std::string mbDest = strDestName.GetMB();
+	if (NeedsMountProbe(MountFsType(mbDest)) && !MountResponsive(mbDest.c_str())) {
+		if (FrameManager && FrameManager->ManagerStarted())
+			Message(MSG_WARNING | MSG_ERRORTYPE, 1, Msg::Error, strDestName, Msg::Ok);
+		return;
 	}
 
 	auto Attr = apiGetFileAttributes(strDestName);
@@ -611,8 +620,13 @@ int FarAppMain(int argc, char **argv)
 					DestNames[CntDestName] = arg_w;
 					ConvertNameToFull(DestNames[CntDestName], DestNames[CntDestName]);
 
-					if (apiGetFileAttributes(DestNames[CntDestName]) != INVALID_FILE_ATTRIBUTES)
+					// count a stalled mount anyway so UpdatePathOptions() reports it and falls back
+					const std::string mbArg = DestNames[CntDestName].GetMB();
+					if (NeedsMountProbe(MountFsType(mbArg)) && !MountResponsive(mbArg.c_str())) {
+						CntDestName++;
+					} else if (apiGetFileAttributes(DestNames[CntDestName]) != INVALID_FILE_ATTRIBUTES) {
 						CntDestName++;	//???
+					}
 				}
 			}
 		}

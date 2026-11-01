@@ -46,6 +46,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "interf.hpp"
 #include "scantree.hpp"
 #include "delete.hpp"
+#include <MountProbe.hpp>
 #include <atomic>
 
 BOOL FarChDir(const wchar_t *NewDir, BOOL ChangeDir)
@@ -60,13 +61,19 @@ BOOL FarChDir(const wchar_t *NewDir, BOOL ChangeDir)
 		if (ChangeDir) {
 			if (*NewDir == GOOD_SLASH) {
 				strCurDir = NewDir;
-				rc = apiSetCurrentDirectory(strCurDir);		// здесь берем корень
 			} else {
 				apiGetCurrentDirectory(strCurDir);
 				ConvertNameToFull(NewDir, strCurDir);
 				PrepareDiskPath(strCurDir, false);	// TRUE ???
-				rc = apiSetCurrentDirectory(strCurDir);
 			}
+
+			// refuse a stalled mount instead of blocking in kernel D state
+			const std::string mbPath = strCurDir.GetMB();
+			if (NeedsMountProbe(MountFsType(mbPath)) && !MountResponsive(mbPath.c_str())) {
+				return FALSE;
+			}
+
+			rc = apiSetCurrentDirectory(strCurDir);
 			if (!rc) {
 				fprintf(stderr, "FarChDir: FAILED - '%ls'\n", NewDir);
 			}
@@ -94,6 +101,10 @@ TESTFOLDERCONST TestFolder(const wchar_t *Path)
 	Wide2MB(Path, mbPath);
 	while (mbPath.size() > 1 && mbPath.back() == GOOD_SLASH)
 		mbPath.resize(mbPath.size() - 1);
+
+	// refuse a stalled mount: stat/opendir below would block in kernel D state
+	if (NeedsMountProbe(MountFsType(mbPath)) && !MountResponsive(mbPath.c_str()))
+		return TSTFLD_NOTFOUND;
 
 	struct stat s{};
 	int r = sdc_stat(mbPath.c_str(), &s);
@@ -153,6 +164,12 @@ TESTFOLDERCONST TestFolder(const wchar_t *Path)
 */
 int CheckShortcutFolder(FARString &strTestPath, bool IsHostFile, bool Silent)
 {
+	// refuse a stalled mount: apiGetFileAttributes below would block in D state
+	if (!strTestPath.IsEmpty()) {
+		const std::string mbPath = strTestPath.GetMB();
+		if (NeedsMountProbe(MountFsType(mbPath)) && !MountResponsive(mbPath.c_str()))
+			return 0;
+	}
 	if (!strTestPath.IsEmpty() && apiGetFileAttributes(strTestPath) == INVALID_FILE_ATTRIBUTES) {
 		bool FoundPath = false;
 		FARString strTarget = strTestPath;

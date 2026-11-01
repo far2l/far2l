@@ -62,6 +62,7 @@ set(SOURCES
     src/Escaping.cpp
     src/WideMB.cpp
     src/FSNotify.cpp
+    src/MountProbe.cpp
     src/TestPath.cpp
     src/PipeIPC.cpp
     src/PathParts.cpp
