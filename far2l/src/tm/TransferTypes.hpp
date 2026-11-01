@@ -15,27 +15,41 @@ enum class TransferMode {
 enum class QuestionType {
     OVERWRITE_EXISTING,         // Destination file already exists (regular file or link)
     OVERWRITE_READ_ONLY_TARGET, // Source is file, target is file, and target is read-only
+    SAME_SOURCE_AND_TARGET,     // Source and destination point to the exact same file (st_dev/st_ino)
     LINK_DESTINATION_EXISTS,    // Source is symlink, destination exists
     FOLDER_DESTINATION_IS_FILE, // Source is folder, destination exists as a file
     FILE_DESTINATION_IS_FOLDER, // Source is file, destination exists as a folder
     MOVE_READ_ONLY_SOURCE,      // Move requested but source is read-only
-    IO_ERROR,                   // Non-critical read or write I/O error
+    CANNOT_CREATE_FOLDER,       // Directory creation failed (mkdir / createDirectories)
+    CANNOT_REMOVE_SOURCE,       // During MOVE, deleting source file/folder failed after copying
+    CANNOT_COPY_METADATA,       // Setting permissions, ownership, timestamps, or xattrs failed
+    BROKEN_SYMLINK,             // Source is a broken or circular symlink
+    READ_ERROR,                 // Error reading source file data block
+    WRITE_ERROR,                // Error writing destination file data block
     PERMISSION_DENIED,          // Permission error accessing source or target
+    IO_ERROR,                   // Non-critical general read or write I/O error
     CRITICAL_IO_ERROR,          // Fatal/Device I/O error (ENOSPC, EDQUOT, EROFS, EIO) - engine pauses all transfers
     NO_SPACE_LEFT               // Specific out-of-disk-space error
 };
 
 enum class QuestionAnswer {
-    PROMPT,             // Needs user interaction
-    OVERWRITE,          // Overwrite destination file (or truncate/update symlink target in-place)
-    OVERWRITE_IF_NEWER, // Overwrite only if source is newer than destination, otherwise skip
-    APPEND,             // Append source to destination
-    RESUME,             // Resume copying from destination file size
-    SKIP,               // Skip current file / item (or skip folder tree if folder skipped)
-    RENAME,             // Rename destination file (folder case) or rename source output target (file case) preserving extension
-    PLACE_INTO,         // Place file inside existing destination folder as destination/folder/file
-    RETRY,              // Retry the failed operation
-    CANCEL              // Abort entire transfer session
+    PROMPT,                               // Needs user interaction
+    OVERWRITE,                            // Overwrite destination file (or truncate/update symlink target in-place)
+    OVERWRITE_ALL,                        // Overwrite this and all subsequent files of this type (remember=true)
+    OVERWRITE_IF_NEWER,                   // Overwrite only if source is newer than destination, otherwise skip
+    OVERWRITE_IF_DIFFERENT_SIZE,          // Overwrite only if source size != destination size, otherwise skip
+    OVERWRITE_IF_NEWER_OR_DIFFERENT_SIZE, // Overwrite if source is newer OR size differs, otherwise skip
+    APPEND,                               // Append source to destination
+    RESUME,                               // Resume copying from destination file size
+    SKIP,                                 // Skip current file / item (or skip folder tree if folder skipped)
+    SKIP_ALL,                             // Skip this and all subsequent files of this type (remember=true)
+    RENAME,                               // Rename destination file (folder case) or auto-rename candidate (file case) preserving extension
+    AUTO_RENAME,                          // Automatically generate unique renamed path (e.g. file (1).ext) for all collisions
+    PLACE_INTO,                           // Place file inside existing destination folder as destination/folder/file
+    IGNORE,                               // Ignore non-fatal error (e.g. metadata/timestamp failure, source delete failure)
+    IGNORE_ALL,                           // Ignore all subsequent non-fatal errors of this type (remember=true)
+    RETRY,                                // Retry the failed operation
+    CANCEL                                // Abort entire transfer session
 };
 
 enum class ScanState {
@@ -65,6 +79,8 @@ struct FileStat {
     mode_t mode = 0;
     uid_t uid = 0;
     gid_t gid = 0;
+    dev_t dev = 0;
+    ino_t ino = 0;
     int64_t atime_sec = 0;
     long atime_nsec = 0;
     int64_t mtime_sec = 0;
@@ -95,6 +111,7 @@ struct TransferJobRequest {
 
 struct TransferQuestion {
     uint64_t id = 0;
+    uint64_t job_id = 0;
     QuestionType type = QuestionType::OVERWRITE_EXISTING;
     std::wstring source_path;
     std::wstring target_path;
@@ -107,6 +124,7 @@ struct TransferQuestion {
     std::wstring details;
     bool target_is_read_only = false;
     bool source_is_newer = false;
+    bool size_is_different = false;
 };
 
 struct TransferOptions {

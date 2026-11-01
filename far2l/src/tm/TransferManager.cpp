@@ -669,6 +669,26 @@ void TransferManager::writerWorker(size_t /*threadIndex*/) {
                         cancel();
                         break;
                     }
+                } else {
+                    TransferItem tempItem;
+                    tempItem.job_id = chunk->job_id;
+                    tempItem.dst_path = L"offset " + std::to_wstring(chunk->dst_offset);
+                    QuestionAnswer wAns = resolveQuestion(
+                        tempItem, QuestionType::WRITE_ERROR,
+                        L"Non-critical write error on destination at offset " + std::to_wstring(chunk->dst_offset), err);
+                    if (wAns == QuestionAnswer::RETRY) {
+                        written = fs_->writeFile(chunk->dst_fd, chunk->buffer, chunk->bytes_valid, chunk->dst_offset);
+                        if (written > 0 && static_cast<size_t>(written) == chunk->bytes_valid) {
+                            bytes_transferred_.fetch_add(written, std::memory_order_relaxed);
+                            recordJobBytesTransferred(chunk->job_id, written);
+                            buffer_ring_->releaseCommittedChunk(chunk);
+                            continue;
+                        }
+                    } else if (wAns == QuestionAnswer::CANCEL) {
+                        buffer_ring_->markChunkFailed(chunk, err);
+                        cancel();
+                        break;
+                    }
                 }
                 buffer_ring_->markChunkFailed(chunk, err);
                 error_count_++;
@@ -877,11 +897,39 @@ bool TransferManager::transferDirectory(TransferItem& item) {
         }
     } else {
         bool created = fs_->createDirectories(item.dst_path);
+        while (!created && !cancelled_.load(std::memory_order_relaxed)) {
+            QuestionAnswer answer = resolveQuestion(
+                item, QuestionType::CANNOT_CREATE_FOLDER,
+                L"Cannot create destination folder: " + item.dst_path, errno);
+            if (answer == QuestionAnswer::CANCEL) {
+                cancel();
+                return false;
+            }
+            if (answer == QuestionAnswer::SKIP || answer == QuestionAnswer::SKIP_ALL) {
+                std::lock_guard<std::mutex> lock(skipped_dirs_mutex_);
+                skipped_dir_prefixes_.push_back(item.src_path);
+                return true;
+            }
+            if (answer == QuestionAnswer::RETRY) {
+                created = fs_->createDirectories(item.dst_path);
+            } else {
+                break;
+            }
+        }
         if (!created) return false;
     }
 
     if (options_.preserve_permissions || options_.preserve_timestamps) {
-        fs_->copyMetadata(item.src_path, item.dst_path, options_.preserve_ownership);
+        bool metaOk = fs_->copyMetadata(item.src_path, item.dst_path, options_.preserve_ownership);
+        if (!metaOk) {
+            QuestionAnswer metaAns = resolveQuestion(
+                item, QuestionType::CANNOT_COPY_METADATA,
+                L"Cannot copy folder attributes or timestamps: " + item.dst_path, errno);
+            if (metaAns == QuestionAnswer::CANCEL) {
+                cancel();
+                return false;
+            }
+        }
     }
     if (options_.preserve_xattrs) {
         fs_->copyXattrs(item.src_path, item.dst_path);
@@ -889,7 +937,24 @@ bool TransferManager::transferDirectory(TransferItem& item) {
 
     if (options_.mode == TransferMode::MOVE) {
         // Move directory: delete source dir if empty
-        fs_->removeDirectory(item.src_path);
+        bool rmOk = fs_->removeDirectory(item.src_path);
+        while (!rmOk && !cancelled_.load(std::memory_order_relaxed)) {
+            QuestionAnswer rmAns = resolveQuestion(
+                item, QuestionType::CANNOT_REMOVE_SOURCE,
+                L"Cannot remove source folder after move: " + item.src_path, errno);
+            if (rmAns == QuestionAnswer::CANCEL) {
+                cancel();
+                return false;
+            }
+            if (rmAns == QuestionAnswer::IGNORE || rmAns == QuestionAnswer::IGNORE_ALL) {
+                break;
+            }
+            if (rmAns == QuestionAnswer::RETRY) {
+                rmOk = fs_->removeDirectory(item.src_path);
+            } else {
+                break;
+            }
+        }
     }
 
     dirs_transferred_++;
@@ -939,6 +1004,13 @@ std::wstring TransferManager::recomputeRelativeSymlink(const std::wstring& rawTa
 bool TransferManager::transferSymlink(TransferItem& item) {
     std::wstring rawTarget = fs_->readSymlink(item.src_path);
     if (rawTarget.empty()) {
+        QuestionAnswer ans = resolveQuestion(
+            item, QuestionType::BROKEN_SYMLINK,
+            L"Cannot read or resolve symbolic link (broken or circular): " + item.src_path, errno);
+        if (ans == QuestionAnswer::CANCEL) {
+            cancel();
+            return false;
+        }
         return false;
     }
 
@@ -954,7 +1026,7 @@ bool TransferManager::transferSymlink(TransferItem& item) {
             cancel();
             return false;
         }
-        if (answer == QuestionAnswer::SKIP) {
+        if (answer == QuestionAnswer::SKIP || answer == QuestionAnswer::SKIP_ALL) {
             // Skip means do nothing and move to the next source
             return true;
         }
@@ -973,7 +1045,16 @@ bool TransferManager::transferSymlink(TransferItem& item) {
             fs_->setTimestamps(item.dst_path, st.atime_sec, st.atime_nsec, st.mtime_sec, st.mtime_nsec);
         }
         if (options_.mode == TransferMode::MOVE) {
-            fs_->removeFile(item.src_path);
+            bool rmOk = fs_->removeFile(item.src_path);
+            if (!rmOk) {
+                QuestionAnswer rmAns = resolveQuestion(
+                    item, QuestionType::CANNOT_REMOVE_SOURCE,
+                    L"Cannot remove source symlink after move: " + item.src_path, errno);
+                if (rmAns == QuestionAnswer::CANCEL) {
+                    cancel();
+                    return false;
+                }
+            }
         }
         files_transferred_++;
         recordJobFileCompleted(item.job_id);
@@ -981,10 +1062,40 @@ bool TransferManager::transferSymlink(TransferItem& item) {
     return ok;
 }
 
+void TransferManager::setAnswerForJob(uint64_t jobId, QuestionType type, QuestionAnswer answer) {
+    std::lock_guard<std::mutex> lock(question_mutex_);
+    job_remembered_answers_[jobId][type] = answer;
+}
+
+std::map<QuestionType, QuestionAnswer> TransferManager::getRememberedAnswersForJob(uint64_t jobId) const {
+    std::lock_guard<std::mutex> lock(question_mutex_);
+    auto it = job_remembered_answers_.find(jobId);
+    if (it != job_remembered_answers_.end()) {
+        return it->second;
+    }
+    return {};
+}
+
+void TransferManager::clearRememberedAnswersForJob(uint64_t jobId) {
+    std::lock_guard<std::mutex> lock(question_mutex_);
+    job_remembered_answers_.erase(jobId);
+}
+
 QuestionAnswer TransferManager::resolveQuestion(TransferItem& item, QuestionType type, const std::wstring& msg, int err) {
-    // Check if we already have a remembered answer for this QuestionType
+    // Check if we already have a remembered answer for this QuestionType on this specific job
     {
         std::lock_guard<std::mutex> lock(question_mutex_);
+        if (item.job_id != 0) {
+            auto jobIt = job_remembered_answers_.find(item.job_id);
+            if (jobIt != job_remembered_answers_.end()) {
+                auto it = jobIt->second.find(type);
+                if (it != jobIt->second.end()) {
+                    questions_resolved_++;
+                    return it->second;
+                }
+            }
+        }
+        // Fall back to global remembered answer (if set for all jobs or job_id == 0)
         auto it = remembered_answers_.find(type);
         if (it != remembered_answers_.end()) {
             questions_resolved_++;
@@ -994,6 +1105,7 @@ QuestionAnswer TransferManager::resolveQuestion(TransferItem& item, QuestionType
 
     TransferQuestion q;
     q.id = next_question_id_++;
+    q.job_id = item.job_id;
     q.type = type;
     q.source_path = item.src_path;
     q.target_path = item.dst_path;
@@ -1009,6 +1121,7 @@ QuestionAnswer TransferManager::resolveQuestion(TransferItem& item, QuestionType
     q.target_is_read_only = dstSt.is_read_only;
     q.source_is_newer = (srcSt.mtime_sec > dstSt.mtime_sec) ||
                         (srcSt.mtime_sec == dstSt.mtime_sec && srcSt.mtime_nsec > dstSt.mtime_nsec);
+    q.size_is_different = (srcSt.size != dstSt.size);
 
     // Check callback or virtual method first
     bool rememberForType = false;
@@ -1021,12 +1134,32 @@ QuestionAnswer TransferManager::resolveQuestion(TransferItem& item, QuestionType
     }
 
     if (answer != QuestionAnswer::PROMPT) {
-        if (rememberForType) {
+        QuestionAnswer normAns = answer;
+        bool shouldRemember = rememberForType;
+        if (answer == QuestionAnswer::OVERWRITE_ALL) {
+            normAns = QuestionAnswer::OVERWRITE;
+            shouldRemember = true;
+        } else if (answer == QuestionAnswer::SKIP_ALL) {
+            normAns = QuestionAnswer::SKIP;
+            shouldRemember = true;
+        } else if (answer == QuestionAnswer::IGNORE_ALL) {
+            normAns = QuestionAnswer::IGNORE;
+            shouldRemember = true;
+        } else if (answer == QuestionAnswer::AUTO_RENAME) {
+            normAns = QuestionAnswer::AUTO_RENAME;
+            shouldRemember = true;
+        }
+
+        if (shouldRemember) {
             std::lock_guard<std::mutex> lock(question_mutex_);
-            remembered_answers_[type] = answer;
+            if (item.job_id != 0) {
+                job_remembered_answers_[item.job_id][type] = normAns;
+            } else {
+                remembered_answers_[type] = normAns;
+            }
         }
         questions_resolved_++;
-        return answer;
+        return normAns;
     }
 
     // Otherwise, post to active question pool and wait for interactive resolution
@@ -1038,12 +1171,23 @@ QuestionAnswer TransferManager::resolveQuestion(TransferItem& item, QuestionType
 
     // Block this item until answered or cancelled
     std::unique_lock<std::mutex> lock(question_mutex_);
-    cv_questions_.wait(lock, [this, qId = q.id, type, &answer, &rememberForType]() {
+    cv_questions_.wait(lock, [this, qId = q.id, jobId = item.job_id, type, &answer]() {
         if (cancelled_.load(std::memory_order_relaxed)) {
             answer = QuestionAnswer::CANCEL;
             return true;
         }
-        // Check if remembered answers now covers this
+        // Check if per-job remembered answers now covers this
+        if (jobId != 0) {
+            auto jobIt = job_remembered_answers_.find(jobId);
+            if (jobIt != job_remembered_answers_.end()) {
+                auto it = jobIt->second.find(type);
+                if (it != jobIt->second.end()) {
+                    answer = it->second;
+                    return true;
+                }
+            }
+        }
+        // Check if global remembered answers covers this
         auto it = remembered_answers_.find(type);
         if (it != remembered_answers_.end()) {
             answer = it->second;
@@ -1062,14 +1206,38 @@ QuestionAnswer TransferManager::resolveQuestion(TransferItem& item, QuestionType
     return answer;
 }
 
-bool TransferManager::answerQuestion(uint64_t questionId, QuestionAnswer answer, bool rememberForType) {
+bool TransferManager::answerQuestion(uint64_t questionId, QuestionAnswer answer, bool rememberForType, bool rememberForAllJobs) {
     std::lock_guard<std::mutex> lock(question_mutex_);
     for (auto it = active_questions_.begin(); it != active_questions_.end(); ++it) {
         if (it->id == questionId) {
             QuestionType type = it->type;
-            if (rememberForType) {
-                remembered_answers_[type] = answer;
+            uint64_t jobId = it->job_id;
+            QuestionAnswer normAns = answer;
+            bool shouldRemember = rememberForType;
+
+            if (answer == QuestionAnswer::OVERWRITE_ALL) {
+                normAns = QuestionAnswer::OVERWRITE;
+                shouldRemember = true;
+            } else if (answer == QuestionAnswer::SKIP_ALL) {
+                normAns = QuestionAnswer::SKIP;
+                shouldRemember = true;
+            } else if (answer == QuestionAnswer::IGNORE_ALL) {
+                normAns = QuestionAnswer::IGNORE;
+                shouldRemember = true;
+            } else if (answer == QuestionAnswer::AUTO_RENAME) {
+                normAns = QuestionAnswer::AUTO_RENAME;
+                shouldRemember = true;
             }
+
+            if (shouldRemember) {
+                if (rememberForAllJobs || jobId == 0) {
+                    remembered_answers_[type] = normAns;
+                }
+                if (jobId != 0) {
+                    job_remembered_answers_[jobId][type] = normAns;
+                }
+            }
+
             active_questions_.erase(it);
             cv_questions_.notify_all();
             return true;
@@ -1135,6 +1303,29 @@ bool TransferManager::transferFile(TransferItem& item) {
             FileStat dstStatFollow = fs_->statFile(item.dst_path, true);
             std::wstring fileTypeStr = dstLStat.is_symlink ? L"symlink" : L"file";
 
+            // Check if source and destination point to the exact same file (st_dev/st_ino)
+            bool isSameNode = (srcSt.dev != 0 && srcSt.dev == dstStatFollow.dev &&
+                               srcSt.ino != 0 && srcSt.ino == dstStatFollow.ino);
+            if (!isSameNode) {
+                try {
+                    if (fs::equivalent(item.src_path, item.dst_path)) {
+                        isSameNode = true;
+                    }
+                } catch (...) {}
+            }
+
+            if (isSameNode) {
+                QuestionAnswer answer = resolveQuestion(
+                    item, QuestionType::SAME_SOURCE_AND_TARGET,
+                    L"Cannot copy file onto itself (source and destination are the exact same file): " + item.src_path);
+                if (answer == QuestionAnswer::CANCEL) {
+                    cancel();
+                    return false;
+                }
+                // Skip safely to avoid truncating / destroying source file!
+                return true;
+            }
+
             // Check if destination is read-only
             bool isReadOnlyTarget = dstStatFollow.is_read_only || dstLStat.is_read_only;
             QuestionType qType = isReadOnlyTarget ? QuestionType::OVERWRITE_READ_ONLY_TARGET
@@ -1150,7 +1341,7 @@ bool TransferManager::transferFile(TransferItem& item) {
                 cancel();
                 return false;
             }
-            if (answer == QuestionAnswer::SKIP) {
+            if (answer == QuestionAnswer::SKIP || answer == QuestionAnswer::SKIP_ALL) {
                 // simply move to the next item
                 return true;
             }
@@ -1170,7 +1361,34 @@ bool TransferManager::transferFile(TransferItem& item) {
                 dstFlags = O_WRONLY | O_CREAT | O_TRUNC;
                 startOffset = 0;
                 srcOffset = 0;
-            } else if (answer == QuestionAnswer::RENAME) {
+            } else if (answer == QuestionAnswer::OVERWRITE_IF_DIFFERENT_SIZE) {
+                if (srcSt.size == dstStatFollow.size) {
+                    // Same size -> skip without error
+                    return true;
+                }
+                if (isReadOnlyTarget) {
+                    mode_t newMode = dstStatFollow.mode ? (dstStatFollow.mode | S_IWUSR) : 0644;
+                    fs_->setPermissions(item.dst_path, newMode);
+                }
+                dstFlags = O_WRONLY | O_CREAT | O_TRUNC;
+                startOffset = 0;
+                srcOffset = 0;
+            } else if (answer == QuestionAnswer::OVERWRITE_IF_NEWER_OR_DIFFERENT_SIZE) {
+                bool isSourceNewer = (srcSt.mtime_sec > dstStatFollow.mtime_sec) ||
+                                     (srcSt.mtime_sec == dstStatFollow.mtime_sec && srcSt.mtime_nsec > dstStatFollow.mtime_nsec);
+                bool isSizeDifferent = (srcSt.size != dstStatFollow.size);
+                if (!isSourceNewer && !isSizeDifferent) {
+                    // Neither newer nor different size -> skip without error
+                    return true;
+                }
+                if (isReadOnlyTarget) {
+                    mode_t newMode = dstStatFollow.mode ? (dstStatFollow.mode | S_IWUSR) : 0644;
+                    fs_->setPermissions(item.dst_path, newMode);
+                }
+                dstFlags = O_WRONLY | O_CREAT | O_TRUNC;
+                startOffset = 0;
+                srcOffset = 0;
+            } else if (answer == QuestionAnswer::RENAME || answer == QuestionAnswer::AUTO_RENAME) {
                 // Rename source copy destination, keeping original destination file intact
                 item.dst_path = generateUniqueRenamedPath(fs_.get(), item.dst_path);
                 dstFlags = O_WRONLY | O_CREAT | O_TRUNC;
@@ -1204,7 +1422,7 @@ bool TransferManager::transferFile(TransferItem& item) {
                 bytes_transferred_.fetch_add(resumePos, std::memory_order_relaxed);
                 recordJobBytesTransferred(item.job_id, resumePos);
             } else {
-                // OVERWRITE:
+                // OVERWRITE or OVERWRITE_ALL
                 if (isReadOnlyTarget) {
                     mode_t newMode = dstStatFollow.mode ? (dstStatFollow.mode | S_IWUSR) : 0644;
                     fs_->setPermissions(item.dst_path, newMode);
@@ -1222,12 +1440,20 @@ bool TransferManager::transferFile(TransferItem& item) {
     item.dst_start_offset = startOffset;
 
     int srcFd = fs_->openFile(item.src_path, O_RDONLY);
-    if (srcFd < 0) {
-        QuestionAnswer ans = resolveQuestion(item, QuestionType::PERMISSION_DENIED,
-                                             L"Cannot open source file: " + item.src_path, errno);
-        if (ans == QuestionAnswer::CANCEL) cancel();
-        return false;
+    while (srcFd < 0 && !cancelled_.load(std::memory_order_relaxed)) {
+        int err = errno ? errno : EIO;
+        QuestionType qType = (err == EACCES || err == EPERM) ? QuestionType::PERMISSION_DENIED : QuestionType::IO_ERROR;
+        QuestionAnswer ans = resolveQuestion(item, qType,
+                                             L"Cannot open source file: " + item.src_path, err);
+        if (ans == QuestionAnswer::CANCEL) { cancel(); return false; }
+        if (ans == QuestionAnswer::SKIP || ans == QuestionAnswer::SKIP_ALL) { return true; }
+        if (ans == QuestionAnswer::RETRY) {
+            srcFd = fs_->openFile(item.src_path, O_RDONLY);
+        } else {
+            break;
+        }
     }
+    if (srcFd < 0) return false;
 
     int dstFd = fs_->openFile(item.dst_path, dstFlags, srcSt.mode ? (srcSt.mode & 0777) : 0644);
     if (dstFd < 0) {
@@ -1239,11 +1465,21 @@ bool TransferManager::transferFile(TransferItem& item) {
             }
         }
     }
+    while (dstFd < 0 && !cancelled_.load(std::memory_order_relaxed)) {
+        int err = errno ? errno : EIO;
+        QuestionType qType = (err == EACCES || err == EPERM) ? QuestionType::PERMISSION_DENIED : QuestionType::IO_ERROR;
+        QuestionAnswer ans = resolveQuestion(item, qType,
+                                             L"Cannot open destination file: " + item.dst_path, err);
+        if (ans == QuestionAnswer::CANCEL) { cancel(); fs_->closeFile(srcFd); return false; }
+        if (ans == QuestionAnswer::SKIP || ans == QuestionAnswer::SKIP_ALL) { fs_->closeFile(srcFd); return true; }
+        if (ans == QuestionAnswer::RETRY) {
+            dstFd = fs_->openFile(item.dst_path, dstFlags, srcSt.mode ? (srcSt.mode & 0777) : 0644);
+        } else {
+            break;
+        }
+    }
     if (dstFd < 0) {
         fs_->closeFile(srcFd);
-        QuestionAnswer ans = resolveQuestion(item, QuestionType::PERMISSION_DENIED,
-                                             L"Cannot open destination file: " + item.dst_path, errno);
-        if (ans == QuestionAnswer::CANCEL) cancel();
         return false;
     }
 
@@ -1286,13 +1522,39 @@ bool TransferManager::transferFile(TransferItem& item) {
 
     if (ok) {
         if (options_.preserve_permissions || options_.preserve_timestamps) {
-            fs_->copyMetadata(item.src_path, item.dst_path, options_.preserve_ownership);
+            bool metaOk = fs_->copyMetadata(item.src_path, item.dst_path, options_.preserve_ownership);
+            if (!metaOk) {
+                QuestionAnswer ans = resolveQuestion(
+                    item, QuestionType::CANNOT_COPY_METADATA,
+                    L"Cannot copy file attributes or timestamps: " + item.dst_path, errno);
+                if (ans == QuestionAnswer::CANCEL) {
+                    cancel();
+                    return false;
+                }
+            }
         }
         if (options_.preserve_xattrs) {
             fs_->copyXattrs(item.src_path, item.dst_path);
         }
         if (options_.mode == TransferMode::MOVE) {
-            fs_->removeFile(item.src_path);
+            bool rmOk = fs_->removeFile(item.src_path);
+            while (!rmOk && !cancelled_.load(std::memory_order_relaxed)) {
+                QuestionAnswer ans = resolveQuestion(
+                    item, QuestionType::CANNOT_REMOVE_SOURCE,
+                    L"Cannot remove source file after move: " + item.src_path, errno);
+                if (ans == QuestionAnswer::CANCEL) {
+                    cancel();
+                    return false;
+                }
+                if (ans == QuestionAnswer::IGNORE || ans == QuestionAnswer::IGNORE_ALL) {
+                    break;
+                }
+                if (ans == QuestionAnswer::RETRY) {
+                    rmOk = fs_->removeFile(item.src_path);
+                } else {
+                    break;
+                }
+            }
         }
         files_transferred_++;
         recordJobFileCompleted(item.job_id);
@@ -1425,10 +1687,24 @@ bool TransferManager::transferChunked(TransferItem& item, int srcFd, int dstFd) 
         size_t toRead = std::min<size_t>(chunk->capacity, bytesToTransfer - bytesCopied);
         ssize_t bytesRead = fs_->readFile(srcFd, chunk->buffer, toRead, chunk->src_offset);
 
+        if (bytesRead < 0) {
+            int err = errno ? errno : EIO;
+            QuestionAnswer rAns = resolveQuestion(
+                item, QuestionType::READ_ERROR,
+                L"Read error occurred on source file: " + item.src_path, err);
+            if (rAns == QuestionAnswer::RETRY) {
+                bytesRead = fs_->readFile(srcFd, chunk->buffer, toRead, chunk->src_offset);
+            } else if (rAns == QuestionAnswer::CANCEL) {
+                buffer_ring_->publishReadyChunk(chunk, 0, true, err);
+                cancel();
+                return false;
+            } else {
+                buffer_ring_->publishReadyChunk(chunk, 0, true, 0);
+                return true;
+            }
+        }
         if (bytesRead <= 0) {
-            int err = (bytesRead < 0) ? errno : 0;
-            buffer_ring_->publishReadyChunk(chunk, 0, true, err);
-            if (bytesRead < 0) return false;
+            buffer_ring_->publishReadyChunk(chunk, 0, true, 0);
             break;
         }
 

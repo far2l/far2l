@@ -12,6 +12,8 @@
 
 #include <functional>
 #include <ctype.h>
+#include <string>
+#include <vector>
 
 // Элемент выпадающего списка в диалоге.
 struct DialogBuilderListItem
@@ -211,7 +213,7 @@ public:
 		{
 		}
 
-		ItemReference &operator =(const ItemReference &src)
+		ItemReference &operator = (const ItemReference &src)
 		{
 			Builder = src.Builder;
 			Index = src.Index;
@@ -514,33 +516,109 @@ public:
 			return AddWrappedText((TCHAR*)text, width);
 		}
 
-		virtual std::vector<ItemReference> AddWrappedText(TCHAR* text, int width) {
-			TCHAR* s = text, *w = text, *q;
-			int remaining = 0;
-			for(;*s; ++s, ++remaining); // remaining = wcslen(text);
+#ifdef UNICODE
+using t_string = std::wstring;
+#define TC(x)	L##x
+#else
+using t_string = std::string;
+#define TC(x)	x
+#endif
+#define TAB_SIZE 4
+
+    	t_string expandTabs(const t_string& src) {
+    		t_string result;
+        	result.reserve(src.size());
+	        int column = 0;
+	        for (wchar_t ch : src) {
+	            if (ch == TC('\t')) {
+	                int spaces = TAB_SIZE - (column % TAB_SIZE);
+	                result.append(spaces, TC(' '));
+	                column += spaces;
+	            }
+	            else {
+	                result.push_back(ch);
+
+	                if (ch == TC('\n') || ch == TC('\r'))
+	                    column = 0;
+	                else
+	                    ++column;
+	            }
+	        }
+
+	        return result;
+	    }
+
+	    void wrapLine(const t_string& line, int maxLen, std::vector<t_string>& out) {
+	        if (maxLen <= 0) {
+	            out.push_back(line);
+	            return;
+	        }
+
+	        size_t pos = 0;
+
+	        while (line.size() - pos > static_cast<size_t>(maxLen)) {
+	            size_t limit = pos + maxLen;
+
+	            // Find last space within the allowed range.
+	            size_t breakPos = line.rfind(TC(' '), limit - 1);
+
+	            if (breakPos == std::wstring::npos || breakPos < pos) {
+	                // No space found -> hard break.
+	                out.emplace_back(line.substr(pos, maxLen));
+	                pos += maxLen;
+	            }
+	            else {
+	                out.emplace_back(line.substr(pos, breakPos - pos));
+
+	                // Skip spaces at beginning of next line.
+	                pos = breakPos;
+	                while (pos < line.size() && line[pos] == TC(' '))
+	                    ++pos;
+	            }
+	        }
+
+	        out.emplace_back(line.substr(pos));
+	    }
+
+		std::vector<t_string> breakToLines(const t_string& src, int maxLen) {
+		    std::vector<t_string> result;
+
+		    const t_string text = expandTabs(src);
+		    t_string current;
+		    for (size_t i = 0; i < text.size(); ++i) {
+		        wchar_t ch = text[i];
+
+		        if (ch == TC('\r') || ch == TC('\n')) {
+		            wrapLine(current, maxLen, result);
+		            current.clear();
+
+		            // Treat CRLF and LFCR as a single newline.
+		            if (i + 1 < text.size()) {
+		                TCHAR next = text[i + 1];
+
+		                if ((ch == TC('\r') && next == TC('\n')) ||
+			                    (ch == TC('\n') && next == TC('\r')))
+		                    ++i;
+		            }
+		        }
+		        else
+		            current.push_back(ch);
+		    }
+
+		    wrapLine(current, maxLen, result);
+		    return result;
+		}
+
+		virtual std::vector<ItemReference> AddWrappedText(TCHAR* text, int width = 70) {
+			t_string x = text;
 			std::vector<ItemReference> v;
-			while(remaining > 0) {
-				int part = width > remaining ? remaining : width;
-				q = w + part;
-				while(q > w && !isspace(*q)) --q;
-				if (q > w) {
-					*q = 0;
-					auto item = AddText(w);
-					remaining -= q - w;
-					w = q + 1;
-                    *q = (TCHAR)' ';
-                    v.push_back(item);
-				}
-				else {
-					q = w + part;
-					TCHAR saved = q[1];
-					q[1] = 0;
-					auto item = AddText(w);
-					w = q + 1;
-					q[1] = saved;
-					remaining -= part; 
-					v.push_back(item);
-				}
+			if (width < 4) width = 4;
+			std::vector<t_string> lines = breakToLines(x, width);
+			for(size_t i = 0; i < lines.size(); ++i) {
+				if(lines[i].length() == 0)
+					AddEmptyLine();
+				else 
+					v.push_back(AddText(lines[i].c_str()));
 			}
 			return v;
 		}
@@ -553,6 +631,8 @@ public:
 			return Item;
 		}
 
+#undef TAB_SIZE
+#undef TC
 		// Добавляет чекбокс.
 		// BOOL*, bool*, + the same with instant callbacks
 		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, BOOL *Value, bool newLine) {
@@ -788,7 +868,7 @@ public:
 			if (UseModernLook) AddEmptyLine();
 		}
 
-		std::vector<ItemReference> AddButtonsLine(FarLangMsg buttons[], int buttonsCount, int defaultIdx = 0) {
+		std::vector<ItemReference> AddButtonsLine(FarLangMsg buttons[], int buttonsCount, int defaultIdx = 0, int maxWidth = 0) {
 			std::vector<ItemReference> v;
 			v.reserve(buttonsCount);
 
@@ -797,12 +877,18 @@ public:
 			else
 				AddSeparator();
 
+			int consumed = 0;
 			for(int i = 0; i < buttonsCount; ++i) {
 				auto button = AddDialogItem(DI_BUTTON, GetLangString(buttons[i]));
 				button->Flags = DIF_CENTERGROUP;
 				if(i == defaultIdx) button->DefaultButton = TRUE;
 				Add(button);
 				v.push_back(button);
+				consumed += ItemWidth(*button) + 2;
+				if (consumed > maxWidth && maxWidth > 0) {
+					AddNL();
+					consumed = 0;
+				}
 			}
 			AddNL();
 			return v;

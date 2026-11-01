@@ -83,13 +83,20 @@ void UITransferManager::onFolderScanProgress(const FolderScanProgress& scan) {
 static FarLangMsg answerToText(QuestionAnswer qa) {
 	switch(qa) {
     case QuestionAnswer::OVERWRITE:     		return Msg::TransferQuestionOverwrite;
+    case QuestionAnswer::OVERWRITE_ALL:    		return Msg::TransferQuestionOverwrite;
     case QuestionAnswer::APPEND:        		return Msg::TransferQuestionAppend;
     case QuestionAnswer::RESUME:        		return Msg::TransferQuestionResume;
     case QuestionAnswer::SKIP:          		return Msg::TransferQuestionSkip;
+    case QuestionAnswer::SKIP_ALL:         		return Msg::TransferQuestionSkip;
     case QuestionAnswer::RENAME:        		return Msg::TransferQuestionRename;
+    case QuestionAnswer::AUTO_RENAME:      		return Msg::TransferQuestionRename;
     case QuestionAnswer::PLACE_INTO:    		return Msg::TransferQuestionOverwrite;
     case QuestionAnswer::RETRY: 				return Msg::TransferQuestionRetry;
     case QuestionAnswer::OVERWRITE_IF_NEWER:    return Msg::TransferQuestionOverwriteIfNewer;
+    case QuestionAnswer::OVERWRITE_IF_DIFFERENT_SIZE:    return Msg::TransferQuestionOverwriteIfSize;
+    case QuestionAnswer::OVERWRITE_IF_NEWER_OR_DIFFERENT_SIZE:    return Msg::TransferQuestionOverwriteIfNewerOrSize;
+    case QuestionAnswer::IGNORE: 				return Msg::TransferQuestionIgnore;
+    case QuestionAnswer::IGNORE_ALL:			return Msg::TransferQuestionIgnore;
     	
     case QuestionAnswer::CANCEL:
 	case QuestionAnswer::PROMPT:
@@ -108,19 +115,19 @@ static void addButtons(std::vector<QuestionAnswer>& v, std::initializer_list<Que
     v.insert(v.end(), buttons);
 }
 
-static std::vector<DialogBuilder::ItemReference> addButtonsLineToUI(DialogBuilder& builder, std::vector<QuestionAnswer> v) {
+static std::vector<DialogBuilder::ItemReference> addButtonsLineToUI(DialogBuilder& builder, std::vector<QuestionAnswer> v, int DlgPrefWidth) {
 	FarLangMsg texts[128];
 	int textsCount = (int)v.size();
 
 	for(size_t i = 0; i < v.size(); ++i) 
 		texts[i] = answerToText(v[i]);
-	return builder.AddButtonsLine(texts, textsCount);
+	return builder.AddButtonsLine(texts, textsCount, 0, DlgPrefWidth);
 }
 
 static FarLangMsg questionToText(QuestionType type) {
 	switch(type) {
 	case QuestionType::NO_SPACE_LEFT: 				return Msg::TransferQuestionNoSpaceLeft;
-	case QuestionType::CRITICAL_IO_ERROR: 			return Msg::TransferQuestionIoError;
+	case QuestionType::CRITICAL_IO_ERROR: 			return Msg::TransferQuestionCriticalIoError;
 	case QuestionType::LINK_DESTINATION_EXISTS: 	return Msg::TransferQuestionLinkExists;
 	case QuestionType::FOLDER_DESTINATION_IS_FILE:	return Msg::TransferQuestionFolderTargetIsFile;
 	case QuestionType::FILE_DESTINATION_IS_FOLDER:  return Msg::TransferQuestionFileTargetIsFolder;
@@ -128,6 +135,14 @@ static FarLangMsg questionToText(QuestionType type) {
 	case QuestionType::MOVE_READ_ONLY_SOURCE:		return Msg::TransferQuestionSourceReadOnly;
 	case QuestionType::OVERWRITE_READ_ONLY_TARGET:	return Msg::TransferQuestionTargetReadOnly;
     case QuestionType::PERMISSION_DENIED:         	return Msg::TransferQuestionAccessDenied;
+    case QuestionType::SAME_SOURCE_AND_TARGET:     	return Msg::TransferQuestionCopyItself;
+    case QuestionType::CANNOT_CREATE_FOLDER:     	return Msg::TransferQuestionCannotCreateFolder;
+    case QuestionType::CANNOT_REMOVE_SOURCE:     	return Msg::TransferQuestionCannotRemoveSource;
+    case QuestionType::CANNOT_COPY_METADATA:     	return Msg::TransferQuestionCannotCopyMetadata;
+    case QuestionType::BROKEN_SYMLINK:     			return Msg::TransferQuestionBrokenSymlink;
+    case QuestionType::READ_ERROR:     				return Msg::TransferQuestionReadError;
+    case QuestionType::WRITE_ERROR:     			return Msg::TransferQuestionWriteError;
+    case QuestionType::IO_ERROR:     				return Msg::TransferQuestionIoError;
 	default:										return Msg::TransferQuestionGeneralIoError;
 	}
 	return Msg::TransferQuestionGeneralIoError;
@@ -166,7 +181,7 @@ Dialog UI:
 */
 
 QuestionAnswer UITransferManager::onQuestion(const TransferQuestion& q, bool& rememberForType)  {
-	int DlgPrefWidth = 70;
+	const int DlgPrefWidth = 70;
 	bool isRemember = false;
 
 	std::vector<QuestionAnswer> buttons;
@@ -231,19 +246,29 @@ QuestionAnswer UITransferManager::onQuestion(const TransferQuestion& q, bool& re
 		addButtons(buttons, { QuestionAnswer::PLACE_INTO, QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
 	else if (q.type == QuestionType::OVERWRITE_READ_ONLY_TARGET)
 		addButtons(buttons, { QuestionAnswer::OVERWRITE, QuestionAnswer::OVERWRITE_IF_NEWER, 
-			QuestionAnswer::RENAME, QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
+			QuestionAnswer::OVERWRITE_IF_DIFFERENT_SIZE, QuestionAnswer::OVERWRITE_IF_NEWER_OR_DIFFERENT_SIZE,
+			QuestionAnswer::AUTO_RENAME, QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
 	else if (q.type == QuestionType::OVERWRITE_EXISTING) 
 		addButtons(buttons, { QuestionAnswer::OVERWRITE, QuestionAnswer::OVERWRITE_IF_NEWER, 
-			QuestionAnswer::RENAME, QuestionAnswer::APPEND, 
-			QuestionAnswer::RESUME,  QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
+			QuestionAnswer::OVERWRITE_IF_DIFFERENT_SIZE, QuestionAnswer::OVERWRITE_IF_NEWER_OR_DIFFERENT_SIZE,
+			QuestionAnswer::AUTO_RENAME, QuestionAnswer::APPEND, QuestionAnswer::RESUME, 
+			QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
 	else if (q.type == QuestionType::MOVE_READ_ONLY_SOURCE) 
 		addButtons(buttons, { QuestionAnswer::OVERWRITE, QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
-	else 
+	else if (q.type == QuestionType::SAME_SOURCE_AND_TARGET || q.type == QuestionType::BROKEN_SYMLINK) 
+		addButtons(buttons, { QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
+	else if (q.type == QuestionType::CANNOT_REMOVE_SOURCE) 
+		addButtons(buttons, { QuestionAnswer::RETRY, QuestionAnswer::IGNORE, QuestionAnswer::CANCEL });
+	else if (q.type == QuestionType::CANNOT_COPY_METADATA) 
+		addButtons(buttons, { QuestionAnswer::IGNORE, QuestionAnswer::RETRY, QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
+	else if (q.type == QuestionType::READ_ERROR || q.type == QuestionType::WRITE_ERROR) 
 		addButtons(buttons, { QuestionAnswer::RETRY, QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
+	else 
+		addButtons(buttons, { QuestionAnswer::RETRY, QuestionAnswer::IGNORE, QuestionAnswer::SKIP, QuestionAnswer::CANCEL });
 
 	rememberForType = false;
 
-	auto buttonRefs = addButtonsLineToUI(builder, buttons);
+	auto buttonRefs = addButtonsLineToUI(builder, buttons, DlgPrefWidth);
 	int firstID = buttonRefs[0].ID();
 	int button = -1;
 	if (builder.ShowDialog(&button)) {

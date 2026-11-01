@@ -69,6 +69,8 @@ FileStat LocalFileSystem::statFile(const std::wstring& path, bool followSymlinks
     info.mode = st.st_mode;
     info.uid = st.st_uid;
     info.gid = st.st_gid;
+    info.dev = st.st_dev;
+    info.ino = st.st_ino;
     info.is_directory = S_ISDIR(st.st_mode);
     info.is_symlink = S_ISLNK(st.st_mode);
     info.is_regular = S_ISREG(st.st_mode);

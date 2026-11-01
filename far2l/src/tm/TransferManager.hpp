@@ -77,6 +77,11 @@ public:
         remembered_answers_[type] = answer;
     }
 
+    // Per-job remembered answers: set user decisions specifically for an individual transfer job
+    void setAnswerForJob(uint64_t jobId, QuestionType type, QuestionAnswer answer);
+    std::map<QuestionType, QuestionAnswer> getRememberedAnswersForJob(uint64_t jobId) const;
+    void clearRememberedAnswersForJob(uint64_t jobId);
+
     // Buffer ring configuration (16 MB to 1024 MB)
     void setBufferRingSizeMB(size_t sizeMB, size_t chunkSize = 1024 * 1024);
     size_t getBufferRingSizeMB() const;
@@ -115,7 +120,8 @@ public:
     std::unordered_map<uint64_t, TransferProgress> getJobProgressMap() const;
 
     // Answer an active question from the question pool manually (e.g. from UI or interactive CLI)
-    bool answerQuestion(uint64_t questionId, QuestionAnswer answer, bool rememberForType = false);
+    // By default, remember applies to the specific transfer job of the question
+    bool answerQuestion(uint64_t questionId, QuestionAnswer answer, bool rememberForType = false, bool rememberForAllJobs = false);
 
     // Set callback lambdas (alternative to inheriting and overriding virtual methods)
     void setProgressCallback(std::function<void(const TransferProgress& jobProgress, const TransferProgress& totalProgress)> cb) {
@@ -195,6 +201,9 @@ private:
     mutable std::mutex question_mutex_;
     std::condition_variable cv_questions_;
     std::vector<TransferQuestion> active_questions_;
+    // Per-job remembered answers: job_id -> (QuestionType -> QuestionAnswer)
+    std::unordered_map<uint64_t, std::map<QuestionType, QuestionAnswer>> job_remembered_answers_;
+    // Global fallback remembered answers (session-wide or job_id == 0)
     std::map<QuestionType, QuestionAnswer> remembered_answers_;
     std::atomic<uint64_t> next_question_id_{1};
 
