@@ -10,11 +10,25 @@
 
 #include "farplug-wide.h"
 
+#include <functional>
+#include <ctype.h>
+#include <string>
+#include <vector>
+
 // Элемент выпадающего списка в диалоге.
 struct DialogBuilderListItem
 {
 	// Строчка из LNG-файла, которая будет показана в диалоге.
 	FarLangMsg MessageId;
+
+	// Значение, которое будет записано в поле Value при выборе этой строчки.
+	int ItemValue;
+};
+
+struct DialogBuilderListItemWide
+{
+	// Next to render
+	wchar_t* Text;
 
 	// Значение, которое будет записано в поле Value при выборе этой строчки.
 	int ItemValue;
@@ -26,42 +40,69 @@ struct DialogItemBinding
 	int BeforeLabelID;
 	int AfterLabelID;
 
-	DialogItemBinding()
-		: BeforeLabelID(-1), AfterLabelID(-1)
-	{
+	int buttonID;
+	std::function<void(const int buttonID, void* ctx)> cb;
+	void* ctx;
+
+	DialogItemBinding()	: BeforeLabelID(-1), AfterLabelID(-1), buttonID (-1), ctx(nullptr) {}
+	DialogItemBinding(int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+		: BeforeLabelID(-1), AfterLabelID(-1), buttonID(buttonID_), cb(_cb), ctx(_ctx) {}
+
+	virtual ~DialogItemBinding() {}
+	virtual void SaveValue(T *Item, int RadioGroupIndex) {}
+	virtual void TrySaveValue(T *Item, int RadioGroupIndex) {
+		if (buttonID >= 0){ 
+			this->SaveValue(Item, RadioGroupIndex);
+			cb(buttonID, ctx);
+		}
 	}
 
-	virtual ~DialogItemBinding()
-	{
-	}
-
-	virtual void SaveValue(T *Item, int RadioGroupIndex)
-	{
-	}
+	virtual bool supportsTrySave(){ return buttonID >= 0; }
 };
 
 template<class T>
 struct CheckBoxBinding: public DialogItemBinding<T>
 {
 	private:
-		BOOL *Value;
-		int Mask;
+		BOOL *BValue { nullptr };
+		int Mask { 0 };
+		bool* bvalue { nullptr };
 
 	public:
-		CheckBoxBinding(BOOL *aValue, int aMask) : Value(aValue), Mask(aMask) { }
+		CheckBoxBinding(BOOL *aValue, int aMask) : BValue(aValue), Mask(aMask), bvalue(nullptr) { }
+		CheckBoxBinding(bool *aValue, int aMask) : BValue(nullptr), Mask(aMask), bvalue(aValue) { }
+
+		CheckBoxBinding(BOOL *aValue, int aMask, 
+			int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+			: DialogItemBinding<T>(buttonID_, _cb, _ctx), BValue(aValue), Mask(aMask), bvalue(nullptr) { }
+		CheckBoxBinding(bool *aValue, int aMask, 
+			int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+			: DialogItemBinding<T>(buttonID_, _cb, _ctx), BValue(nullptr), Mask(aMask), bvalue(aValue) { }
 
 		virtual void SaveValue(T *Item, int RadioGroupIndex)
 		{
-			if (!Mask)
-			{
-				*Value = Item->Selected;
+			if (BValue) {
+				if (!Mask) {
+					BOOL old = *BValue;
+					*BValue = Item->Selected != 0;
+					if (old != *BValue)
+						fprintf(stderr, "...save checkbox[%p]: selected=%d, BOOL=%d `%ls`\n", Item, Item->Selected, *BValue, Item->strData.CPtr());
+				}
+				else {
+					BOOL old = *BValue;
+					if (Item->Selected)
+						*BValue |= Mask;
+					else
+						*BValue &= ~Mask;
+					if (old != *BValue)
+						fprintf(stderr, "...save checkbox[%p]: selected=%d, mask=%d, BOOL=%d `%ls`\n", Item, Item->Selected, Mask, *BValue, Item->strData.CPtr());
+				}
 			}
-			else
-			{
-				if (Item->Selected)
-					*Value |= Mask;
-				else
-					*Value &= ~Mask;
+			if (bvalue) {
+				bool old = *bvalue;
+				*bvalue = Item->Selected != 0;
+				if (old != *bvalue)
+					fprintf(stderr, "...save checkbox[%p]: selected=%d, bool=%d `%ls`\n", Item, Item->Selected, (int)*bvalue, Item->strData.CPtr());
 			}
 		}
 };
@@ -90,6 +131,9 @@ struct RadioButtonBinding: public DialogItemBinding<T>
 
 	public:
 		RadioButtonBinding(int *aValue) : Value(aValue) { }
+		RadioButtonBinding(int *aValue,
+			int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+			: DialogItemBinding<T>(buttonID_, _cb, _ctx), Value(aValue) { }
 
 		virtual void SaveValue(T *Item, int RadioGroupIndex)
 		{
@@ -104,12 +148,12 @@ struct ComboBoxBinding: public DialogItemBinding<T>
 	int *Value;
 	FarList *List;
 
-	ComboBoxBinding(int *aValue, FarList *aList)
-		: Value(aValue), List(aList)
-	{
-	}
+	ComboBoxBinding(int *aValue, FarList *aList,
+		int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+		: DialogItemBinding<T>(buttonID_, _cb, _ctx), Value(aValue), List(aList) { }
+	ComboBoxBinding(int *aValue, FarList *aList) : Value(aValue), List(aList) {	}
 
-	~ComboBoxBinding()
+	~ComboBoxBinding() 
 	{
 		delete [] List->Items;
 		delete List;
@@ -120,6 +164,14 @@ struct ComboBoxBinding: public DialogItemBinding<T>
 		FarListItem &ListItem = List->Items[Item->ListPos];
 		*Value = ListItem.Reserved[0];
 	}
+};
+
+template<class T>
+struct PushButtonBinding: public DialogItemBinding<T>
+{
+	PushButtonBinding(int buttonID_, std::function<void(const int buttonID, void* ctx)> _cb, void* _ctx) 
+		: DialogItemBinding<T>(buttonID_, _cb, _ctx) {}
+	~PushButtonBinding() {}
 };
 
 /*
@@ -147,7 +199,7 @@ checkbox и radio button вычисляется автоматически, дл
 template<class T>
 class DialogBuilderBase
 {
-	public:
+public:
 	friend class ItemReference;
 
 	class ItemReference
@@ -161,7 +213,7 @@ class DialogBuilderBase
 		{
 		}
 
-		ItemReference &operator =(const ItemReference &src)
+		ItemReference &operator = (const ItemReference &src)
 		{
 			Builder = src.Builder;
 			Index = src.Index;
@@ -172,41 +224,121 @@ class DialogBuilderBase
 		{
 			return (Index >= 0 && Index < Builder.DialogItemsCount) ? &Builder.DialogItems[Index] : nullptr;
 		}
+
 		operator T *()
 		{
 			return (Index >= 0 && Index < Builder.DialogItemsCount) ? &Builder.DialogItems[Index] : nullptr;
 		}
+
+		int ID() const { return Index; }
 	};
 
 	protected:
-		T *DialogItems;
+		T *DialogItems { nullptr };
 		DialogItemBinding<T> **Bindings;
-		int DialogItemsCount;
-		int DialogItemsAllocated;
-		int NextY;
+
+		int DialogItemsCount {0};
+		int DialogItemsAllocated {0};
 		int OKButtonID;
-		int ColumnStartIndex;
-		int ColumnBreakIndex;
-		int ColumnStartY;
-		int ColumnEndY;
-		int ColumnMinWidth;
+		BOOL UseModernLook {0};
+		DWORD dialogFlags {0};
 
-		static const int SECOND_COLUMN = -2;
+		struct StackedPlace {
+			int NextX {5};
+			int NextY {2};
+			int Column{0};
+			int ColumnX{5};
+			int ColumnY{2};
 
-		void ReallocDialogItems()
-		{
+			int MaxX{0};
+			int MaxY{0};
+			int FirstColumnX{5};
+			int FirstRowY{2};
+		};
+
+		std::vector<StackedPlace> place;
+		StackedPlace current {};
+
+		void UpdateNewSizes() {
+			current.MaxY = std::max(current.MaxY, current.NextY);
+			current.MaxX = std::max(current.MaxX, current.NextX);
+		}
+
+		int lastItem() const { return DialogItemsCount - 1; }
+
+	public:
+		// New API
+		void Add(ItemReference item) {
+			item->Y1 = current.NextY;
+			item->Y2 = item->Y1 + ItemHeight(item);
+			item->X1 = current.NextX;
+			current.NextX += item->Width > 0 ? item->Width : ItemWidth(*item);
+			item->X2 = current.NextX++;
+
+			UpdateNewSizes();
+			current.NextX++; // add gap between elements
+		}
+
+		void AddNLBy(ItemReference item) {
+			current.NextY += ItemHeight(item) + 1; // for most cases it is zero but for list boxes it will be real size
+			UpdateNewSizes();
+			current.NextX = current.ColumnX;
+		}
+
+		void AddNL() {
+			current.NextY ++;
+			UpdateNewSizes();
+			current.NextX = current.ColumnX;
+		}
+
+		void AddColumnView() {
+			StackedPlace prev = current;
+			place.push_back(prev);
+
+			current = StackedPlace {};
+
+			current.ColumnX = current.FirstColumnX = current.NextX = prev.NextX;
+			current.Column = prev.Column + 1;
+			current.NextY = current.ColumnY = current.FirstRowY = prev.NextY;
+		}
+
+		void AddNewColumn() {
+			current.NextY = current.ColumnY;
+			current.ColumnX = current.MaxX;
+			current.NextX = current.ColumnX;
+		}
+
+		void EndColumnView() {
+			StackedPlace prev = place.back();
+			place.pop_back();
+
+			// int w = current.MaxX - current.FirstColumnX;
+			int h = current.MaxY - current.FirstRowY;
+
+			prev.NextY += h;
+			prev.MaxY = std::max(current.MaxY, prev.MaxY);
+			prev.MaxX = std::max(current.MaxX, prev.MaxX);
+			prev.NextX = prev.FirstColumnX;
+
+			current = prev;
+		}
+
+		void Indent(int deltax) {
+			current.NextX += deltax;
+		}
+
+	protected:
+
+		void ReallocDialogItems() {
 			DialogItemsAllocated += 32;
-			if (!DialogItems)
-			{
+			if (!DialogItems) {
 				DialogItems = new T[DialogItemsAllocated];
 				Bindings = new DialogItemBinding<T> * [DialogItemsAllocated];
 			}
-			else
-			{
+			else {
 				T *NewDialogItems = new T[DialogItemsAllocated];
 				DialogItemBinding<T> **NewBindings = new DialogItemBinding<T> * [DialogItemsAllocated];
-				for(int i=0; i<DialogItemsCount; i++)
-				{
+				for(int i=0; i<DialogItemsCount; i++) {
 					NewDialogItems [i] = DialogItems [i];
 					NewBindings [i] = Bindings [i];
 				}
@@ -217,121 +349,94 @@ class DialogBuilderBase
 			}
 		}
 
-		ItemReference AddDialogItem(int Type, const TCHAR *Text)
-		{
-			if (DialogItemsCount == DialogItemsAllocated)
-			{
-				ReallocDialogItems();
-			}
+		ItemReference AddDialogItem(int Type, const TCHAR *Text) {
+			if (DialogItemsCount == DialogItemsAllocated) ReallocDialogItems();
+
 			int Index = DialogItemsCount++;
 			T *Item = &DialogItems [Index];
 			InitDialogItem(Item, Text);
 			Item->Type = Type;
 			Bindings [Index] = nullptr;
+			Item->Width = 0;
+
 			return ItemReference(*this, Index);
 		}
 
-		void SetNextY(ItemReference Item)
-		{
-			Item->X1 = 5;
-			Item->Y1 = Item->Y2 = NextY++;
-		}
+		int ItemWidth(const T &Item) {
+			int Width = 0;
 
-		int ItemWidth(const T &Item)
-		{
-			switch(Item.Type)
-			{
+			if (Item.Width > 0)  // width is overridden
+				return Item.Width;
+
+			switch(Item.Type) {
 			case DI_TEXT:
 				return TextWidth(Item);
 
 			case DI_DOUBLEBOX: // text in dialog title
-				{
-					int Width = TextWidth(Item);
-					return (Width ? Width + 2 : 0);
-				}
-
+				Width = TextWidth(Item);
+				return (Width ? Width + 2 : 0);
 			case DI_CHECKBOX:
 			case DI_RADIOBUTTON:
 			case DI_BUTTON:
 				return TextWidth(Item) + 4;
-
 			case DI_EDIT:
 			case DI_FIXEDIT:
 			case DI_COMBOBOX:
-				int Width = Item.X2 - Item.X1 + 1;
+				Width = Item.X2 - Item.X1 + 1;
 				/* стрелка history занимает дополнительное место, но раньше она рисовалась поверх рамки
 				if (Item.Flags & DIF_HISTORY)
 					Width++;
 				*/
 				return Width;
-				break;
 			}
 			return 0;
 		}
 
-		void AddBorder(const TCHAR *TitleText)
-		{
+		int ItemHeight(ItemReference Item) {
+			if (Item->Height > 0) return Item->Height;
+
+			switch(Item->Type) {
+			case DI_TEXT:
+			case DI_DOUBLEBOX:
+			case DI_CHECKBOX:
+			case DI_RADIOBUTTON:
+			case DI_BUTTON:
+			case DI_EDIT:
+			case DI_FIXEDIT:
+			case DI_COMBOBOX:
+			default:
+				return 0;
+			}
+			return 0;
+		}
+
+        /* border is a special case and it is going first, out of placement rules */
+		void AddBorder(const TCHAR *TitleText) {
 			T *Title = AddDialogItem(DI_DOUBLEBOX, TitleText);
 			Title->X1 = 3;
 			Title->Y1 = 1;
 		}
 
-		void UpdateBorderSize()
-		{
+		void UpdateBorderSize() {
 			T *Title = &DialogItems[0];
 			Title->X2 = Title->X1 + MaxTextWidth() + 3;
-			Title->Y2 = DialogItems [DialogItemsCount-1].Y2 + 1;
+			Title->Y2 = DialogItems [lastItem()].Y2 + 1;
 		}
 
-		int MaxTextWidth()
-		{
+		int MaxTextWidth() {
 			int MaxWidth = ItemWidth(DialogItems [0]); // text in dialog title
-			for(int i=1; i<DialogItemsCount; i++)
-			{
-				if (DialogItems [i].X1 == SECOND_COLUMN) continue;
-				int Width = ItemWidth(DialogItems [i]);
-				int Indent = DialogItems [i].X1 - 5;
-				Width += Indent;
-
-				if (MaxWidth < Width)
-					MaxWidth = Width;
-			}
-			int ColumnsWidth = 2*ColumnMinWidth+1;
-			if (MaxWidth < ColumnsWidth)
-				return ColumnsWidth;
+			MaxWidth = std::max(MaxWidth, current.MaxX + 3);
 			return MaxWidth;
 		}
 
-		void UpdateSecondColumnPosition()
-		{
-			int SecondColumnX1 = 6 + (DialogItems [0].X2 - DialogItems [0].X1 - 1)/2;
-			for(int i=0; i<DialogItemsCount; i++)
-			{
-				if (DialogItems [i].X1 == SECOND_COLUMN)
-				{
-					int Width = DialogItems [i].X2 - DialogItems [i].X1;
-					DialogItems [i].X1 = SecondColumnX1;
-					DialogItems [i].X2 = DialogItems [i].X1 + Width;
-				}
-			}
+		virtual void InitDialogItem(T *NewDialogItem, const TCHAR *Text) {}
+		virtual int TextWidth(const T &Item){ return -1; }
+
+		void SetItemBinding(T* Item, DialogItemBinding<T> *Binding){
+			Bindings [GetItemID(Item)] = Binding;
 		}
 
-		virtual void InitDialogItem(T *NewDialogItem, const TCHAR *Text)
-		{
-		}
-
-		virtual int TextWidth(const T &Item)
-		{
-			return -1;
-		}
-
-		void SetLastItemBinding(DialogItemBinding<T> *Binding)
-		{
-			Bindings [DialogItemsCount-1] = Binding;
-		}
-
-		int GetItemID(T *Item)
-		{
+		int GetItemID(T *Item) {
 			if (Item) {
 				int Index = static_cast<int>(Item - DialogItems);
 				if (Index >= 0 && Index < DialogItemsCount)
@@ -340,8 +445,7 @@ class DialogBuilderBase
 			return -1;
 		}
 
-		DialogItemBinding<T> *FindBinding(T *Item)
-		{
+		DialogItemBinding<T> *FindBinding(T *Item) {
 			if (Item) {
 				int Index = static_cast<int>(Item - DialogItems);
 				if (Index >= 0 && Index < DialogItemsCount)
@@ -350,11 +454,9 @@ class DialogBuilderBase
 			return nullptr;
 		}
 
-		void SaveValues()
-		{
+		void SaveValues() {
 			int RadioGroupIndex = 0;
-			for(int i=0; i<DialogItemsCount; i++)
-			{
+			for(int i=0; i < DialogItemsCount; i++) {
 				if (DialogItems [i].Flags & DIF_GROUP)
 					RadioGroupIndex = 0;
 				else
@@ -365,36 +467,22 @@ class DialogBuilderBase
 			}
 		}
 
-		virtual const TCHAR *GetLangString(FarLangMsg MessageID)
-		{
-			return nullptr;
-		}
+		virtual const TCHAR *GetLangString(FarLangMsg MessageID) { return nullptr; }
+		virtual int DoShowDialog(){ return -1; }
 
-		virtual int DoShowDialog()
-		{
-			return -1;
-		}
+		virtual DialogItemBinding<T> *CreateCheckBoxBinding(BOOL *Value, int Mask){	return nullptr;	}
+		virtual DialogItemBinding<T> *CreateCheckBoxBinding(bool *Value, int Mask){	return nullptr;	}
+		virtual DialogItemBinding<T> *CreateRadioButtonBinding(int *Value){	return nullptr;	}
 
-		virtual DialogItemBinding<T> *CreateCheckBoxBinding(BOOL *Value, int Mask)
-		{
-			return nullptr;
-		}
+		virtual DialogItemBinding<T> *CreateButtonBinding(int ID, std::function<void(const int buttonID, void* ctx)> cb, void* ctx){ return nullptr;	}
+		virtual DialogItemBinding<T> *CreateCheckBoxBinding(BOOL *Value, int Mask, int ID, std::function<void(const int buttonID, void* ctx)> cb, void* ctx){	return nullptr;	}
+		virtual DialogItemBinding<T> *CreateCheckBoxBinding(bool *Value, int Mask, int ID, std::function<void(const int buttonID, void* ctx)> cb, void* ctx){	return nullptr;	}
+		virtual DialogItemBinding<T> *CreateRadioButtonBinding(int *Value, int ID, std::function<void(const int buttonID, void* ctx)> cb, void* ctx){	return nullptr;	}
 
-		virtual DialogItemBinding<T> *CreateRadioButtonBinding(int *Value)
-		{
-			return nullptr;
-		}
+		DialogBuilderBase(){}
 
-		DialogBuilderBase()
-			: DialogItems(nullptr), DialogItemsCount(0), DialogItemsAllocated(0), NextY(2),
-			  ColumnStartIndex(-1), ColumnBreakIndex(-1), ColumnMinWidth(0)
-		{
-		}
-
-		~DialogBuilderBase()
-		{
-			for(int i=0; i<DialogItemsCount; i++)
-			{
+		~DialogBuilderBase() {
+			for(int i=0; i < DialogItemsCount; i++) {
 				if (Bindings [i])
 					delete Bindings [i];
 			}
@@ -403,234 +491,456 @@ class DialogBuilderBase
 		}
 
 	public:
+		/* old APi through new one */
 		// Добавляет статический текст, расположенный на отдельной строке в диалоге.
-		ItemReference AddText(FarLangMsg LabelId)
-		{
+
+		virtual ItemReference AddText(FarLangMsg LabelId, bool newLine = true) {
 			auto Item = AddDialogItem(DI_TEXT, GetLangString(LabelId));
-			SetNextY(Item);
+			Add(Item);
+			if (newLine) AddNL();
 			return Item;
 		}
 
+		virtual ItemReference AddText(const TCHAR* text, bool newLine = true) {
+			auto Item = AddDialogItem(DI_TEXT, text);
+			Add(Item);
+			if (newLine) AddNL();
+			return Item;
+		}
+
+		virtual std::vector<ItemReference> AddWrappedText(FarLangMsg LabelId, int width) {
+			return AddWrappedText((TCHAR*)GetLangString(LabelId), width);
+		}
+
+		virtual std::vector<ItemReference> AddWrappedText(const TCHAR* text, int width) {
+			return AddWrappedText((TCHAR*)text, width);
+		}
+
+#ifdef UNICODE
+using t_string = std::wstring;
+#define TC(x)	L##x
+#else
+using t_string = std::string;
+#define TC(x)	x
+#endif
+#define TAB_SIZE 4
+
+    	t_string expandTabs(const t_string& src) {
+    		t_string result;
+        	result.reserve(src.size());
+	        int column = 0;
+	        for (wchar_t ch : src) {
+	            if (ch == TC('\t')) {
+	                int spaces = TAB_SIZE - (column % TAB_SIZE);
+	                result.append(spaces, TC(' '));
+	                column += spaces;
+	            }
+	            else {
+	                result.push_back(ch);
+
+	                if (ch == TC('\n') || ch == TC('\r'))
+	                    column = 0;
+	                else
+	                    ++column;
+	            }
+	        }
+
+	        return result;
+	    }
+
+	    void wrapLine(const t_string& line, int maxLen, std::vector<t_string>& out) {
+	        if (maxLen <= 0) {
+	            out.push_back(line);
+	            return;
+	        }
+
+	        size_t pos = 0;
+
+	        while (line.size() - pos > static_cast<size_t>(maxLen)) {
+	            size_t limit = pos + maxLen;
+
+	            // Find last space within the allowed range.
+	            size_t breakPos = line.rfind(TC(' '), limit - 1);
+
+	            if (breakPos == std::wstring::npos || breakPos < pos) {
+	                // No space found -> hard break.
+	                out.emplace_back(line.substr(pos, maxLen));
+	                pos += maxLen;
+	            }
+	            else {
+	                out.emplace_back(line.substr(pos, breakPos - pos));
+
+	                // Skip spaces at beginning of next line.
+	                pos = breakPos;
+	                while (pos < line.size() && line[pos] == TC(' '))
+	                    ++pos;
+	            }
+	        }
+
+	        out.emplace_back(line.substr(pos));
+	    }
+
+		std::vector<t_string> breakToLines(const t_string& src, int maxLen) {
+		    std::vector<t_string> result;
+
+		    const t_string text = expandTabs(src);
+		    t_string current;
+		    for (size_t i = 0; i < text.size(); ++i) {
+		        wchar_t ch = text[i];
+
+		        if (ch == TC('\r') || ch == TC('\n')) {
+		            wrapLine(current, maxLen, result);
+		            current.clear();
+
+		            // Treat CRLF and LFCR as a single newline.
+		            if (i + 1 < text.size()) {
+		                TCHAR next = text[i + 1];
+
+		                if ((ch == TC('\r') && next == TC('\n')) ||
+			                    (ch == TC('\n') && next == TC('\r')))
+		                    ++i;
+		            }
+		        }
+		        else
+		            current.push_back(ch);
+		    }
+
+		    wrapLine(current, maxLen, result);
+		    return result;
+		}
+
+		virtual std::vector<ItemReference> AddWrappedText(TCHAR* text, int width = 70) {
+			t_string x = text;
+			std::vector<ItemReference> v;
+			if (width < 4) width = 4;
+			std::vector<t_string> lines = breakToLines(x, width);
+			for(size_t i = 0; i < lines.size(); ++i) {
+				if(lines[i].length() == 0)
+					AddEmptyLine();
+				else 
+					v.push_back(AddText(lines[i].c_str()));
+			}
+			return v;
+		}
+
+		virtual ItemReference AddMultiLineText(FarLangMsg LabelId, int height = 1) {
+			auto Item = AddDialogItem(DI_TEXT, GetLangString(LabelId));
+			Item->Height = (height > 0 ? height : 1) - 1; /* one-line is added automatically */
+			Add(Item);
+			AddNLBy(Item);
+			return Item;
+		}
+
+#undef TAB_SIZE
+#undef TC
 		// Добавляет чекбокс.
-		ItemReference AddCheckbox(FarLangMsg TextMessageId, BOOL *Value, int Mask=0)
-		{
+		// BOOL*, bool*, + the same with instant callbacks
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, BOOL *Value, bool newLine) {
+			return this->AddCheckbox(TextMessageId, Value, 0, newLine);
+		}
+
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, BOOL *Value, int Mask = 0, bool newLine = true) {
 			auto Item = AddDialogItem(DI_CHECKBOX, GetLangString(TextMessageId));
-			SetNextY(Item);
-			Item->X2 = Item->X1 + ItemWidth(*Item);
 			if (!Mask)
 				Item->Selected = *Value;
 			else
 				Item->Selected = (*Value & Mask) ;
-			SetLastItemBinding(CreateCheckBoxBinding(Value, Mask));
+
+			Add(Item);
+			if (newLine) AddNL();
+			SetItemBinding(Item, CreateCheckBoxBinding(Value, Mask));
 			return Item;
 		}
 
-		// Добавляет указанную текстовую строку справа от элемента RelativeTo.
-		ItemReference AddCheckboxAfter(ItemReference RelativeTo, FarLangMsg TextMessageId, BOOL *Value, int Mask=0)
-		{
-			auto Item = AddDialogItem(DI_CHECKBOX, GetLangString(TextMessageId));
-			Item->X2 = Item->X1 + ItemWidth(*Item);
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, bool *Value, bool newLine) {
+			return this->AddCheckbox(TextMessageId, Value, 0, newLine);
+		}
 
-			Item->Y1 = Item->Y2 = RelativeTo->Y1;
-			Item->X1 = RelativeTo->X2 + 2;
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, bool *Value, int Mask = 0, bool newLine = true) {
+			auto Item = AddDialogItem(DI_CHECKBOX, GetLangString(TextMessageId));
 			if (!Mask)
 				Item->Selected = *Value;
 			else
 				Item->Selected = (*Value & Mask) ;
-			SetLastItemBinding(CreateCheckBoxBinding(Value, Mask));
 
-			DialogItemBinding<T> *Binding = FindBinding(RelativeTo);
-			if (Binding)
-				Binding->AfterLabelID = GetItemID(Item);
-
+			Add(Item);
+			if (newLine) AddNL();
+			SetItemBinding(Item, CreateCheckBoxBinding(Value, Mask));
 			return Item;
 		}
 
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, BOOL *Value, bool newLine, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) {
+			return this->AddCheckbox(TextMessageId, Value, 0, newLine, cb, ctx);
+		}
 
-		// Добавляет группу радиокнопок.
-		void AddRadioButtons(int *Value, int OptionCount, FarLangMsg MessageIDs[])
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, BOOL *Value, int Mask, bool newLine, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
 		{
-			for(int i=0; i<OptionCount; i++)
+			auto Item = AddDialogItem(DI_CHECKBOX, GetLangString(TextMessageId));
+			if (!Mask)
+				Item->Selected = *Value;
+			else
+				Item->Selected = (*Value & Mask) ;
+
+			Add(Item);
+			if (newLine) AddNL();
+			SetItemBinding(Item, CreateCheckBoxBinding(Value, Mask, lastItem(), cb, ctx));
+			return Item;
+		}
+
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, bool *Value, bool newLine, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) {
+			return this->AddCheckbox(TextMessageId, Value, 0, newLine, cb, ctx);
+		}
+
+		virtual ItemReference AddCheckbox(FarLangMsg TextMessageId, bool *Value, int Mask, bool newLine, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
+		{
+			auto Item = AddDialogItem(DI_CHECKBOX, GetLangString(TextMessageId));
+			if (!Mask)
+				Item->Selected = *Value;
+			else
+				Item->Selected = (*Value & Mask) ;
+
+			Add(Item);
+			if (newLine) AddNL();
+			SetItemBinding(Item, CreateCheckBoxBinding(Value, Mask, lastItem(), cb, ctx));
+			return Item;
+		}
+
+		// Добавляет группу радиокнопок vertically
+		virtual void AddRadioButtons(int *Value, int OptionCount, FarLangMsg MessageIDs[]) {
+			for(int i=0; i < OptionCount; i++)
 			{
 				auto Item = AddDialogItem(DI_RADIOBUTTON, GetLangString(MessageIDs[i]));
-				SetNextY(Item);
-				Item->X2 = Item->X1 + ItemWidth(*Item);
+				Add(Item);
+				AddNL();
 				if (!i)
 					Item->Flags |= DIF_GROUP;
 				if (*Value == i)
 					Item->Selected = TRUE;
-				SetLastItemBinding(CreateRadioButtonBinding(Value));
+				SetItemBinding(Item, CreateRadioButtonBinding(Value));
 			}
 		}
 
 		// Добавляет горизонтальную группу радиокнопок.
-		void AddRadioButtonsHorz(int *Value, int OptionCount, FarLangMsg MessageIDs[])
-		{
-			auto PrevItem = AddNone();
-			for(int i=0; i<OptionCount; i++)
-			{
+		virtual void AddRadioButtonsHorz(int *Value, int OptionCount, FarLangMsg MessageIDs[])	{
+			for(int i=0; i < OptionCount; i++) {
 				auto Item = AddDialogItem(DI_RADIOBUTTON, GetLangString(MessageIDs[i]));
-				if (!i) {
-					SetNextY(Item);
+				Add(Item);
+				if (!i) Item->Flags |= DIF_GROUP;
+				if (*Value == i) Item->Selected = TRUE;
+				SetItemBinding(Item, CreateRadioButtonBinding(Value));
+			}
+			AddNL();
+		}
+
+		// Добавляет группу радиокнопок vertically
+		virtual void AddRadioButtons(int *Value, int OptionCount, FarLangMsg MessageIDs[],
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
+		{
+			for(int i=0; i < OptionCount; i++) {
+				auto Item = AddDialogItem(DI_RADIOBUTTON, GetLangString(MessageIDs[i]));
+				Add(Item);
+				AddNL();
+				if (!i)
 					Item->Flags |= DIF_GROUP;
-				}
-				else {
-					Item->Y1 = Item->Y2 = PrevItem->Y1;
-					Item->X1 = PrevItem->X2 + 2;
-				}
-				Item->X2 = Item->X1 + ItemWidth(*Item);
 				if (*Value == i)
 					Item->Selected = TRUE;
-				PrevItem = Item;
-				SetLastItemBinding(CreateRadioButtonBinding(Value));
+				SetItemBinding(Item, CreateRadioButtonBinding(Value, lastItem(), cb, ctx));
 			}
 		}
 
-		// Добавляет поле типа DI_FIXEDIT для редактирования указанного числового значения.
-		virtual ItemReference AddIntEditField(int *Value, int Width, int Flags = 0)
+		// Добавляет горизонтальную группу радиокнопок.
+		virtual void AddRadioButtonsHorz(int *Value, int OptionCount, FarLangMsg MessageIDs[],
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx)	
+		{
+			for(int i=0; i < OptionCount; i++) {
+				auto Item = AddDialogItem(DI_RADIOBUTTON, GetLangString(MessageIDs[i]));
+				Add(Item);
+				if (!i) Item->Flags |= DIF_GROUP;
+				if (*Value == i) Item->Selected = TRUE;
+				SetItemBinding(Item, CreateRadioButtonBinding(Value, lastItem(), cb, ctx));
+			}
+			AddNL();
+		}
+
+		virtual ItemReference AddIntEditField(int *Value, int Width, int Flags = 0, bool newLine = true) {
+			return ItemReference(*this);
+		}
+
+		virtual ItemReference AddDoubleEditField(double *Value, int Width, int Flags = 0, bool newLine = true) {
+			return ItemReference(*this);
+		}
+
+		ItemReference AddLabeledIntEditField(FarLangMsg LabelId, int *Value, int Width, int Flags = 0, bool newLine = true) {
+			AddText(LabelId, false);
+			return AddIntEditField(Value, Width, Flags, newLine);
+		}
+
+		ItemReference AddIntEditFieldLabeled(FarLangMsg LabelId, int *Value, int Width, int Flags = 0, bool newLine = true) {
+			auto edit = AddIntEditField(Value, Width, Flags, false);
+			AddText(LabelId, newLine);
+			return edit;
+		}
+
+		virtual ItemReference AddEditField(TCHAR *Value, int Width, const wchar_t *HistoryID = nullptr, int Flags = 0, bool newLine = true) {
+			return ItemReference(*this);
+		}
+
+		virtual ItemReference AddEditField(TCHAR *Value, int Width, 
+			std::function<void(const int buttonID, void* ctx)> cb, void* ctx,
+			const wchar_t *HistoryID = nullptr, int Flags = 0, bool newLine = true)
 		{
 			return ItemReference(*this);
 		}
 
-		// Добавляет указанную текстовую строку слева от элемента RelativeTo.
-		ItemReference AddTextBefore(T *RelativeTo, FarLangMsg LabelId)
+		virtual ItemReference AddIntEditField(int *Value, int Width, int Flags, bool newLine,
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
 		{
-			auto Item = AddDialogItem(DI_TEXT, GetLangString(LabelId));
-			Item->Y1 = Item->Y2 = RelativeTo->Y1;
-			Item->X1 = 5;
-			Item->X2 = Item->X1 + ItemWidth(*Item) - 1;
-
-			int RelativeToWidth = RelativeTo->X2 - RelativeTo->X1;
-			RelativeTo->X1 = Item->X2 + 2;
-			RelativeTo->X2 = RelativeTo->X1 + RelativeToWidth;
-
-			DialogItemBinding<T> *Binding = FindBinding(RelativeTo);
-			if (Binding)
-				Binding->BeforeLabelID = GetItemID(Item);
-
-			return Item;
+			return ItemReference(*this);
 		}
 
-		// Добавляет указанную текстовую строку справа от элемента RelativeTo.
-		ItemReference AddTextAfter(ItemReference RelativeTo, FarLangMsg LabelId)
+		virtual ItemReference AddDoubleEditField(double *Value, int Width, int Flags, bool newLine,
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx) 
 		{
-			auto Item = AddDialogItem(DI_TEXT, GetLangString(LabelId));
-			Item->Y1 = Item->Y2 = RelativeTo->Y1;
-			Item->X1 = RelativeTo->X2 + 2;
+			return ItemReference(*this);
+		}
 
-			DialogItemBinding<T> *Binding = FindBinding(RelativeTo);
-			if (Binding)
-				Binding->AfterLabelID = GetItemID(Item);
+		virtual ItemReference AddComboBox(int *Value, int Width, DialogBuilderListItem *Items, int ItemCount, DWORD Flags = DIF_NONE, bool newLine = true) { 
+			return ItemReference(*this); 
+		}
+		
+		virtual ItemReference AddComboBox(int *Value, int Width, DialogBuilderListItemWide *Items, int ItemCount, DWORD Flags = DIF_NONE, bool newLine = true) { 
+			return ItemReference(*this); 
+		}
 
-			return Item;
+		virtual ItemReference AddComboBox(int *Value, int Width, DialogBuilderListItem *Items, int ItemCount, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx, DWORD Flags = DIF_NONE, bool newLine = true) { 
+			return ItemReference(*this); 
+		}
+		
+		virtual ItemReference AddComboBox(int *Value, int Width, DialogBuilderListItemWide *Items, int ItemCount, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx, DWORD Flags = DIF_NONE, bool newLine = true) { 
+			return ItemReference(*this); 
 		}
 
 		// Начинает располагать поля диалога в две колонки.
-		void StartColumns()
-		{
-			ColumnStartIndex = DialogItemsCount;
-			ColumnStartY = NextY;
-		}
-
-		// Завершает колонку полей в диалоге и переходит к следующей колонке.
-		void ColumnBreak()
-		{
-			ColumnBreakIndex = DialogItemsCount;
-			ColumnEndY = NextY;
-			NextY = ColumnStartY;
-		}
-
-		// Завершает расположение полей диалога в две колонки.
-		void EndColumns()
-		{
-			for(int i=ColumnStartIndex; i<DialogItemsCount; i++)
-			{
-				int Width = ItemWidth(DialogItems [i]);
-				if (Width > ColumnMinWidth)
-					ColumnMinWidth = Width;
-				if (i >= ColumnBreakIndex)
-				{
-					DialogItems [i].X1 = SECOND_COLUMN;
-					DialogItems [i].X2 = SECOND_COLUMN + Width;
-				}
-			}
-
-			ColumnStartIndex = -1;
-			ColumnBreakIndex = -1;
-		}
+		void StartColumns()	{ AddColumnView(); }
+		void ColumnBreak() { AddNewColumn(); }
+		void EndColumns() { EndColumnView(); }
 
 		// Добавляет пустую строку.
-		void AddEmptyLine()
-		{
-			NextY++;
-		}
-
-		// Ниче не добавляет, возвращает нулевую ссылку
-		ItemReference AddNone()
-		{
-			return ItemReference(*this);
-		}
+		void AddEmptyLine()	{ AddNL(); }
 
 		// Добавляет кнопку
-		ItemReference AddButton(FarLangMsg MessageId, int &id, ItemReference After)
-		{
+		ItemReference AddButton(FarLangMsg MessageId, int &id, bool newLine = true) {
 			auto Button = AddDialogItem(DI_BUTTON, GetLangString(MessageId));
-			Button->X1 = After->X2 + 2;
-			Button->Y1 = Button->Y2 = NextY - 1;
-			Button->X2 = Button->X1 + 20;//TODO: FIXME: ItemWidth(*Button);
-
-			id = DialogItemsCount - 1;
+			Add(Button);
+			if (newLine) AddNL();
+			id = lastItem();
 			return Button;
 		}
 
-		ItemReference AddButton(FarLangMsg MessageId, int &id)
-		{
+		ItemReference AddButton(FarLangMsg MessageId, int& id, 
+				std::function<void(const int buttonID, void* ctx)> cb, void* ctx, bool newLine = true) {
 			auto Button = AddDialogItem(DI_BUTTON, GetLangString(MessageId));
-			SetNextY(Button);
-			Button->X2 = Button->X1 + 20;//TODO: FIXME: ItemWidth(*Button);
+			Add(Button);
+			if (newLine) AddNL();
+			id = lastItem();
 
-			id = DialogItemsCount - 1;
+			SetItemBinding(Button, CreateButtonBinding(id, cb, ctx));
+			Button->Flags |= DIF_BTNNOCLOSE;
+
 			return Button;
 		}
 
-		// Добавляет сепаратор.
-		void AddSeparator(FarLangMsg MessageId=FarLangMsg{-1})
-		{
+		void AddSeparator(FarLangMsg MessageId = FarLangMsg {-1}) {
+			if (UseModernLook) AddEmptyLine();
+
 			ItemReference Separator = AddDialogItem(DI_TEXT, MessageId == -1 ? EMPTY_TEXT : GetLangString(MessageId));
 			Separator->Flags = DIF_SEPARATOR;
-			Separator->X1 = 3;
-			Separator->Y1 = Separator->Y2 = NextY++;
+			Add(Separator);
+			AddNL();
+			Separator->X1 -= 2;
+
+			if (UseModernLook) AddEmptyLine();
+		}
+
+		std::vector<ItemReference> AddButtonsLine(FarLangMsg buttons[], int buttonsCount, int defaultIdx = 0, int maxWidth = 0) {
+			std::vector<ItemReference> v;
+			v.reserve(buttonsCount);
+
+			if (UseModernLook) 
+				AddNL();
+			else
+				AddSeparator();
+
+			int consumed = 0;
+			for(int i = 0; i < buttonsCount; ++i) {
+				auto button = AddDialogItem(DI_BUTTON, GetLangString(buttons[i]));
+				button->Flags = DIF_CENTERGROUP;
+				if(i == defaultIdx) button->DefaultButton = TRUE;
+				Add(button);
+				v.push_back(button);
+				consumed += ItemWidth(*button) + 2;
+				if (consumed > maxWidth && maxWidth > 0) {
+					AddNL();
+					consumed = 0;
+				}
+			}
+			AddNL();
+			return v;
 		}
 
 		// Добавляет сепаратор, кнопки OK и Cancel.
-		void AddOKCancel(FarLangMsg OKMessageId, FarLangMsg CancelMessageId)
-		{
-			AddSeparator();
+		void AddOKCancel(FarLangMsg OKMessageId, FarLangMsg CancelMessageId, int* ok = nullptr, int* cancel = nullptr) {
+			if (UseModernLook) 
+				AddNL();
+			else
+				AddSeparator();
 
 			auto OKButton = AddDialogItem(DI_BUTTON, GetLangString(OKMessageId));
 			OKButton->Flags = DIF_CENTERGROUP;
 			OKButton->DefaultButton = TRUE;
-			OKButton->Y1 = OKButton->Y2 = NextY++;
-			OKButtonID = DialogItemsCount-1;
+			Add(OKButton);
+			OKButtonID = lastItem();
+			if (ok) *ok = OKButtonID;
 
 			auto CancelButton = AddDialogItem(DI_BUTTON, GetLangString(CancelMessageId));
 			CancelButton->Flags = DIF_CENTERGROUP;
-			CancelButton->Y1 = CancelButton->Y2 = OKButton->Y1;
+			Add(CancelButton);
+			if (cancel) *cancel = lastItem();
+
+			AddNL();
 		}
 
-		bool ShowDialog(int *id = nullptr)
-		{
+		ItemReference AddNone()	{
+			return ItemReference(*this);
+		}
+
+		void SetDialogFlags(DWORD flags) { dialogFlags = flags; }
+		DWORD GetDialogFlags() const { return dialogFlags; };
+
+		bool ShowDialog(int *id = nullptr) {
 			UpdateBorderSize();
-			UpdateSecondColumnPosition();
 			int Result = DoShowDialog();
-			if (id)
-				*id = Result;
-			if (Result == OKButtonID)
-			{
+			if (id)	*id = Result;
+			if (OKButtonID > 0 && Result == OKButtonID) {
+				SaveValues();
+				return true;
+			}
+			else if (Result > 0) {
 				SaveValues();
 				return true;
 			}
 			return false;
+		}
+
+		void TrySaveValueImmediate(int id) {
+			if (Bindings [id] && Bindings [id]->supportsTrySave() )
+				Bindings [id]->TrySaveValue(&DialogItems [id], 0);
 		}
 };
 #endif // __FAR2SDK_FARDLGBUILDERBASE_H__

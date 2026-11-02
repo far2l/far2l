@@ -303,7 +303,7 @@ extern "C" {
 
 	WINPORT_DECL(WriteConsole,BOOL,(HANDLE hConsoleOutput, const WCHAR *lpBuffer, DWORD nNumberOfCharsToWrite, LPDWORD lpNumberOfCharsWritten, LPVOID lpReserved))
 	{
-		*lpNumberOfCharsWritten = ChooseConOut(hConsoleOutput)->WriteString(lpBuffer, nNumberOfCharsToWrite);
+		*lpNumberOfCharsWritten = ChooseConOut(hConsoleOutput)->WriteString(lpBuffer, nNumberOfCharsToWrite, HintConsoleBuffer, HintText);
 		return TRUE;
 	}
 
@@ -321,7 +321,7 @@ extern "C" {
 
 	WINPORT_DECL(WriteConsoleOutputCharacter,BOOL,(HANDLE hConsoleOutput, const WCHAR *lpCharacter, DWORD nLength, COORD dwWriteCoord, LPDWORD lpNumberOfCharsWritten))
 	{
-		*lpNumberOfCharsWritten = ChooseConOut(hConsoleOutput)->WriteStringAt(lpCharacter, nLength, dwWriteCoord);
+		*lpNumberOfCharsWritten = ChooseConOut(hConsoleOutput)->WriteStringAt(lpCharacter, nLength, dwWriteCoord, HintConsoleBuffer, HintText);
 		return TRUE;
 	}
 
@@ -333,7 +333,7 @@ extern "C" {
 
 	WINPORT_DECL(FillConsoleOutputCharacter, BOOL, (HANDLE hConsoleOutput, WCHAR cCharacter, DWORD nLength, COORD dwWriteCoord, LPDWORD lpNumberOfCharsWritten))
 	{
-		*lpNumberOfCharsWritten = ChooseConOut(hConsoleOutput)->FillCharacterAt(cCharacter, nLength, dwWriteCoord);
+		*lpNumberOfCharsWritten = ChooseConOut(hConsoleOutput)->FillCharacterAt(cCharacter, nLength, dwWriteCoord, HintConsoleBuffer, HintText);
 		return TRUE;
 	}
 
@@ -495,6 +495,11 @@ extern "C" {
 		return g_winport_con_out->SetConsoleTweaks(tweaks);
 	}
 
+	WINPORT_DECL(GetConsoleTweaks, DWORD64, ())
+	{
+		return g_winport_con_out->GetConsoleTweaks();
+	}
+
 	WINPORT_DECL(SaveConsoleWindowState,VOID,())
 	{
 		return g_winport_con_out->ConsoleSaveWindowState();
@@ -577,6 +582,11 @@ extern "C" {
 	WINPORT_DECL(DeleteConsoleImage, BOOL, (HANDLE con, const char *id))
 	{
 		return ChooseConOut(con)->OnDeleteConsoleImage(id);
+	}
+
+	WINPORT_DECL(SetConsoleImageVisibility, BOOL, (HANDLE con, const char *id, BOOL visible, const SMALL_RECT *exclusions, size_t count))
+	{
+		return ChooseConOut(con)->OnSetConsoleImageVisibility(id, visible != FALSE, exclusions, count) ? TRUE : FALSE;
 	}
 
 	static struct {

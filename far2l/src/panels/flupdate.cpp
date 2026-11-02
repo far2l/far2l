@@ -72,7 +72,7 @@ void FileList::Update(int Mode)
 		switch (PanelMode) {
 			case NORMAL_PANEL:
 				ReadFileNames(Mode & UPDATE_KEEP_SELECTION, Mode & UPDATE_IGNORE_VISIBLE,
-						Mode & UPDATE_DRAW_MESSAGE, Mode & UPDATE_CAN_BE_ANNOYING);
+						Mode & UPDATE_DRAW_MESSAGE, Mode & UPDATE_CAN_BE_ANNOYING, Mode & UPDATE_NO_PROGRESS);
 				break;
 			case PLUGIN_PANEL: {
 				OpenPluginInfo Info;
@@ -81,7 +81,7 @@ void FileList::Update(int Mode)
 
 				if (PanelMode != PLUGIN_PANEL)
 					ReadFileNames(Mode & UPDATE_KEEP_SELECTION, Mode & UPDATE_IGNORE_VISIBLE,
-							Mode & UPDATE_DRAW_MESSAGE, Mode & UPDATE_CAN_BE_ANNOYING);
+							Mode & UPDATE_DRAW_MESSAGE, Mode & UPDATE_CAN_BE_ANNOYING, Mode & UPDATE_NO_PROGRESS);
 				else if ((Info.Flags & OPIF_REALNAMES)
 						|| CtrlObject->Cp()->GetAnotherPanel(this)->GetMode() == PLUGIN_PANEL
 						|| !(Mode & UPDATE_SECONDARY))
@@ -110,9 +110,9 @@ void FileList::RetryFailedRead()
 	}
 }
 
-void ReadFileNamesMsg(const wchar_t *Msg)
+void ReadFileNamesMsg(const wchar_t *Msg, DWORD Flags = 0)
 {
-	Message(0, 0, Msg::ReadingTitleFiles, Msg);
+	Message(Flags, 0, Msg::ReadingTitleFiles, Msg);
 	PreRedrawItem preRedrawItem = PreRedraw.Peek();
 	preRedrawItem.Param.Param1 = (void *)Msg;
 	PreRedraw.SetParam(preRedrawItem.Param);
@@ -127,7 +127,7 @@ static void PR_ReadFileNamesMsg()
 // ЭТО ЕСТЬ УЗКОЕ МЕСТО ДЛЯ СКОРОСТНЫХ ХАРАКТЕРИСТИК Far Manager
 // при считывании дирректории
 
-void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessage, int CanBeAnnoying)
+void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessage, int CanBeAnnoying, int NoProgress)
 {
 	TPreRedrawFuncGuard preRedrawFuncGuard(PR_ReadFileNamesMsg);
 
@@ -135,7 +135,7 @@ void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessa
 
 	if (!IsVisible() && !IgnoreVisible) {
 		UpdateRequired = TRUE;
-		UpdateRequiredMode = KeepSelection;
+		UpdateRequiredMode = KeepSelection | NoProgress;
 		return;
 	}
 
@@ -148,7 +148,7 @@ void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessa
 	FARString strCurName, strNextCurName;
 	CloseChangeNotification();
 
-	if (this != CtrlObject->Cp()->LeftPanel && this != CtrlObject->Cp()->RightPanel)
+	if (this != CtrlObject->Cp()->ActiveTab().LeftPanel && this != CtrlObject->Cp()->ActiveTab().RightPanel)
 		return;
 
 	SudoClientRegion sdc_rgn;
@@ -265,6 +265,7 @@ void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessa
 	CachedFileGroupLookup cached_groups;
 
 	DWORD StartTime = WINPORT(GetTickCount)();
+	bool ProgressShown = false;
 
 	while (Find.Get(fdata)) {
 		FindErrorCode = WINPORT(GetLastError)();
@@ -325,23 +326,29 @@ void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessa
 			// FileCount++;
 
 			DWORD CurTime = WINPORT(GetTickCount)();
-			if (CurTime - StartTime > RedrawTimeout) {
+			// Automatic updates must not draw a progress title over an editor
+			// or flush the screen halfway through restoring the panels.
+			if (!NoProgress && CurTime - StartTime > RedrawTimeout) {
 				StartTime = CurTime;
 				if (IsVisible()) {
 					FARString strReadMsg;
 
 					if (!IsShowTitle) {
 						if (!DrawMessage) {
-							Text(X1 + 1, Y1, FarColorToReal(COL_PANELBOX), Title);
+							auto color1 = FarColorToReal(COL_PANELBOX);
+							if (Opt.Backend.UseModernLook && !Focus) color1 = SoftenColorToDisabled(color1);
+							Text(X1 + 1, Y1, color1, Title);
 							IsShowTitle = TRUE;
-							SetFarColor(Focus ? COL_PANELSELECTEDTITLE : COL_PANELTITLE);
+							SetFarColorBlacked(Focus ? COL_PANELSELECTEDTITLE : COL_PANELTITLE, Focus);
 						}
 					}
 
 					strReadMsg.Format(Msg::ReadingFiles, ListData.Count());
 
 					if (DrawMessage) {
-						ReadFileNamesMsg(strReadMsg);
+						ReadFileNamesMsg(strReadMsg,
+								ProgressShown ? MSG_KEEPBACKGROUND : 0);
+						ProgressShown = true;
 					} else {
 						TruncStr(strReadMsg, TitleLength - 2);
 						int MsgLength = (int)strReadMsg.GetLength();
@@ -508,7 +515,7 @@ int FileList::UpdateIfChanged(int UpdateMode)
 						AnotherPanel->Redraw();
 				}
 
-				Update(UPDATE_KEEP_SELECTION);
+				Update(UPDATE_KEEP_SELECTION | UPDATE_NO_PROGRESS);
 
 				if (UpdateMode == UIC_UPDATE_NORMAL)
 					Show();

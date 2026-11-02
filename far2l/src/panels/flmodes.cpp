@@ -42,6 +42,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "interf.hpp"
 #include "strmix.hpp"
 #include "panelmix.hpp"
+#include "config.hpp"
 
 #define PANELMODES_INI "panel_modes.ini"
 
@@ -110,8 +111,8 @@ static const std::vector<PanelViewSettings> ViewSettingsRef = {
 				{0, 6, 6, 6, 0, 5}, 6, 0, 0, 0, 0, 0, 0, {COUNT_WIDTH, COUNT_WIDTH},
 				{COUNT_WIDTH, COUNT_WIDTH, COUNT_WIDTH, COUNT_WIDTH}},
 
-		/* 05 */ {{NAME_COLUMN, SIZE_COLUMN, PHYSICAL_COLUMN, WDATE_COLUMN, CDATE_COLUMN, ADATE_COLUMN, OWNER_COLUMN, GROUP_COLUMN, ATTR_COLUMN},
-				{0, 6, 6, 14, 14, 14, 6, 6, 0}, 9, {COLUMN_RIGHTALIGN | NAME_COLUMN}, {0}, 1, 1, 1, 0, 0, 0,
+		/* 05 */ {{NAME_COLUMN, SIZE_COLUMN, PHYSICAL_COLUMN, WDATE_COLUMN, CDATE_COLUMN, ADATE_COLUMN, CHDATE_COLUMN, OWNER_COLUMN, GROUP_COLUMN, ATTR_COLUMN},
+				{0, 6, 6, 14, 14, 14, 14, 6, 6, 0}, 9, {COLUMN_RIGHTALIGN | NAME_COLUMN}, {0}, 1, 1, 1, 0, 0, 0,
 				0,
 				{COUNT_WIDTH, COUNT_WIDTH, COUNT_WIDTH, COUNT_WIDTH, COUNT_WIDTH, COUNT_WIDTH, COUNT_WIDTH},
 				{COUNT_WIDTH}},
@@ -151,8 +152,8 @@ void FileList::SetFilePanelModes()
 {
 	int MenuPos = 0;
 
-	if (CtrlObject->Cp()->ActivePanel->GetType() == FILE_PANEL) {
-		MenuPos = IndexToMenuPos( CtrlObject->Cp()->ActivePanel->GetViewMode() );
+	if (CtrlObject->Cp()->ActiveTab().ActivePanel->GetType() == FILE_PANEL) {
+		MenuPos = IndexToMenuPos( CtrlObject->Cp()->ActiveTab().ActivePanel->GetViewMode() );
 	}
 
 	for (;;) {
@@ -182,7 +183,7 @@ void FileList::SetFilePanelModes()
 					case KEY_CTRLNUMENTER:
 					case KEY_CTRLSHIFTENTER:
 					case KEY_CTRLSHIFTNUMENTER: {
-						auto PanelPtr = CtrlObject->Cp()->ActivePanel;
+						auto PanelPtr = CtrlObject->Cp()->ActiveTab().ActivePanel;
 						if (Key & KEY_SHIFT) {
 							PanelPtr = CtrlObject->Cp()->GetAnotherPanel(PanelPtr);
 						}
@@ -239,14 +240,14 @@ void FileList::SetFilePanelModes()
 			{DI_EDIT,      38, 3,  70, 3,  {}, 0, L""},
 			{DI_TEXT,      38, 4,  0,  4,  {}, 0, Msg::EditPanelModeStatusWidths},
 			{DI_EDIT,      38, 5,  70, 5,  {}, 0, L""},
-			{DI_TEXT,      3,  6,  0,  6,  {}, DIF_SEPARATOR, Msg::EditPanelReadHelp},
+			{DI_TEXT,      3,  6,  0,  6,  {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), Msg::EditPanelReadHelp},
 			{DI_CHECKBOX,  5,  7,  0,  7,  {}, 0, Msg::EditPanelModeFullscreen},
 			{DI_CHECKBOX,  5,  8,  0,  8,  {}, 0, Msg::EditPanelModeAlignExtensions},
 			{DI_CHECKBOX,  5,  9,  0,  9,  {}, 0, Msg::EditPanelModeAlignFolderExtensions},
 			{DI_CHECKBOX,  5,  10, 0,  10, {}, 0, Msg::EditPanelModeFoldersUpperCase},
 			{DI_CHECKBOX,  5,  11, 0,  11, {}, 0, Msg::EditPanelModeFilesLowerCase},
 			{DI_CHECKBOX,  5,  12, 0,  12, {}, 0, Msg::EditPanelModeUpperToLowerCase},
-			{DI_TEXT,      3,  13, 0,  13, {}, DIF_SEPARATOR, L""},
+			{DI_TEXT,      3,  13, 0,  13, {}, (Opt.Backend.UseModernLook ?  0 : DIF_SEPARATOR), L""},
 			{DI_BUTTON,    0,  14, 0,  14, {}, DIF_DEFAULT | DIF_CENTERGROUP, Msg::Ok},
 			{DI_BUTTON,    0,  14, 0,  14, {}, DIF_CENTERGROUP, Msg::Reset},
 			{DI_BUTTON,    0,  14, 0,  14, {}, DIF_CENTERGROUP, Msg::Cancel}
@@ -298,17 +299,17 @@ void FileList::SetFilePanelModes()
 		else
 			continue;
 
-		CtrlObject->Cp()->LeftPanel->SortFileList(TRUE);
-		CtrlObject->Cp()->RightPanel->SortFileList(TRUE);
+		CtrlObject->Cp()->ActiveTab().LeftPanel->SortFileList(TRUE);
+		CtrlObject->Cp()->ActiveTab().RightPanel->SortFileList(TRUE);
 		CtrlObject->Cp()->SetScreenPosition();
-		int LeftMode = CtrlObject->Cp()->LeftPanel->GetViewMode();
-		int RightMode = CtrlObject->Cp()->RightPanel->GetViewMode();
-		//	CtrlObject->Cp()->LeftPanel->SetViewMode(ModeIndex);
-		//	CtrlObject->Cp()->RightPanel->SetViewMode(ModeIndex);
-		CtrlObject->Cp()->LeftPanel->SetViewMode(LeftMode);
-		CtrlObject->Cp()->RightPanel->SetViewMode(RightMode);
-		CtrlObject->Cp()->LeftPanel->Redraw();
-		CtrlObject->Cp()->RightPanel->Redraw();
+		int LeftMode = CtrlObject->Cp()->ActiveTab().LeftPanel->GetViewMode();
+		int RightMode = CtrlObject->Cp()->ActiveTab().RightPanel->GetViewMode();
+		//	CtrlObject->Cp()->ActiveTab().LeftPanel->SetViewMode(ModeIndex);
+		//	CtrlObject->Cp()->ActiveTab().RightPanel->SetViewMode(ModeIndex);
+		CtrlObject->Cp()->ActiveTab().LeftPanel->SetViewMode(LeftMode);
+		CtrlObject->Cp()->ActiveTab().RightPanel->SetViewMode(RightMode);
+		CtrlObject->Cp()->ActiveTab().LeftPanel->Redraw();
+		CtrlObject->Cp()->ActiveTab().RightPanel->Redraw();
 	}
 }
 

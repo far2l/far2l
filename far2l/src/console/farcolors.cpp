@@ -72,7 +72,7 @@ ColorsInit[]
 	{"Panel.Info.Total",                            F_LIGHTCYAN | B_BLUE,     }, // COL_PANELTOTALINFO,
 	{"Panel.Info.Selected",                         F_YELLOW | B_CYAN,        }, // COL_PANELSELECTEDINFO,
 	{"Dialog.Text",                                 F_BLACK | B_LIGHTGRAY,    }, // COL_DIALOGTEXT,
-	{"Dialog.Text.Highlight",                       F_YELLOW | B_LIGHTGRAY,   }, // COL_DIALOGHIGHLIGHTTEXT,
+	{"Dialog.Text.Highlight",                       F_BROWN | B_LIGHTGRAY,   }, // COL_DIALOGHIGHLIGHTTEXT,
 	{"Dialog.Box",                                  F_BLACK | B_LIGHTGRAY,    }, // COL_DIALOGBOX,
 	{"Dialog.Box.Title",                            F_BLACK | B_LIGHTGRAY,    }, // COL_DIALOGBOXTITLE,
 	{"Dialog.Box.Title.Highlight",                  F_YELLOW | B_LIGHTGRAY,   }, // COL_DIALOGHIGHLIGHTBOXTITLE,
@@ -267,6 +267,35 @@ uint64_t assembleColor(RGB& fg, RGB& bg) {
 	return color | FOREGROUND_TRUECOLOR | BACKGROUND_TRUECOLOR;
 }
 
+static char* truncateEnd(char* s, const char* v) {
+	int slen = strlen(s), vlen = strlen(v);
+    if (slen < vlen) return s;
+    if (strcmp(s + slen - vlen, v)) return s;
+    s[slen - vlen] = 0;
+    return s;
+}
+
+uint64_t FarColors::lookupBaseColor(const char* name, uint64_t dfl) {
+	char buf[256];
+	strcpy(buf, name);
+
+	// truncateEnd(buf, ".Selected");
+	truncateEnd(buf, ".Disabled");
+	truncateEnd(buf, ".GrayText");
+	truncateEnd(buf, ".Highlight");
+
+	if (!strcmp(buf, name)) 
+		return dfl;
+
+	for (size_t i = 0; i < SIZE_ARRAY_FARCOLORS; i++)
+		if (!strcmp(ColorsInit[i].name.c_str(), buf)) {
+			// fprintf(stderr, "%s %lx -> %s %lx\n", name, dfl, buf, FARColors.colors[i]);
+			return FARColors.colors[i];
+		}
+	fprintf(stderr, "%s %lx -> %s ?\n", name, dfl, buf);
+	return dfl;
+}
+
 void FarColors::AdjustContrastLevels() noexcept 
 {
 	if (!Opt.Dialogs.EnforceColorCorrection){ 
@@ -281,11 +310,47 @@ void FarColors::AdjustContrastLevels() noexcept
 
 		RGB fg, bg, newFg;
 		extractColor(cc, fg, bg);
+
+		iRGB ofg = toIRGB(fg);
+
+		if (Opt.Dialogs.EnforceThemeCorrection) {
+			uint64_t cc2 = lookupBaseColor(ColorsInit[i].name.c_str(), cc);
+			if (cc2 != cc){ 
+				extractColor(cc2, fg, bg);
+
+				if (StrEndsBy(ColorsInit[i].name, ".Highlight") /* || StrEndsBy(ColorsInit[i].name, ".Highlight.Selected")*/ 
+						|| StrEndsBy(ColorsInit[i].name, ".Highlight.Disabled")) {
+					// highlight first
+					fg = computeHighlight(fg, bg);
+					iRGB xfg = toIRGB(fg);
+					fprintf(stderr, "highlight: %s %lx -> %lx -> %x,%x, %x\n", 
+						ColorsInit[i].name.c_str(), cc, cc2,
+						(unsigned int)xfg.r, (unsigned int)xfg.g, (unsigned int)xfg.b);
+				}
+
+                /*
+				if (StrEndsBy(ColorsInit[i].name, ".Selected")) {
+					fg = computeSelected(bg, fg); // swap colors as we need inverted ones
+					iRGB xfg = toIRGB(fg);
+					fprintf(stderr, "selected: %s %lx -> %lx -> %x,%x,%x\n", 
+						ColorsInit[i].name.c_str(), cc, cc2,
+						(unsigned int)xfg.r, (unsigned int)xfg.g, (unsigned int)xfg.b);
+				}
+				else */
+				if (StrEndsBy(ColorsInit[i].name, ".Disabled") || StrEndsBy(ColorsInit[i].name, ".GrayText")) {
+					fg = SoftenToDisabledState_LAB(fg);
+					iRGB xfg = toIRGB(fg);
+					fprintf(stderr, "grayed: %s %lx -> %lx -> %x,%x, %x\n", 
+						ColorsInit[i].name.c_str(), cc, cc2,
+						(unsigned int)xfg.r, (unsigned int)xfg.g, (unsigned int)xfg.b);
+				}
+			}
+		}
         
 		ContrastLevel level = ::ComputeContrast(fg, bg, newFg);
 
-		iRGB ofg = toIRGB(fg);
 		iRGB nfg = toIRGB(newFg);
+
 		if (nfg.r != ofg.r || nfg.g != ofg.g || nfg.b != ofg.b) {
 
 			uint64_t cc2 = assembleColor(newFg, bg);
@@ -304,11 +369,9 @@ void FarColors::AdjustContrastLevels() noexcept
 }
 
 FarColors::FarColors() noexcept {
-
 }
 
 FarColors::~FarColors() noexcept {
-
 }
 
 #define FARCOLORS_SECTION "farcolors"
@@ -370,12 +433,14 @@ void FarColors::ResetToDefaultIndexRGB( uint8_t *indexes ) noexcept {
 	}
 }
 
-void FarColors::ResetToDefaultIndex( uint8_t *indexes ) noexcept {
+void FarColors::ResetToDefaultIndex( uint8_t *indexes, size_t length ) noexcept {
 
 	fprintf(stderr, "FarColors::ResetToDefaultIndex( )\n" );
 
+	if (length <= 0) length = SIZE_ARRAY_FARCOLORS;
+
 	if (!indexes) indexes = DefaultColorsIndex16;
-	for(size_t i = 0; i < SIZE_ARRAY_FARCOLORS; i++) {
+	for(size_t i = 0; i < length; i++) {
 		uint8_t color = indexes[i];
 		colors[i] = color;
 	}
@@ -408,31 +473,55 @@ void FarColors::InitFarColors( ) noexcept {
 
 	fprintf(stderr, "void FarColors::InitFarColors( ) {\n" );
 
-	Palette::InitFarPalette();
-
 	if (!Opt.CurrentTheme.IsEmpty()) {
 		if(InitFarColorsFromTheme(Opt.CurrentTheme, Opt.IsSystemTheme))
 			return;
 	}
 
 	// Theme is not defined, fall back to colors
-	std::string colors_file = InMyConfig(FARCOLORS_CONFIG);
+	Palette::InitFarPalette();
+
+	std::string colors_file = InMyConfig(FARCOLORS_CONFIG, false);
 	if (!InitFarColorsFromFile(colors_file)) {
+
+		fprintf(stderr, "Legacy code: no themes or RGB\n");
+
     	ConfigReader cfg_reader("Colors");
     	if (cfg_reader.HasSection()) {
+
+        	fprintf(stderr, "Legacy code: Colors section detected\n");
+
     		const std::string strCurrentPaletteRGB = "CurrentPaletteRGB";
     		const std::string strCurrentPalette = "CurrentPalette";
     		if (cfg_reader.HasKey(strCurrentPaletteRGB)) {
+            	fprintf(stderr, "Legacy code: RGB palette found in Colors section\n");
     			if (cfg_reader.GetBytes((unsigned char*)FARColors.colors, SIZE_ARRAY_FARCOLORS * sizeof(uint64_t), strCurrentPaletteRGB) == SIZE_ARRAY_FARCOLORS * sizeof(uint64_t)) {
+	            	fprintf(stderr, "Legacy code: RGB palette found in Colors section and loaded\n");
     				FARColors.Set();
+	            	fprintf(stderr, "Legacy code: RGB palette found in Colors section and applied\n");
     				return;
     			}
     		}
     		if (cfg_reader.HasKey(strCurrentPalette)) {
+            	fprintf(stderr, "Legacy code: Low colors palette found in Colors section\n");
     			uint8_t indexes[SIZE_ARRAY_FARCOLORS];
-    			if (cfg_reader.GetBytes((unsigned char*)indexes, SIZE_ARRAY_FARCOLORS, strCurrentPalette) == SIZE_ARRAY_FARCOLORS) {
+
+                int loaded = cfg_reader.GetBytes((unsigned char*)indexes, SIZE_ARRAY_FARCOLORS, strCurrentPalette);
+            	fprintf(stderr, "Legacy code: Low colors palette found in Colors section: %d items / %d\n", loaded, (int)SIZE_ARRAY_FARCOLORS);
+
+                if (loaded > 0 && loaded < SIZE_ARRAY_FARCOLORS) {
+	            	fprintf(stderr, "Legacy code: Low colors palette found in Colors section and loaded\n");
+                	FARColors.ResetToDefaultIndexRGB(DefaultColorsIndex16);
+    				FARColors.ResetToDefaultIndex(indexes, loaded);
+    				FARColors.Set();
+	            	fprintf(stderr, "Legacy code: Low colors palette found in Colors section and applied\n");
+					return;
+                }
+    			else if (loaded >= SIZE_ARRAY_FARCOLORS) {
+	            	fprintf(stderr, "Legacy code: Low colors palette found in Colors section and loaded\n");
     				FARColors.ResetToDefaultIndex(indexes);
     				FARColors.Set();
+	            	fprintf(stderr, "Legacy code: Low colors palette found in Colors section and applied\n");
     				return;
     			}
     		}
@@ -466,12 +555,18 @@ bool FarColors::InitFarColorsFromTheme( FARString& theme, bool isSystemWide) noe
 
 	std::string sep("/");
 	std::string filename("/farcolors.ini");
+	std::string palettename("/palette.ini");
 
     if (!isSystemWide) {
 		std::string path(FARCOLORS_THEME_FOLDER);
+		std::string palette = path + sep + sTheme + palettename;
 		path += sep + sTheme + filename;
 
-		std::string colors_file = InMyConfig(path.c_str(), false);
+		std::string colors_file = InMyConfig(path.c_str());
+		std::string palette_file = InMyConfig(palette.c_str());
+
+		Palette::InitFarPaletteFromFile(palette_file);
+
 		return InitFarColorsFromFile(colors_file);
     }
     else {
@@ -485,6 +580,10 @@ bool FarColors::InitFarColorsFromTheme( FARString& theme, bool isSystemWide) noe
 	    sPath += "/themes";
 
 		std::string colors_file = sPath + sep + sTheme + filename;
+		std::string palette_file = sPath + sep + sTheme + palettename;
+
+		Palette::InitFarPaletteFromFile(palette_file);
+
 		return InitFarColorsFromFile(colors_file);
 	}
 }
@@ -494,13 +593,18 @@ FARString FarColors::SaveFarColorsAsUserTheme( FARString& base ) noexcept
     int Length = base.GetLength();
    	std::string tmpstr;
     Wide2MB(base.GetBuffer(), Length, tmpstr);
+    //tmpstr += "(1)";
+
+    if(tmpstr[0] == '*') { // there is a system theme, add prefix
+    	tmpstr = std::string("local copy of ") + tmpstr.substr(1); 
+    }
 
 	std::string path(FARCOLORS_THEME_FOLDER);
 	std::string sep("/");
 	std::string filename("/farcolors.ini");
 	path += sep + tmpstr + filename;
 
-	const std::string &colors_file = InMyConfig(path.c_str(), true);
+	const std::string &colors_file = InMyConfig(path.c_str());
 	KeyFileHelper kfh(colors_file);
 	FARColors.Save(kfh);
 	kfh.Save();
@@ -521,7 +625,7 @@ std::vector<std::string> FarColors::GetKnownUserThemes ()
 	std::vector<std::string> v;
 
     /* user themes */
-	std::string themePath = InMyConfig(FARCOLORS_THEME_FOLDER, false);
+	std::string themePath = InMyConfig(FARCOLORS_THEME_FOLDER, true);
 	DIR *dir = opendir(themePath.c_str());
     if (dir) {
 	    struct dirent *entry;

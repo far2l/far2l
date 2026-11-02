@@ -310,20 +310,8 @@ static bool GetHunkAnchor(const Hunk &h, int &anchor_x, int &anchor_y)
 	if (!GetEditorInfo(ei))
 		return false;
 
-	int line_num_width = 1;
-	const bool show_numbers = (ei.Options & EOPT_SHOWNUMBERS) != 0;
+	int line_num_width = ei.StartX - ei.WindowX;
 	const bool show_gutter = (ei.Options & EOPT_SHOWGUTTER) != 0;
-	if (show_numbers) {
-		int digits = 1;
-		int temp = std::max(1, ei.TotalLines);
-		while (temp >= 10) {
-			digits++;
-			temp /= 10;
-		}
-		line_num_width = std::max(4, digits) + 1;
-	} else if (show_gutter) {
-		line_num_width = 1;
-	}
 
 	const int gutter_x = line_num_width - 1;
 	const int rel_y = h.start - ei.TopScreenLine;
@@ -1319,9 +1307,9 @@ static void ShowHunkPopup(const EditorState &st, int line, bool center_on_hunk)
 			const int fr_left = static_cast<int>(fr.Left);
 			const int fr_top = static_cast<int>(fr.Top);
 			const int fr_right = static_cast<int>(fr.Right);
-			const int fr_bottom = static_cast<int>(fr.Bottom);
+			const int fr_bottom = static_cast<int>(fr.Bottom) - 1;  /* vk: do not move to key bar */
 			const int max_x = std::max(fr_left, fr_right - dlg_w + 1);
-			const int max_y = std::max(fr_top, fr_bottom - dlg_h + 1);
+			const int max_y = std::min(std::max(fr_top, fr_bottom - dlg_h + 1), fr_bottom);
 			dlg_x1 = std::min(std::max(fr_left, local_anchor_x + 1), max_x);
 			dlg_y1 = std::min(std::max(fr_top, local_anchor_y - 1), max_y);
 			dlg_x2 = dlg_x1 + dlg_w - 1;
@@ -1408,23 +1396,11 @@ static bool HandleGutterClick(const INPUT_RECORD *ir)
 	if (rel_x < 0 || rel_y < 0)
 		return false;
 
-	const bool show_numbers = (ei.Options & EOPT_SHOWNUMBERS) != 0;
 	const bool show_gutter = (ei.Options & EOPT_SHOWGUTTER) != 0;
-	if (!show_numbers && !show_gutter)
+	if (!show_gutter)
 		return false;
 
-	int line_num_width = 0;
-	if (show_numbers) {
-		int digits = 1;
-		int temp = std::max(1, ei.TotalLines);
-		while (temp >= 10) {
-			digits++;
-			temp /= 10;
-		}
-		line_num_width = std::max(4, digits) + 1;
-	} else {
-		line_num_width = 1;
-	}
+	const int line_num_width = ei.StartX - ei.WindowX;
 	const int gutter_x = line_num_width - 1;
 	if (rel_x > gutter_x)
 		return false;

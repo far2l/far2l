@@ -67,6 +67,7 @@ public:
 
 	virtual int ProcessKey(FarKey Key);
 	virtual int ProcessMouse(MOUSE_EVENT_RECORD *MouseEvent);
+	virtual int ProcessDrop(EXT_DROP_EVENT_DATA *DropEvent);
 
 	virtual void Show();
 	virtual void SetPosition(int X1, int Y1, int X2, int Y2);

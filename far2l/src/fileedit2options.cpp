@@ -45,9 +45,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "interf.hpp"
 #include "manager.hpp"
 #include "ctrlobj.hpp"
+#include "macro.hpp"
+#include "manager.hpp"
+#include "ctrlobj.hpp"
 #include "fileedit.hpp"
 
 #include "fileedit2options.hpp"
+#include "options.hpp"
 
 void EditorShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent, FileEditor* fileEditor)
 {
@@ -138,6 +142,7 @@ void EditorShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent, FileEdi
 		{Msg::EditorMenuViewWordWrap,	0,	KEY_F3  },
 		{Msg::EditorMenuViewNumbers,	0,	KEY_CTRLF3  },
 		{Msg::EditorMenuViewSpaces,	0,	KEY_F5  },
+		{Msg::EditorMenuViewEOL,	0,	KEY_CTRLSHIFTF5  },
 		{Msg::EditorMenuViewOvertype,	0,	KEY_INS  },
 		{Msg::EditorMenuViewFullScreen,	0,	KEY_ALTF9  },
 		{Msg::EditorMenuViewLock,	0,	KEY_CTRLL  },
@@ -152,11 +157,49 @@ void EditorShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent, FileEdi
 		{Msg::EditorMenuFileOptions,	0,	KEY_ALTSHIFTF9  },
 	};
 
+	std::vector<FARString> v;
+	for(size_t i = 0; ; ++i) {
+		FARString keyName, description, s;
+		if (CtrlObject->Macro.GetMacroKeyInfo(true, MACRO_EDITOR, i, description, keyName)	== -1) 
+			break;
+		s = s.Format(L"%-35ls %ls", keyName.GetBuffer(), description.GetBuffer());
+		v.push_back(s);	
+	}
+
+	int MacroMenuSize = std::min(128, (int)v.size() + 2);
+	MenuDataEx MacroMenu[128] = {
+		{Msg::EditorMenuMacroRecord,	0,	KEY_CTRLB  },
+		{L"", LIF_SEPARATOR, 0  }
+	};
+
+	for(size_t i = 0; i < v.size() && i < 128; ++i) {
+		MacroMenu[i+2].Name = v[i].GetBuffer();
+		MacroMenu[i+2].Flags = 0;
+		MacroMenu[i+2].AccelKey = 0;
+	}
+
+	// plugins menu
+	std::vector<MenuItemData> plugins = CtrlObject->Plugins.GetMenuItems(MODALTYPE_EDITOR);
+	int PluginsMenuSize = std::min(128, (int)plugins.size());
+	MenuDataEx PluginsMenu[128];
+
+	for(size_t i = 0; i < plugins.size() && i < 128; ++i) {
+		PluginsMenu[i].Name = plugins[i].name.c_str();
+		PluginsMenu[i].Flags = 0;
+		PluginsMenu[i].AccelKey = 0;
+	}
+
+	WindowMenuContext wc;
+	initializeWindowMenuContext(wc);
+
 	HMenuData MainMenu[] = {
 		{Msg::EditorMenuFileTitle,     1, FileMenu,    ARRAYSIZE(FileMenu),    L"Editor"},
 		{Msg::EditorMenuEditTitle,    0, EditMenu,   ARRAYSIZE(EditMenu),   L"Editor" },
 		{Msg::EditorMenuNavigateTitle, 0, NavigateMenu,     ARRAYSIZE(NavigateMenu),     L"Editor" },
-		{Msg::EditorMenuViewTitle,  0, ViewMenu, ARRAYSIZE(ViewMenu), L"Editor" }
+		{Msg::EditorMenuViewTitle,  0, ViewMenu, ARRAYSIZE(ViewMenu), L"Editor" },
+		{Msg::EditorMenuMacroTitle, 0, MacroMenu, MacroMenuSize, L"Editor" },
+		{Msg::EditorMenuPluginsTitle, 0, PluginsMenu, PluginsMenuSize, L"Editor" },
+		{Msg::MenuWindowTitle, 0, wc.WindowMenu,     wc.WindowMenuCount,     L"Editor"      }
 	};
 
 	static int LastHItem = -1, LastVItem = 0;
@@ -168,6 +211,30 @@ void EditorShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent, FileEdi
 		if (check) ViewMenu[i].SetCheck(1);
 	}
 
+	// Bookmarks highlighting
+	std::vector<FARString> bookmarks;
+
+	InternalEditorBookMark* savepos = fileEditor->GetBookmark();
+	for(int i = 0; i < 10; ++i) {
+		if (savepos->Line[i] == POS_NONE) {
+			bookmarks.push_back(L"-");
+			// continue;
+		}
+		else {
+			int line = static_cast<int>(savepos->Line[i]);
+			int pos = static_cast<int>(savepos->Cursor[i]);
+			FARString s = fileEditor->GetLine(line, pos, 35);
+			if (s.GetLength() < 2) s = L"-";
+			s = s.Format(L"[%d, %d] %ls", line, pos, s.GetBuffer());
+			bookmarks.push_back(s);
+		}
+		// now we have bookmark (if any) and we can replace it to the actual text
+		FARString s = bookmarks[i]; 
+		s = s.Format(L"%-35.35ls Ctrl+%d", s.GetBuffer(), i);
+		bookmarks[i] = s;
+		NavigateMenu[MENU_NAV_BM_0 + i].Name = bookmarks[i].GetBuffer();
+	}
+
 	// Навигация по меню
 	{
 		HMenu HOptMenu(MainMenu, ARRAYSIZE(MainMenu));
@@ -176,7 +243,7 @@ void EditorShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent, FileEdi
 		HOptMenu.SetPosition(0, gap, ScrX, gap);
 
 		if (LastCommand) {
-			MenuDataEx *VMenuTable[] = {FileMenu, EditMenu, NavigateMenu, ViewMenu};
+			MenuDataEx *VMenuTable[] = {FileMenu, EditMenu, NavigateMenu, ViewMenu, MacroMenu, PluginsMenu, wc.WindowMenu };
 			int HItemToShow = LastHItem;
 
 			MainMenu[0].Selected = 0;
@@ -210,6 +277,14 @@ void EditorShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent, FileEdi
 			break;
 		}
 	}
+	else if (HItem == MENU_PLUGINS) {
+		CtrlObject->Plugins.OpenPlugin(plugins[VItem].pluginItem.pPlugin, OPEN_EDITOR, plugins[VItem].pluginItem.nItem);
+		return;
+	}
+	else if (HItem == MENU_WINDOW) {
+		applyMenu(wc, VItem);
+		return;
+	}
 
 	if (HItem >= 0 && VItem >= 0) {
 		FarKey key = MainMenu[HItem].SubMenu[VItem].AccelKey;
@@ -219,5 +294,151 @@ void EditorShellOptions(int LastCommand, MOUSE_EVENT_RECORD *MouseEvent, FileEdi
 	if (HItem != -1 && VItem != -1) {
 		LastHItem = HItem;
 		LastVItem = VItem;
+	}
+}
+
+void EditorRightMenu(FileEditor* fileEditor, int X, int Y) {
+	MenuDataEx ContextMenu[128] = {
+		{Msg::EditorMenuFileSave,	0,	KEY_F2  },
+		{L"", LIF_SEPARATOR, 0  },
+		{Msg::EditorMenuEditUndo,	0,	KEY_CTRLZ  },
+		{Msg::EditorMenuEditRedo,	0,	KEY_CTRLSHIFTZ  },
+		{L"", LIF_SEPARATOR, 0  },
+		{Msg::EditorMenuEditSelectAll,	0,	KEY_CTRLA  },
+		{Msg::EditorMenuEditSelectVertical,	0,	KEY_ALTSHIFTRIGHT  },
+		{L"", LIF_SEPARATOR, 0  },
+		{Msg::EditorMenuEditCut,	0,	KEY_CTRLX  },
+		{Msg::EditorMenuEditCopy,	0,	KEY_CTRLC  },
+		{Msg::EditorMenuEditPaste,	0,	KEY_CTRLV  },
+		{Msg::EditorMenuEditDelete,	0,	KEY_CTRLD  },
+		{Msg::EditorMenuEditDelLine,	0,	KEY_CTRLY  },
+		{Msg::EditorMenuEditDeleteEOL,	0,	KEY_CTRLK  },
+		{L"", LIF_SEPARATOR, 0  },
+		{Msg::EditorMenuEditFind,	0,	KEY_F7  },
+		{Msg::EditorMenuEditFindReplace,	0,	KEY_CTRLF7  },
+		{Msg::EditorMenuEditFindNext,	0,	KEY_SHIFTF7  },
+		{Msg::EditorMenuEditFindPrev,	0,	KEY_ALTF7  },
+		{L"", LIF_SEPARATOR, 0  },
+		{Msg::EditorMenuNavigateGoToLine,	0,	KEY_ALTF8  },
+		{L"", LIF_SEPARATOR, 0  },
+		{nullptr, 0, 0 }
+	};
+
+	int macroBegin = -1;
+	for(int j = 0; j < 128; ++j)
+		if (ContextMenu[j].Name == nullptr) {
+			macroBegin = j;
+			break;
+		}
+
+	int bookmarkBegin = macroBegin;
+	int pluginBegin = macroBegin;
+	int menuSize = macroBegin - 2;
+
+	// macros
+	std::vector<FARString> v;
+	for(size_t i = 0; ; ++i) {
+		FARString keyName, description, s;
+		if (CtrlObject->Macro.GetMacroKeyInfo(true, MACRO_EDITOR, i, description, keyName)	== -1) 
+			break;
+		s = s.Format(L"%-35ls %ls", keyName.GetBuffer(), description.GetBuffer());
+		v.push_back(s);	
+	}
+	if (v.size() > 0 ) {
+		for(size_t i = 0; i < v.size() && i + macroBegin < 128; ++i) {
+			ContextMenu[i + macroBegin].Name = v[i].GetBuffer();
+			ContextMenu[i + macroBegin].Flags = 0;
+			ContextMenu[i + macroBegin].AccelKey = 0;
+		}
+
+		ContextMenu[v.size() + macroBegin].Name = L"";
+		ContextMenu[v.size() + macroBegin].Flags = LIF_SEPARATOR;
+		ContextMenu[v.size() + macroBegin].AccelKey = 0;
+		bookmarkBegin = pluginBegin = macroBegin + v.size() + 1;
+	}
+	menuSize = bookmarkBegin - 2;
+
+	// Bookmarks menu
+	FARString bookmarksTitle = L"";
+	bookmarksTitle += Msg::EditorMenuNavigateTitle;
+	RemoveHighlights(bookmarksTitle);
+	std::vector<FARString> bookmarks;
+	InternalEditorBookMark* savepos = fileEditor->GetBookmark();
+	for(int i = 0; i < 10; ++i) {
+		if (savepos->Line[i] == POS_NONE) 
+			continue;
+
+		int line = static_cast<int>(savepos->Line[i]);
+		int pos = static_cast<int>(savepos->Cursor[i]);
+		FARString s = fileEditor->GetLine(line, pos, 35);
+		if (s.GetLength() < 2) continue;
+
+		s = s.Format(L"[%d, %d] %ls", line, pos, s.GetBuffer());
+		s = s.Format(L"%-35.35ls Ctrl+%d", s.GetBuffer(), i);
+		bookmarks.push_back(s);
+
+		int poz = bookmarks.size() - 1;
+		ContextMenu[poz + bookmarkBegin].Name = bookmarks[poz].GetBuffer();
+		ContextMenu[poz + bookmarkBegin].Flags = 0;
+		ContextMenu[poz + bookmarkBegin].AccelKey = KEY_CTRL0 + i;
+	}
+	if (bookmarks.size() > 0) {
+		ContextMenu[bookmarkBegin - 1].Name = bookmarksTitle;
+
+		ContextMenu[bookmarks.size() + bookmarkBegin].Name = L"";
+		ContextMenu[bookmarks.size() + bookmarkBegin].Flags = LIF_SEPARATOR;
+		ContextMenu[bookmarks.size() + bookmarkBegin].AccelKey = 0;
+
+		pluginBegin = bookmarkBegin + bookmarks.size() + 1;
+	}
+	menuSize = pluginBegin - 2;
+
+	// plugins menu
+	FARString pluginsTitle = L"";
+	pluginsTitle += Msg::EditorMenuPluginsTitle;
+	RemoveHighlights(pluginsTitle);
+	std::vector<MenuItemData> plugins = CtrlObject->Plugins.GetMenuItems(MODALTYPE_EDITOR);
+	if(plugins.size() > 0) {
+		for(size_t i = 0; i < plugins.size() && i + pluginBegin < 128; ++i) {
+			ContextMenu[i + pluginBegin].Name = plugins[i].name.c_str();
+			ContextMenu[i + pluginBegin].Flags = 0;
+			ContextMenu[i + pluginBegin].AccelKey = 0;
+		}
+		ContextMenu[pluginBegin - 1].Name = pluginsTitle;
+		menuSize = pluginBegin + plugins.size() - 2;
+	}
+
+	{
+		int GroupsCode;
+		VMenu GroupsMenu(L"", ContextMenu, menuSize, 0);
+
+		GroupsMenu.SetPosition(X, Y, 0, 0);
+		GroupsMenu.SetFlags(VMENU_WRAPMODE | VMENU_NOTCHANGE);
+		GroupsMenu.SetBoxType(SHORT_DOUBLE_BOX);
+		GroupsMenu.ClearDone();
+		GroupsMenu.Process();
+
+		GroupsCode = GroupsMenu.Modal::GetExitCode();
+		if (GroupsCode < 0 || GroupsCode >= menuSize) return;
+
+		fprintf(stderr, "item to execute = %d\n", GroupsCode);
+
+		if (ContextMenu[GroupsCode].Flags == LIF_SEPARATOR) return;
+
+		FarKey key = ContextMenu[GroupsCode].AccelKey;
+		if (key) {
+			fileEditor->ProcessMenuCommand(-1, GroupsCode, key);
+			return;
+		}
+		else if (v.size() > 0 && GroupsCode >= macroBegin && GroupsCode < bookmarkBegin) {
+			auto macroBody = v[GroupsCode - macroBegin];
+			// todo: execute macro
+			return;
+		}
+		else if (plugins.size() > 0 && GroupsCode >= pluginBegin) {
+			int VItem = GroupsCode - pluginBegin;
+			CtrlObject->Plugins.OpenPlugin(plugins[VItem].pluginItem.pPlugin, OPEN_EDITOR, plugins[VItem].pluginItem.nItem);
+			return;
+		}
 	}
 }

@@ -103,6 +103,18 @@ void Palette::ResetToDefault( ) noexcept
 
 #define PALETTE_CONFIG "palette.ini"
 
+void Palette::InitFarPaletteFromFile( const std::string& palette_file ) noexcept
+{
+	KeyFileHelper kfh(palette_file);
+	if (!kfh.IsLoaded()) {
+		FARPalette.ResetToDefault();
+		FARPalette.Save(kfh);
+	} else if (!FARPalette.Load(kfh)) {
+		fprintf(stderr, "InitPalettes: failed to parse '%s'\n", palette_file.c_str());
+		FARPalette.ResetToDefault();
+	}
+}
+
 void Palette::InitFarPalette( ) noexcept
 {
 	fprintf(stderr, "Palette::InitFarPalette( )\n" );

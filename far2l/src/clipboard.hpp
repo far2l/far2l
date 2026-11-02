@@ -48,6 +48,7 @@ class Clipboard
 
 	static bool UseInternalClipboard;
 	static bool InternalClipboardOpen;
+	static int UseSelectionWhenPossible;
 
 public:
 	static bool SetUseInternalClipboardState(bool State);	// Sets UseInternalClipboard to State, and returns previous state
@@ -63,6 +64,9 @@ public:
 	bool CopyWithHtml(const std::wstring &Data, const char *Html);
 
 	std::optional<std::wstring> Paste(bool *IsVertical = nullptr);
+
+	int IsUseSelectionWhenPossible() const { return UseSelectionWhenPossible; }
+	int SetUseSelectionWhenPossible(int option);
 
 private:
 	bool AddData(UINT FormatType, const void *Data, size_t Size);

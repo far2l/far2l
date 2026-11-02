@@ -3,11 +3,31 @@
 #include "lng.h"
 #include "Settings.h"
 #include "ToolExec.h"
+#include <iomanip>
+#include <locale>
+#include <sstream>
 
 // following constants used for incremental image display moderation
 #define SETIMG_INITALLY_ASSUMED_SPEED    8192 // 8kb per ms = 8MB/second
 #define SETIMG_DELAY_BASELINE_MSEC       256  // approx msec user may need to wait for cancellation
 #define SETIMG_ESTIMATION_SIZE_THRESHOLD 0x10000 // minimal size of data that can be used for set image rate estimation
+
+namespace
+{
+	struct AutoShowGuard
+	{
+		ImageView* viewer;
+		explicit AutoShowGuard(ImageView* v) : viewer(v) {}
+		AutoShowGuard(const AutoShowGuard&) = delete;
+		AutoShowGuard& operator=(const AutoShowGuard&) = delete;
+		~AutoShowGuard()
+		{
+			if (viewer) {
+				viewer->ForceShow();
+			}
+		}
+	};
+}
 
 bool ImageView::IterateFile(bool forward)
 {
@@ -31,7 +51,7 @@ ImageOpResult ImageView::PrepareImage()
 
 	struct stat st {};
 	if (stat(_render_file.c_str(), &st) == -1 || !S_ISREG(st.st_mode) || st.st_size == 0) {
-		_all_files[_cur_file].second = false; // silently unselect non-loadable files
+		std::get<1>(_all_files[_cur_file]) = std::get<2>(_all_files[_cur_file]) = false; // silently unselect non-loadable files
 		return ImageOpResult::FAILED;
 	}
 
@@ -78,7 +98,7 @@ ImageOpResult ImageView::PrepareImage()
 
 	if (stat(_tmp_file.c_str(), &st) == -1 || st.st_size == 0) {
 		unlink(_tmp_file.c_str());
-		_all_files[_cur_file].second = false; // silently unselect non-loadable files
+		std::get<1>(_all_files[_cur_file]) = std::get<2>(_all_files[_cur_file]) = false; // silently unselect non-loadable files
 		return ImageOpResult::FAILED;
 	}
 
@@ -313,7 +333,7 @@ ImageOpResult ImageView::SendWholeImage(const SMALL_RECT *area, const Image &img
 		if (set_h > chunk_h + chunk_h / 4) {
 			set_h = chunk_h;
 		}
-		if (!WINPORT(SetConsoleImage)(NULL, WINPORT_IMAGE_ID,
+		if (!WINPORT(SetConsoleImage)(NULL, _img_id.c_str(),
 				WP_IMG_RGB | WP_IMG_PIXEL_OFFSET | (sent_h ? WP_IMG_ATTACH_BOTTOM : 0),
 				area, img.Width(), set_h, img.Ptr(0, sent_h))) {
 			fprintf(stderr, "%s: error at %d of %d\n", __FUNCTION__, sent_h, img.Height());
@@ -371,7 +391,7 @@ bool ImageView::SendScrollAttachH(const SMALL_RECT *area, int src_left, int src_
 		flags|= WP_IMG_ATTACH_RIGHT;
 	}
 
-	return WINPORT(SetConsoleImage)(NULL, WINPORT_IMAGE_ID, flags, area,
+	return WINPORT(SetConsoleImage)(NULL, _img_id.c_str(), flags, area,
 		_tmp_image.Width(), _tmp_image.Height(), _tmp_image.Data()) != FALSE;
 }
 
@@ -392,7 +412,7 @@ bool ImageView::SendScrollAttachV(const SMALL_RECT *area, int src_left, int src_
 		flags|= WP_IMG_ATTACH_BOTTOM;
 	}
 
-	return WINPORT(SetConsoleImage)(NULL, WINPORT_IMAGE_ID, flags, area,
+	return WINPORT(SetConsoleImage)(NULL, _img_id.c_str(), flags, area,
 		_tmp_image.Width(), _tmp_image.Height(), _tmp_image.Data()) != FALSE;
 }
 
@@ -476,7 +496,7 @@ ImageOpResult ImageView::RenderImage()
 			&& (_wgi.Caps & WP_IMGCAP_ROTMIR) != 0) {                      // and backend supports transforms:
 		// transform image remotely without any bitmap transfer
 		fprintf(stderr, "ImageView: transform remote image (0x%x)\n", tformed);
-		out = WINPORT(TransformConsoleImage)(NULL, WINPORT_IMAGE_ID, &area, tformed) != FALSE ? ImageOpResult::OK : ImageOpResult::FAILED;
+		out = WINPORT(TransformConsoleImage)(NULL, _img_id.c_str(), &area, tformed) != FALSE ? ImageOpResult::OK : ImageOpResult::FAILED;
 
 	} else if (!scaled && tformed == 0                 // if image only shifted
 			&& abs(_prev_left - src_left) < viewport_w // and shifted-in area is
@@ -568,18 +588,19 @@ void ImageView::JustReset(bool keep_rotmir)
 
 ///////////////////// ImageView PUBLICs
 
-ImageView::ImageView(size_t initial_file, const std::vector<std::pair<std::string, bool> > &all_files)
+ImageView::ImageView(size_t initial_file, const std::vector<std::tuple<std::string, bool, bool> > &all_files, const char *image_id)
 	:
 	_all_files(all_files),
 	_initial_file(initial_file),
-	_cur_file(initial_file)
+	_cur_file(initial_file),
+	_img_id(image_id ? image_id : WINPORT_IMAGE_ID)
 {
 	assert(_initial_file < all_files.size());
 }
 
 ImageView::~ImageView()
 {
-	WINPORT(DeleteConsoleImage)(NULL, WINPORT_IMAGE_ID);
+	WINPORT(DeleteConsoleImage)(NULL, _img_id.c_str());
 	if (!_tmp_file.empty()) {
 		unlink(_tmp_file.c_str());
 	}
@@ -589,11 +610,25 @@ std::unordered_set<std::string> ImageView::GetSelection() const
 {
 	std::unordered_set<std::string> out;
 	for (const auto &it : _all_files) {
-		if (it.second) {
-			out.insert(it.first);
+		if (std::get<1>(it)) {
+			out.insert(std::get<0>(it));
 		}
 	}
 	return out;
+}
+
+bool ImageView::SelectionChangesCount(int &selected, int &deselected)
+{
+	selected = deselected = 0;
+	for (const auto &it : _all_files) {
+		if (std::get<1>(it) != std::get<2>(it)) {
+			if (std::get<1>(it))
+				selected++;
+			else
+				deselected++;
+		}
+	}
+	return (selected > 0) || (deselected > 0);
 }
 
 ImageOpResult ImageView::Setup(SMALL_RECT &rc, volatile bool *cancel)
@@ -748,23 +783,23 @@ void ImageView::Reset(bool keep_rotmir)
 
 void ImageView::Select()
 {
-	if (!_all_files[_cur_file].second) {
-		_all_files[_cur_file].second = true;
+	if (!std::get<1>(_all_files[_cur_file])) {
+		std::get<1>(_all_files[_cur_file]) = true;
 		DenoteState();
 	}
 }
 
 void ImageView::Deselect()
 {
-	if (_all_files[_cur_file].second) {
-		_all_files[_cur_file].second = false;
+	if (std::get<1>(_all_files[_cur_file])) {
+		std::get<1>(_all_files[_cur_file]) = false;
 		DenoteState();
 	}
 }
 
 void ImageView::ToggleSelection()
 {
-	_all_files[_cur_file].second = !_all_files[_cur_file].second;
+	std::get<1>(_all_files[_cur_file]) = !std::get<1>(_all_files[_cur_file]);
 	DenoteState();
 }
 
@@ -785,7 +820,7 @@ static bool CmdFindAndReplace(std::string &cmd, const char *pattern, int value)
 
 void ImageView::RunProcessingCommand()
 {
-	WINPORT(DeleteConsoleImage)(NULL, WINPORT_IMAGE_ID);
+	WINPORT(DeleteConsoleImage)(NULL, _img_id.c_str());
 	auto cmd = g_settings.ExtraCommandsMenu();
 	if (!cmd.empty()) {
 		while (CmdFindAndReplace(cmd, "{W}", _orig_image.Width())
@@ -823,4 +858,140 @@ void ImageView::RunProcessingCommand()
 		} // else: user cancelled - do nothing
 	}
 	ForceShow();
+}
+
+void ImageView::ShowExifInfo()
+{
+	AutoShowGuard guard(this);
+	WINPORT(DeleteConsoleImage)(NULL, WINPORT_IMAGE_ID);
+
+	ToolExec exiftool(_cancel);
+	exiftool.AddArguments("exiftool", "-charset", "UTF8", "--", CurFile());
+	if (!exiftool.Run(CurFile(), _file_size_str, "exiftool", "Reading EXIF metadata...")) {
+		return;
+	}
+	if (exiftool.ExecError() != 0) {
+		return;
+	}
+
+	const std::wstring exiftool_output = StrMB2Wide(exiftool.FetchStdout());
+	if (exiftool_output.empty()) {
+		const wchar_t *MsgItems[] = {g_settings.Msg(M_TITLE), g_settings.Msg(M_NO_EXIF_OR_UNSUPPORTED_FORMAT)};
+		g_far.Message(g_far.ModuleNumber, FMSG_WARNING | FMSG_MB_OK, nullptr, MsgItems, ARRAYSIZE(MsgItems), 0);
+		return;
+	}
+
+	SMALL_RECT fr{};
+	if (!g_far.AdvControl(g_far.ModuleNumber, ACTL_GETFARRECT, &fr, 0)) {
+		return;
+	}
+    --fr.Bottom;
+
+	const int DLG_X1 = fr.Left + 2;
+	const int DLG_Y1 = fr.Top + 1;
+	const int DLG_X2 = fr.Right - 2;
+	const int DLG_Y2 = fr.Bottom - 1;
+	const int DLG_W = DLG_X2 - DLG_X1 + 1;
+	const int DLG_H = DLG_Y2 - DLG_Y1 + 1;
+
+	FarDialogItem items[1]{};
+	items[0].Type    = DI_MEMOEDIT;
+	items[0].X1      = 0;
+	items[0].Y1      = 0;
+	items[0].X2      = DLG_W - 1;
+	items[0].Y2      = DLG_H - 1;
+	items[0].Focus   = 1;
+	items[0].Flags   = DIF_READONLY | DIF_FOCUS;
+	items[0].PtrData = exiftool_output.c_str();
+
+	HANDLE hdlg = g_far.DialogInit(g_far.ModuleNumber, DLG_X1, DLG_Y1, DLG_X2, DLG_Y2, nullptr, items, 1, 0, 0, nullptr, 0);
+	if (hdlg != INVALID_HANDLE_VALUE) {
+		g_far.DialogRun(hdlg);
+		g_far.DialogFree(hdlg);
+	}
+}
+
+void ImageView::ShowGpsInfo()
+{
+	AutoShowGuard guard(this);
+
+	WINPORT(DeleteConsoleImage)(NULL, WINPORT_IMAGE_ID);
+
+	ToolExec exiftool(_cancel);
+	exiftool.AddArguments("exiftool", "-n", "-T", "-GPSLatitude", "-GPSLongitude", "--", CurFile());
+
+	if (!exiftool.Run(CurFile(), _file_size_str, "exiftool", "Reading GPS metadata...")) {
+		return;
+	}
+	if (exiftool.ExecError() != 0) {
+		return;
+	}
+
+	double latitude = 0.0, longitude = 0.0;
+	std::istringstream stream(exiftool.FetchStdout());
+	stream.imbue(std::locale::classic());
+
+	if (!(stream >> latitude >> longitude)) {
+		const wchar_t *MsgItems[] = {g_settings.Msg(M_TITLE), g_settings.Msg(M_NO_GPS_METADATA_FOUND)};
+		g_far.Message(g_far.ModuleNumber, FMSG_WARNING | FMSG_MB_OK, nullptr, MsgItems, ARRAYSIZE(MsgItems), 0);
+		return;
+	}
+
+	auto format_coords = [](double val) {
+		std::ostringstream oss;
+		oss.imbue(std::locale::classic());
+		oss << std::fixed << std::setprecision(6) << val;
+		return oss.str();
+	};
+
+	const std::string lat     = format_coords(latitude);
+	const std::string lon     = format_coords(longitude);
+	const std::string abs_lat = format_coords(std::abs(latitude));
+	const std::string abs_lon = format_coords(std::abs(longitude));
+	const std::string lat_dir = (latitude >= 0) ? "N" : "S";
+	const std::string lon_dir = (longitude >= 0) ? "E" : "W";
+
+	struct MapProvider
+	{
+		std::wstring name;
+		std::string url_template;
+	};
+
+	static const std::vector<MapProvider> providers = {
+		{ L"2gis",          "https://2gis.ru/geo/{lon},{lat}" },
+		{ L"Apple Maps",    "https://maps.apple.com/?q=loc:{lat},{lon}"},
+		{ L"Bing Maps",     "https://www.bing.com/maps?where1={lat},{lon}&lvl=15" },
+		{ L"GeoHack",       "https://geohack.toolforge.org/geohack.php?params={abs_lat}_{lat_dir}_{abs_lon}_{lon_dir}_" },
+		{ L"Google Maps",   "https://www.google.com/maps/search/?api=1&query={lat},{lon}"},
+		{ L"OpenStreetMap", "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}"},
+		{ L"Organic Maps",  "https://omaps.app/{lat},{lon}"},
+		{ L"Wikimapia",     "https://wikimapia.org/#lat={lat}&lon={lon}&z=11&m=w"},
+		{ L"Yandex Maps",   "https://yandex.com/maps?whatshere%5Bpoint%5D={lon},{lat}"},
+	};
+
+	std::vector<FarMenuItem> menu_items(providers.size());
+	for (size_t i = 0; i < providers.size(); ++i) {
+		menu_items[i].Text = providers[i].name.c_str();
+	}
+	menu_items[0].Selected = 1;
+
+	const std::wstring ws_coords = StrMB2Wide(abs_lat) + L"\u00B0" + StrMB2Wide(lat_dir) + L", "
+			+ StrMB2Wide(abs_lon) + L"\u00B0" + StrMB2Wide(lon_dir);
+	wchar_t title_buf[256];
+	swprintf(title_buf, ARRAYSIZE(title_buf), g_settings.Msg(M_OPEN_GPS_COORDINATES_IN), ws_coords.c_str());
+
+	const int choice = g_far.Menu(g_far.ModuleNumber, -1, -1, 0, FMENU_WRAPMODE | FMENU_CHANGECONSOLETITLE, title_buf,
+								  nullptr, nullptr, nullptr, nullptr, menu_items.data(), menu_items.size());
+
+	if (choice >= 0 && choice < static_cast<int>(providers.size())) {
+		std::string url = providers[choice].url_template;
+		while(CmdFindAndReplace(url, "{lat}", lat)) {}
+		while(CmdFindAndReplace(url, "{lon}", lon)) {}
+		while(CmdFindAndReplace(url, "{abs_lat}", abs_lat)) {}
+		while(CmdFindAndReplace(url, "{abs_lon}", abs_lon)) {}
+		while(CmdFindAndReplace(url, "{lat_dir}", lat_dir)) {}
+		while(CmdFindAndReplace(url, "{lon_dir}", lon_dir)) {}
+		const std::wstring ws_url = L"'" + std::wstring(url.begin(), url.end()) + L"'";
+		g_fsf.Execute(ws_url.c_str(), EF_OPEN | EF_NOWAIT | EF_HIDEOUT | EF_NOCMDPRINT);
+	}
 }

@@ -95,6 +95,11 @@ public:
 	virtual int GetType() { return MODALTYPE_VIRTUAL; }
 	virtual bool ProcessPluginMenu() { return false; }
 
+	virtual int GetSubpanelCount() { return 0; }
+	virtual int GetSubpanelTypeAndName(int index, FARString &strType, FARString &strName, int maxLen = 60) { return (MODALTYPE_VIRTUAL); };
+	virtual int GetSelectedSubpanel(){ return -1; }
+	virtual void ActivateSubpanel(int i){}
+
 	virtual void OnDestroy();						// вызывается перед уничтожением окна
 	virtual void OnCreate(){}						// вызывается перед созданием окна
 	virtual void OnChangeFocus(int focus);			// вызывается при смене фокуса

@@ -309,7 +309,6 @@ BOOL FileEditor::SendToPrinter()
 
 		printer.EndPrint(fp);
 	}
-
 	return TRUE;
 }
 

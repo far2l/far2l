@@ -291,7 +291,9 @@ void KeyTracker::OnKeyDown(wxKeyEvent& event, DWORD ticks)
 	_pressed_keys.insert(keycode);
 
 #if defined(wxHAS_RAW_KEY_CODES) && defined(__WXMAC__)
-	if (event.GetKeyCode() == WXK_ALT && event.GetRawKeyCode() == RAW_ALTGR) {
+	if (event.GetKeyCode() == WXK_ALT
+	    && event.GetRawKeyCode() == RAW_ALTGR
+	    && WinPortGetUseRightAltAsAltGr()) {
 		_composing = true;
 	}
 

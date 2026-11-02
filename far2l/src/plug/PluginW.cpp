@@ -444,6 +444,7 @@ static BOOL farGetFindData(const wchar_t *lpwszFileName, WIN32_FIND_DATAW *FindD
 	FindDataW->ftCreationTime = FindDataEx.ftCreationTime;
 	FindDataW->ftLastAccessTime = FindDataEx.ftLastAccessTime;
 	FindDataW->ftLastWriteTime = FindDataEx.ftLastWriteTime;
+	FindDataW->ftChangeTime = FindDataEx.ftChangeTime;
 
 	FindDataW->UnixOwner = FindDataEx.UnixOwner;
 	FindDataW->UnixGroup = FindDataEx.UnixGroup;
@@ -580,6 +581,7 @@ void CreatePluginStartupInfo(Plugin *pPlugin, PluginStartupInfo *PSI, FarStandar
 		StartupInfo.PluginsControl = farPluginsControl;
 		StartupInfo.FileFilterControl = farFileFilterControl;
 		StartupInfo.RegExpControl = farRegExpControl;
+		StartupInfo.OsdAPI = (FARAPIGETOSD)farGetOsdPanel;
 	}
 
 	*PSI = StartupInfo;
@@ -776,8 +778,8 @@ HANDLE PluginW::OpenPlugin(int OpenFrom, INT_PTR Item)
 			else
 			if ( !g_strDirToSet.IsEmpty() )
 			{
-				CtrlObject->Cp()->ActivePanel->SetCurDir(g_strDirToSet,TRUE);
-				CtrlObject->Cp()->ActivePanel->Redraw();
+				CtrlObject->Cp()->ActiveTab().ActivePanel->SetCurDir(g_strDirToSet,TRUE);
+				CtrlObject->Cp()->ActiveTab().ActivePanel->Redraw();
 			}
 		}
 		*/

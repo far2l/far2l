@@ -116,6 +116,8 @@ int WINAPI FarInputBox(const wchar_t *Title, const wchar_t *Prompt, const wchar_
 
 int WINAPI FarColorDialog(const int flags, uint64_t *c);
 
+void* WINAPI farGetOsdPanel();
+
 /* Функция, которая будет действовать и в редакторе, и в панелях, и... */
 INT_PTR WINAPI FarAdvControl(INT_PTR ModuleNumber, int Command, void *Param1, void *Param2);
 INT_PTR WINAPI FarAdvControlAsync(INT_PTR ModuleNumber, int Command, void *Param1, void *Param2);

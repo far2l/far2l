@@ -44,11 +44,11 @@ static void ApplyDefaultMaskGroups()
 				     L"*.deb,*.grp,*.h[ay]p,*.ha,*.hpk,*.hqx,*.ice,*.imp,*.iso,*.jar,*.lha,*.lim,*.lzh,*.msi,*.nrg,*.pa[ck],*.qpr,*.r[0-9][0-9],*.rar,*.rk,"
 				     L"*.rkv,*.rpm,*.rpm,*.sea,*.sit,*.sqz,*.t[agbx]z,*.tar,*.uc2,*.ufa,*.x2,*.zip,*.zoo,*.zst"},
 
-		{ L"temp",   L"*.back,*.backup,*.bak,*.cache,*.old,*.temp,*.tmp,temp,temp.*,temporary*"},
+		{ L"temp",   L"*.back,*.backup,*.bak,*.cache,*.old,*.temp,*.tmp,temp,temp.*,temporary*,*~"},
 
 		{ L"tmp",    L"<temp>" },
 
-		{ L"exec",   L"*.AppImage,*.apk,*.bat,*.cmd,*.com,*.elf,*.exe,*.pl,*.rb,*.run,*.sh"},
+		{ L"exec",   L"*.AppImage,*.elf,*.exe,*.run,*.sh,*.zsh,*.tcsh"},
 
 		{ L"shared", L"*.a,*.dll,*.dll.*,*.lib,*.o,*.obj,*.pyo,*.so,*.so.*,*.sys,*.vim"},
 
@@ -62,9 +62,9 @@ static void ApplyDefaultMaskGroups()
 
 		{ L"pic",    L"*.ai,*.ani,*.avif,*.bmp,*.bw,*.cdr,*.cel,*.cgm,*.cmx,*.cpt,*.cur,*.dcx,*.dds,*.dib,*.emf,*.eps,*.flc,*.fli,*.fpx,*.gif,*.icl,*.ico,"
 					 L"*.iff,*.indd,*.j2k,*.jp2,*.jpc,*.jpe,*.jpeg,*.jpeg2000,*.jpg,*.jps,*.kra,*.lbm,*.mng,*.mpo,*.pbm,*.pcx,*.pdn,*.pgm,*.pic,*.png,*.pns,"
-					 L"*.ppm,*.psd,*.psp,*.ras,*.rgb,*.rle,*.sai,*.sgi,*.spr,*.svg,*.tga,*.tif,*.tiff,*.wbmp,*.webp,*.wmf,*.xbm,*.xcf,*.xpm,*.heic"},
+					 L"*.ppm,*.psd,*.psp,*.ras,*.rgb,*.rle,*.sai,*.sgi,*.spr,*.svg,*.tga,*.tif,*.tiff,*.wbmp,*.webp,*.wmf,*.xbm,*.xcf,*.xpm,*.heic,*.svgz"},
 		{ L"video",  L"*.3g2,*.3gp,*.asf,*.avchd,*.avi,*.divx,*.enc,*.flv,*.ifo,*.m1v,*.m2ts,*.m2v,*.m4p,*.m4v,*.mkv,*.mov,*.mp2,*.mp4,*.mpe,*.mpeg,*.mpg,"
-					 L"*.mpv,*.mts,*.ogm,*.qt,*.ra,*.ram,*.rmvb,*.swf,*.ts,*.vob,*.vob,*.webm,*.wm,*.wmv"},
+					 L"*.mpv,*.mts,*.ogm,*.qt,*.ra,*.ram,*.rmvb,*.swf,*.ts,*.vob,*.webm,*.wm,*.wmv"},
 
 		{ L"media",  L"<sound>,<video>"},
 
@@ -72,14 +72,14 @@ static void ApplyDefaultMaskGroups()
                      L"*.mht,*.mhtml,*.nfo,*.odc,*.odc,*.odf,*.odf,*.odg,*.odg,*.odi,*.odi,*.odm,*.odm,*.odp,*.odp,*.ods,*.ods,*.odt,*.odt,*.otf,*.otf,*.otg,"
 					 L"*.otg,*.oth,*.oth,*.oti,*.oti,*.otp,*.otp,*.ots,*.ots,*.ott,*.ott,*.pdf,*.pip,*.pps,*.ppt,*.ppt,*.pptx,*.rst,*.rtf,*.sdc,*.sdc,*.srt,"
 					 L"*.stc,*.stc,*.sti,*.sti,*.stw,*.stw,*.sxc,*.sxc,*.sxi,*.sxi,*.sxw,*.sxw,*.tex,*.txt,*.wiz,*.wpd,*.wri,*.xlk,*.xls,*.xlsb,*.xlsm,*.xlsx,"
-					 L"*.xlsx,*.xlt,*.xltm,*.xslm,NEWS,read.me,readme*"},
+					 L"*.xlsx,*.xlt,*.xltm,*.xslm,NEWS,read.me,readme*,*.json,*.xml,*.xsd,*.xsl,*.xslt,*.xhtml"},
 
 		{ L"src",    L"<build>,<cfg>,<code>"},
 
 		{ L"build",	 L"*.gradle,makefile,*.cmake,*.make,makefile*,*.sln,*.mak,*.mk,*.in,*.mpp,*.mpt,*.mpw,*.mpx,*.mpd,*.mpp,*.vcxproj*,*.vcproj,*.project,*.prj,"
-					 L"*.pro,*.dsp,*.cue,CMakeLists.txt"},
+					 L"*.pro,*.dsp,CMakeLists.txt,*.ac,*.am,*.sln"},
 
-		{ L"cfg",    L"*.cfg,*.conf,*.config,*.fm[li],*.hlf,*.hrc,*.hrd,*.inf,*.ini,*.json,*.manifest,*.reg,*.sln,*.toml,*.xml,*.xsd,*.xsl,*.xslt,*.yaml,*.yml"},
+		{ L"cfg",    L"*.cfg,*.conf,*.config,*.fm[li],*.hlf,*.hrc,*.hrd,*.inf,*.ini,*.manifest,*.reg,*.toml,*.yaml,*.yml"},
 
 		{ L"code",	 L"*.applescript,*.as,*.asa,*.asax,*.asm,*.awk,*.bas,*.bash,*.bsh,*.c,*.c++,*.cabal,*.cc,*.cgi,*.clj,*.cp,*.cpp,"
 					 L"*.cr,*.cs,*.css,*.csx,*.cxx,*.d,*.dart,*.def,*.di,*.diff,*.dot,*.dpr,*.el,*.elc,*.elm,*.epp,*.erl,*.ex,*.exs,*.fish,*.frag,*.fragment,"
@@ -87,7 +87,7 @@ static void ApplyDefaultMaskGroups()
 					 L"*.hxx,*.inc,*.inl,*.ipp,*.ipynb,*.jam,*.java,*.jl,*.js,*.jsm,*.kt,*.kts,*.less,*.lisp,*.ll,*.ltx,*.lua,*.m,*.m4"
 					 L"*.matlab,*.mir,*.ml,*.mli,*.mn,*.nb,*.p,*.pas,*.patch,*.perl,*.php,*.pixel,*.pl,*.pm,*.pod,*.pp,*.prf,*.ps1,*.psd1,*.psm1,*.purs,*.py,"
 					 L"*.qml,*.r,*.r,*.rb,*.reg,*.rs,*.sample,*.sass,*.sbt,*.scala,*.scss,*.sh,*.sql,*.src,*.swift,*.t,*.tcl,*.td,*.tex,*.ts,*.tsx,*.vb,"
-					 L"*.vert,*.vertex,*.vertexshader,*.vs,*.vsh,*.wsdl,*.xaml,*.xhtml,*.zsh,PKGBUILD"},
+					 L"*.vert,*.vertex,*.vertexshader,*.vs,*.vsh,*.wsdl,*.xaml,PKGBUILD"},
 
 		{ L"3d",     L"*.3d,*.3df,*.3dm,*.3ds,*.3dxml,*.amf,*.asymptote,*.blend,*.collada,*.dds,*.dgn,*.drawings,*.dwf,*.dwg,*.dxf,*.flt,*.fvrml,*.gltf,*.hdr,"
 					 L"*.hsf,*.iges,*.imml,*.ipa,*.jt,*.ktx,*.ma,*.mb,*.opengex,*.ply,*.pov-ray,*.prc,*.sdkmesh,*.skp,*.step,*.stl,*.u3d,*.vrml,*.x,*.x3d,"

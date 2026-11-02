@@ -415,6 +415,7 @@ CreatePluginStartupInfoA(PluginA *pPlugin, oldfar::PluginStartupInfo *PSI, oldfa
 		StartupInfo.DefDlgProc = FarDefDlgProcA;
 		StartupInfo.InputBox = FarInputBoxA;
 		StartupInfo.ColorDialog = FarColorDialogA;
+		StartupInfo.OsdAPI = (FARAPIGETOSD)farGetOsdPanel;
 	}
 
 	*PSI = StartupInfo;
@@ -605,8 +606,8 @@ HANDLE PluginA::OpenPlugin(int OpenFrom, INT_PTR Item)
 			else
 			if ( !g_strDirToSet.IsEmpty() )
 			{
-				CtrlObject->Cp()->ActivePanel->SetCurDir(g_strDirToSet,TRUE);
-				CtrlObject->Cp()->ActivePanel->Redraw();
+				CtrlObject->Cp()->ActiveTab().ActivePanel->SetCurDir(g_strDirToSet,TRUE);
+				CtrlObject->Cp()->ActiveTab().ActivePanel->Redraw();
 			}
 		}
 		*/
