@@ -55,6 +55,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "dirmix.hpp"
 #include "strmix.hpp"
 #include "mix.hpp"
+#include <MountProbe.hpp>
 
 // Флаги для ReadDiz()
 enum ReadDizFlags
@@ -134,6 +135,17 @@ void FileList::ReadFileNames(int KeepSelection, int IgnoreVisible, int DrawMessa
 	strOriginalCurDir = strCurDir;
 
 	if (!IsVisible() && !IgnoreVisible) {
+		UpdateRequired = TRUE;
+		UpdateRequiredMode = KeepSelection;
+		return;
+	}
+
+	// refuse to enumerate a stalled mount; keep the previous listing
+	const std::string mbPanelDir = strCurDir.GetMB();
+	if (NeedsMountProbe(MountFsType(mbPanelDir)) && !MountResponsive(mbPanelDir.c_str())) {
+		if (CanBeAnnoying && FrameManager && FrameManager->ManagerStarted())
+			Message(MSG_WARNING | MSG_ERRORTYPE, 1, Msg::Error, strCurDir, Msg::Ok);
+		// keep the refresh pending; the probe cache bounds retries
 		UpdateRequired = TRUE;
 		UpdateRequiredMode = KeepSelection;
 		return;

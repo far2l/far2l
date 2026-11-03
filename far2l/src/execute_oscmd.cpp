@@ -35,6 +35,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <MountProbe.hpp>
 #include "execute.hpp"
 #include "keyboard.hpp"
 #include "filepanels.hpp"
@@ -131,7 +132,7 @@ bool CommandLine::ProcessOSCommands(const wchar_t *CmdLine, bool SeparateWindow,
 	return false;
 }
 
-BOOL CommandLine::IntChDir(const wchar_t *CmdLine, int ClosePlugin, bool Silent)
+	BOOL CommandLine::IntChDir(const wchar_t *CmdLine, int ClosePlugin, bool Silent)
 {
 	Panel *SetPanel;
 	SetPanel = CtrlObject->Cp()->ActivePanel;
@@ -148,6 +149,21 @@ BOOL CommandLine::IntChDir(const wchar_t *CmdLine, int ClosePlugin, bool Silent)
 		Сначала проверяем есть ли такая "обычная" директория.
 		если уж нет, то тогда начинаем думать, что это директория плагинная
 	*/
+	// refuse a stalled mount before apiGetFileAttributes() blocks on it;
+	// resolve relative targets first - MountFsType matches absolute paths only
+	FARString strProbeDir(strDir);
+	if (!IsAbsolutePath(strDir)) {
+		FARString strCurDir;
+		ConvertNameToFull(strDir, strCurDir);
+		strProbeDir = strCurDir;
+	}
+	const std::string mbDir = strProbeDir.GetMB();
+	if (NeedsMountProbe(MountFsType(mbDir)) && !MountResponsive(mbDir.c_str())) {
+		if (!Silent)
+			Message(MSG_WARNING | MSG_ERRORTYPE, 1, Msg::Error, strDir, Msg::Ok);
+		return FALSE;
+	}
+
 	DWORD DirAtt = apiGetFileAttributes(strDir);
 
 	if (DirAtt != INVALID_FILE_ATTRIBUTES && (DirAtt & FILE_ATTRIBUTE_DIRECTORY) && IsAbsolutePath(strDir)) {

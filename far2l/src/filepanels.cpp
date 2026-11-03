@@ -54,6 +54,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "options.hpp"
 #include "pathmix.hpp"
 #include "dirmix.hpp"
+#include <MountProbe.hpp>
 #include "interf.hpp"
 #include "scrbuf.hpp"
 
@@ -83,6 +84,18 @@ static void PrepareOptFolder(FARString &strSrc)
 	} else {
 		apiExpandEnvironmentStrings(strSrc, strSrc);
 	}
+}
+
+// fall back to the default dir when restoring a panel folder on a stalled mount
+static void InitPanelDir(Panel *panel, const FARString &folder)
+{
+	const std::string mbFolder = folder.GetMB();
+	if (NeedsMountProbe(MountFsType(mbFolder)) && !MountResponsive(mbFolder.c_str())) {
+		panel->InitCurDir(DefaultPanelInitialDirectory());
+		return;
+	}
+
+	panel->InitCurDir(folder);
 }
 
 void FilePanels::Init()
@@ -126,23 +139,23 @@ void FilePanels::Init()
 	PrepareOptFolder(Opt.strRightFolder);
 
 	if (Opt.AutoSaveSetup || !Opt.SetupArgv) {
-		LeftPanel->InitCurDir(Opt.strLeftFolder);
-		RightPanel->InitCurDir(Opt.strRightFolder);
+		InitPanelDir(LeftPanel, Opt.strLeftFolder);
+		InitPanelDir(RightPanel, Opt.strRightFolder);
 	}
 
 	if (!Opt.AutoSaveSetup) {
 		if (Opt.SetupArgv >= 1) {
 			if (ActivePanel == RightPanel) {
-				RightPanel->InitCurDir(Opt.strRightFolder);
+				InitPanelDir(RightPanel, Opt.strRightFolder);
 			} else {
-				LeftPanel->InitCurDir(Opt.strLeftFolder);
+				InitPanelDir(LeftPanel, Opt.strLeftFolder);
 			}
 
 			if (Opt.SetupArgv == 2) {
 				if (ActivePanel == LeftPanel) {
-					RightPanel->InitCurDir(Opt.strRightFolder);
+					InitPanelDir(RightPanel, Opt.strRightFolder);
 				} else {
-					LeftPanel->InitCurDir(Opt.strLeftFolder);
+					InitPanelDir(LeftPanel, Opt.strLeftFolder);
 				}
 			}
 		}
@@ -150,7 +163,7 @@ void FilePanels::Init()
 		const wchar_t *PassiveFolder = PassiveIsLeftFlag ? Opt.strLeftFolder : Opt.strRightFolder;
 
 		if (Opt.SetupArgv < 2 && *PassiveFolder) {
-			PassivePanel->InitCurDir(PassiveFolder);
+			InitPanelDir(PassivePanel, PassiveFolder);
 		}
 	}
 

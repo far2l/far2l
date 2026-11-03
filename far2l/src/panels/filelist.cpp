@@ -2549,6 +2549,7 @@ BOOL FileList::ChangeDir(const wchar_t *NewDir, BOOL IsUpdated)
 	FARString strOrigCurDir;
 	apiGetCurrentDirectory(strOrigCurDir);
 	while (!FarChDir(strSetDir)) {
+		const int FailedErrno = errno;	// saved: calls below clobber errno before Message renders it
 		if (FrameManager && FrameManager->ManagerStarted()) {
 			/* $ 03.11.2001 IS Укажем имя неудачного каталога */
 			// if user tries to go upper dir and failed - provide way
@@ -2556,6 +2557,7 @@ BOOL FileList::ChangeDir(const wchar_t *NewDir, BOOL IsUpdated)
 			int r;
 			if (PanelMode != PLUGIN_PANEL && strSetDir == L".." && !strCurDir.IsEmpty()
 					&& strCurDir != WGOOD_SLASH) {
+				errno = FailedErrno;
 				r = Message(MSG_WARNING | MSG_ERRORTYPE, 3, Msg::Error, (dot2Present ? L".." : strSetDir),
 						Msg::Ignore, Msg::HRetry, Msg::GetOut);
 				if (r == 2) {
@@ -2573,6 +2575,7 @@ BOOL FileList::ChangeDir(const wchar_t *NewDir, BOOL IsUpdated)
 				} else {
 					msg_dir=strSetDir;
 				}
+				errno = FailedErrno;
 				r = Message(MSG_WARNING | MSG_ERRORTYPE, 2, Msg::Error, (dot2Present ? L".." : msg_dir),
 							Msg::Ignore, Msg::HRetry);
 			}
